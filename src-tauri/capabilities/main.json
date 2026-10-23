@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Privileges for the trusted browser UI only",
+  "webviews": ["main"],
+  "permissions": ["core:default"]
+}
