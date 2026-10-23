@@ -8,6 +8,10 @@ PNG = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010804000000b
 os.chdir(ROOT)
 
 class PageHandler(SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def log_message(self, fmt, *args):
         print(f"PAGE {fmt % args}", flush=True)
 

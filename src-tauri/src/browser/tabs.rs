@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +37,63 @@ pub struct BrowserState {
     pub next_id: Arc<std::sync::atomic::AtomicU64>,
     pub bounds: Arc<Mutex<ViewBounds>>,
     pub settings_open: Arc<Mutex<bool>>,
+    pub recently_closed: Arc<Mutex<Vec<SessionTab>>>,
+    pub session_file: Arc<Mutex<Option<PathBuf>>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTab {
+    pub id: String,
+    pub url: String,
+    pub title: String,
+    #[serde(default = "default_zoom")]
+    pub zoom: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedSession {
+    pub version: u32,
+    pub tabs: Vec<SessionTab>,
+    pub active_tab_id: String,
+    #[serde(default)]
+    pub recently_closed: Vec<SessionTab>,
+}
+
+impl Default for PersistedSession {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            tabs: Vec::new(),
+            active_tab_id: String::new(),
+            recently_closed: Vec::new(),
+        }
+    }
+}
+
+impl From<&TabState> for SessionTab {
+    fn from(tab: &TabState) -> Self {
+        Self {
+            id: tab.id.clone(),
+            url: tab.url.clone(),
+            title: tab.title.clone(),
+            zoom: tab.zoom,
+        }
+    }
+}
+
+pub fn remember_closed_tab(recently_closed: &mut Vec<SessionTab>, tab: SessionTab) {
+    recently_closed.insert(0, tab);
+    recently_closed.truncate(20);
+}
+
+pub fn take_recently_closed(recently_closed: &mut Vec<SessionTab>) -> Option<SessionTab> {
+    if recently_closed.is_empty() {
+        None
+    } else {
+        Some(recently_closed.remove(0))
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -129,5 +187,45 @@ pub fn snapshot(tabs: &[TabState]) -> BrowserSnapshot {
             .find(|tab| tab.active)
             .map(|tab| tab.id.clone())
             .unwrap_or_default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{remember_closed_tab, take_recently_closed, SessionTab};
+
+    fn tab(id: usize) -> SessionTab {
+        SessionTab {
+            id: format!("tab-{id}"),
+            url: format!("https://example.com/{id}"),
+            title: format!("Page {id}"),
+            zoom: 1.0,
+        }
+    }
+
+    #[test]
+    fn recently_closed_tabs_reopen_newest_first_and_are_bounded() {
+        let mut recently_closed = Vec::new();
+        remember_closed_tab(&mut recently_closed, tab(1));
+        remember_closed_tab(&mut recently_closed, tab(2));
+
+        assert_eq!(
+            take_recently_closed(&mut recently_closed).unwrap().id,
+            "tab-2"
+        );
+        assert_eq!(
+            take_recently_closed(&mut recently_closed).unwrap().id,
+            "tab-1"
+        );
+        assert!(take_recently_closed(&mut recently_closed).is_none());
+
+        for id in 0..25 {
+            remember_closed_tab(&mut recently_closed, tab(id));
+        }
+        assert_eq!(recently_closed.len(), 20);
+        assert_eq!(
+            take_recently_closed(&mut recently_closed).unwrap().id,
+            "tab-24"
+        );
     }
 }

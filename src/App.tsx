@@ -10,17 +10,34 @@ type Tab = {
   canGoBack: boolean;
   canGoForward: boolean;
   active: boolean;
+  zoom: number;
 };
 
 type BrowserSnapshot = { tabs: Tab[]; activeTabId: string };
 type Bookmark = { id: string; title: string; url: string };
 type Theme = 'system' | 'light' | 'dark';
+type SessionTestPhase = 'exercise' | 'restore';
 const tabEvent = 'browser://tabs-changed';
 const settingsEvent = 'browser://open-settings';
 const shortcutEvent = 'browser://shortcut';
 const sidebarDefaultWidth = 224;
 const sidebarMinWidth = 176;
 const sidebarMaxWidth = 360;
+const sessionTestUrls = [
+  'http://127.0.0.1:4179/index.html?session=first',
+  'http://127.0.0.1:4179/index.html?session=second',
+];
+
+function assertSessionTestState(snapshot: BrowserSnapshot, expectedUrls: string[], activeUrl: string) {
+  const actualUrls = snapshot.tabs.map(tab => tab.url);
+  if (JSON.stringify(actualUrls) !== JSON.stringify(expectedUrls)) {
+    throw new Error(`Expected tab order ${JSON.stringify(expectedUrls)}, got ${JSON.stringify(actualUrls)}`);
+  }
+  const active = snapshot.tabs.find(tab => tab.id === snapshot.activeTabId);
+  if (!active || active.url !== activeUrl) {
+    throw new Error(`Expected active tab ${activeUrl}, got ${active?.url ?? 'none'}`);
+  }
+}
 
 function initialSidebarWidth() {
   const saved = Number(localStorage.getItem('browser.sidebarWidth'));
@@ -60,6 +77,7 @@ export default function App() {
   const addressRef = useRef<HTMLInputElement>(null);
   const viewRef = useRef<HTMLDivElement>(null);
   const activeTabIdRef = useRef(activeTabId);
+  const sessionTestStarted = useRef(false);
   const activeTab = tabs.find(tab => tab.id === activeTabId);
 
   useEffect(() => {
@@ -118,6 +136,7 @@ export default function App() {
         switch (event.payload) {
           case 'new-tab': void createTab(); break;
           case 'close-tab': if (activeTabIdRef.current) void closeTab(activeTabIdRef.current); break;
+          case 'reopen-closed-tab': void reopenClosedTab(); break;
           case 'focus-address': addressRef.current?.focus(); addressRef.current?.select(); break;
           case 'reload': void runNavigationCommand('reload'); break;
           case 'go-back': void runNavigationCommand('go_back'); break;
@@ -126,6 +145,7 @@ export default function App() {
       });
       try { applySnapshot(await invoke<BrowserSnapshot>('get_browser_state')); }
       catch (error) { setMessage(String(error)); }
+      if (!cancelled) void runSessionIntegrationTest();
       if (cancelled) { unlisten(); unlistenSettings(); unlistenShortcuts(); }
       else {
         const originalUnlisten = unlisten;
@@ -134,6 +154,53 @@ export default function App() {
     })();
     return () => { cancelled = true; unlisten?.(); };
   }, [applySnapshot]);
+
+  async function runSessionIntegrationTest() {
+    if (sessionTestStarted.current) return;
+    sessionTestStarted.current = true;
+    let snapshot: BrowserSnapshot | undefined;
+    try {
+      const phase = await invoke<SessionTestPhase>('session_test_phase');
+      if (phase !== 'exercise' && phase !== 'restore') return;
+      snapshot = await invoke<BrowserSnapshot>('get_browser_state');
+      if (phase === 'exercise') {
+        assertSessionTestState(snapshot, sessionTestUrls, sessionTestUrls[1]);
+        const survivor = await invoke<BrowserSnapshot>('close_tab', { tabId: snapshot.activeTabId });
+        assertSessionTestState(survivor, [sessionTestUrls[0]], sessionTestUrls[0]);
+        window.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 't',
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+        }));
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          await new Promise(resolve => window.setTimeout(resolve, 100));
+          snapshot = await invoke<BrowserSnapshot>('get_browser_state');
+          if (snapshot.tabs.length === 2 && snapshot.activeTabId !== survivor.activeTabId) break;
+        }
+        assertSessionTestState(snapshot, sessionTestUrls, sessionTestUrls[1]);
+        const reopened = snapshot.tabs.find(tab => tab.id === snapshot?.activeTabId);
+        if (reopened?.zoom !== 1.5) throw new Error(`Expected reopened tab zoom 1.5, got ${reopened?.zoom}`);
+      } else {
+        assertSessionTestState(snapshot, sessionTestUrls, sessionTestUrls[1]);
+        if (snapshot.tabs[0]?.zoom !== 1.25 || snapshot.tabs[1]?.zoom !== 1.5) {
+          throw new Error('Restored tabs did not preserve their zoom values');
+        }
+      }
+      await invoke('report_session_test', {
+        success: true,
+        details: `${phase} phase passed`,
+        snapshot,
+      });
+    } catch (error) {
+      if (!snapshot) return;
+      await invoke('report_session_test', {
+        success: false,
+        details: String(error),
+        snapshot,
+      }).catch(() => undefined);
+    }
+  }
 
   useEffect(() => {
     if (!isTauri || !viewRef.current) return;
@@ -163,7 +230,7 @@ export default function App() {
       if (!(event.metaKey || event.ctrlKey)) return;
       const key = event.key.toLowerCase();
       if (key === 'l') { event.preventDefault(); addressRef.current?.focus(); addressRef.current?.select(); }
-      if (key === 't') { event.preventDefault(); void createTab(); }
+      if (key === 't') { event.preventDefault(); if (event.shiftKey) void reopenClosedTab(); else void createTab(); }
       if (key === 'w' && activeTabId) { event.preventDefault(); void closeTab(activeTabId); }
       if (key === 'r' && activeTabId) { event.preventDefault(); void runNavigationCommand('reload'); }
     };
@@ -183,6 +250,11 @@ export default function App() {
 
   async function closeTab(id: string) {
     try { applySnapshot(await invoke<BrowserSnapshot>('close_tab', { tabId: id })); }
+    catch (error) { setMessage(String(error)); }
+  }
+
+  async function reopenClosedTab() {
+    try { applySnapshot(await invoke<BrowserSnapshot>('reopen_closed_tab')); }
     catch (error) { setMessage(String(error)); }
   }
 
