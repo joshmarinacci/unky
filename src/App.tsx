@@ -14,7 +14,12 @@ type Tab = {
 };
 
 type BrowserSnapshot = { tabs: Tab[]; activeTabId: string };
-type Bookmark = { id: string; title: string; url: string };
+type TabReference = { id: string; type: 'tab' };
+type TabFolder = { id: string; type: 'folder'; title: string; collapsed: boolean; children: TabNode[] };
+type TabNode = TabReference | TabFolder;
+type BookmarkLink = { id: string; type: 'bookmark'; title: string; url: string };
+type BookmarkFolder = { id: string; type: 'folder'; title: string; children: BookmarkNode[] };
+type BookmarkNode = BookmarkLink | BookmarkFolder;
 type HistoryEntry = { url: string; title: string; visitedAt: number };
 type Download = { id: string; url: string; filename: string; path: string; status: 'downloading' | 'completed' | 'failed'; bytesReceived: number };
 type Theme = 'system' | 'light' | 'dark';
@@ -54,11 +59,271 @@ function initialSidebarCollapsed() {
   return localStorage.getItem('browser.sidebarCollapsed') === 'true';
 }
 
-function initialBookmarks(): Bookmark[] {
+function normalizeTabNodes(value: unknown): TabNode[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): TabNode[] => {
+    if (!item || typeof item !== 'object') return [];
+    const node = item as Record<string, unknown>;
+    if (node.type === 'folder' && typeof node.title === 'string') {
+      return [{
+        id: typeof node.id === 'string' ? node.id : crypto.randomUUID(),
+        type: 'folder',
+        title: node.title,
+        collapsed: node.collapsed === true,
+        children: normalizeTabNodes(node.children),
+      }];
+    }
+    if (node.type === 'tab' && typeof node.id === 'string') return [{ id: node.id, type: 'tab' }];
+    return [];
+  });
+}
+
+function initialTabNodes(): TabNode[] {
+  try { return normalizeTabNodes(JSON.parse(localStorage.getItem('browser.tabTree') ?? '[]')); }
+  catch { return []; }
+}
+
+function initialTabNameOverrides(): Record<string, string> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem('browser.tabNames') ?? '{}');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+  } catch { return {}; }
+}
+
+function reconcileTabNodes(nodes: TabNode[], tabs: Tab[]): TabNode[] {
+  const validIds = new Set(tabs.map(tab => tab.id));
+  const seenIds = new Set<string>();
+  const visit = (items: TabNode[]): TabNode[] => items.flatMap((node): TabNode[] => {
+    if (node.type === 'tab') {
+      if (!validIds.has(node.id) || seenIds.has(node.id)) return [];
+      seenIds.add(node.id);
+      return [node];
+    }
+    return [{ ...node, children: visit(node.children) }];
+  });
+  const reconciled = visit(nodes);
+  for (const tab of tabs) if (!seenIds.has(tab.id)) reconciled.push({ id: tab.id, type: 'tab' });
+  return reconciled;
+}
+
+function flattenTabIds(nodes: TabNode[]): string[] {
+  return nodes.flatMap(node => node.type === 'tab' ? [node.id] : flattenTabIds(node.children));
+}
+
+function findTabNode(nodes: TabNode[], id: string): TabNode | undefined {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    if (node.type === 'folder') {
+      const found = findTabNode(node.children, id);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+function updateTabNode(nodes: TabNode[], id: string, update: (node: TabNode) => TabNode): TabNode[] {
+  return nodes.map(node => node.id === id ? update(node) : node.type === 'folder' ? { ...node, children: updateTabNode(node.children, id, update) } : node);
+}
+
+function removeTabNode(nodes: TabNode[], id: string): { nodes: TabNode[]; removed?: TabNode } {
+  let removed: TabNode | undefined;
+  const result = nodes.flatMap<TabNode>(node => {
+    if (node.id === id) { removed = node; return []; }
+    if (node.type === 'folder') {
+      const nested = removeTabNode(node.children, id);
+      if (nested.removed) removed = nested.removed;
+      return [{ ...node, children: nested.nodes }];
+    }
+    return [node];
+  });
+  return { nodes: result, removed };
+}
+
+function containsTabNode(node: TabNode, id: string): boolean {
+  return node.id === id || (node.type === 'folder' && node.children.some(child => containsTabNode(child, id)));
+}
+
+function insertTabNode(nodes: TabNode[], targetId: string, moving: TabNode, after: boolean): { nodes: TabNode[]; inserted: boolean } {
+  const result: TabNode[] = [];
+  for (const node of nodes) {
+    if (node.id === targetId) return { nodes: [...result, ...(after ? [node, moving] : [moving, node]), ...nodes.slice(result.length + 1)], inserted: true };
+    if (node.type === 'folder') {
+      const nested = insertTabNode(node.children, targetId, moving, after);
+      if (nested.inserted) return { nodes: [...result, { ...node, children: nested.nodes }, ...nodes.slice(result.length + 1)], inserted: true };
+    }
+    result.push(node);
+  }
+  return { nodes: result, inserted: false };
+}
+
+function appendTabNodeToFolder(nodes: TabNode[], folderId: string, moving: TabNode): { nodes: TabNode[]; inserted: boolean } {
+  let inserted = false;
+  const result = nodes.map(node => {
+    if (node.id === folderId && node.type === 'folder') { inserted = true; return { ...node, children: [...node.children, moving], collapsed: false }; }
+    if (!inserted && node.type === 'folder') {
+      const nested = appendTabNodeToFolder(node.children, folderId, moving);
+      if (nested.inserted) inserted = true;
+      return nested.inserted ? { ...node, children: nested.nodes } : node;
+    }
+    return node;
+  });
+  return { nodes: result, inserted };
+}
+
+function unwrapTabFolder(nodes: TabNode[], folderId: string): { nodes: TabNode[]; unwrapped: boolean } {
+  const rootIndex = nodes.findIndex(node => node.id === folderId && node.type === 'folder');
+  if (rootIndex >= 0) {
+    const folder = nodes[rootIndex] as TabFolder;
+    return { nodes: [...nodes.slice(0, rootIndex), ...folder.children, ...nodes.slice(rootIndex + 1)], unwrapped: true };
+  }
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (node.type !== 'folder') continue;
+    const nested = unwrapTabFolder(node.children, folderId);
+    if (nested.unwrapped) {
+      const result = [...nodes];
+      result[index] = { ...node, children: nested.nodes };
+      return { nodes: result, unwrapped: true };
+    }
+  }
+  return { nodes, unwrapped: false };
+}
+
+function normalizeBookmarkNodes(value: unknown): BookmarkNode[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): BookmarkNode[] => {
+    if (!item || typeof item !== 'object') return [];
+    const node = item as Record<string, unknown>;
+    if (node.type === 'folder' && typeof node.title === 'string') {
+      return [{
+        id: typeof node.id === 'string' ? node.id : crypto.randomUUID(),
+        type: 'folder',
+        title: node.title,
+        children: normalizeBookmarkNodes(node.children),
+      }];
+    }
+    if (typeof node.title === 'string' && typeof node.url === 'string') {
+      return [{
+        id: typeof node.id === 'string' ? node.id : crypto.randomUUID(),
+        type: 'bookmark',
+        title: node.title,
+        url: node.url,
+      }];
+    }
+    return [];
+  });
+}
+
+function initialBookmarks(): BookmarkNode[] {
   try {
     const saved = JSON.parse(localStorage.getItem('browser.bookmarks') ?? '[]');
-    return Array.isArray(saved) ? saved.filter(item => item && typeof item.title === 'string' && typeof item.url === 'string') : [];
+    return normalizeBookmarkNodes(saved);
   } catch { return []; }
+}
+
+function findBookmarkByUrl(nodes: BookmarkNode[], url: string): BookmarkLink | undefined {
+  for (const node of nodes) {
+    if (node.type === 'bookmark' && node.url === url) return node;
+    if (node.type === 'folder') {
+      const match = findBookmarkByUrl(node.children, url);
+      if (match) return match;
+    }
+  }
+  return undefined;
+}
+
+function findBookmarkNode(nodes: BookmarkNode[], id: string): BookmarkNode | undefined {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    if (node.type === 'folder') {
+      const match = findBookmarkNode(node.children, id);
+      if (match) return match;
+    }
+  }
+  return undefined;
+}
+
+function updateBookmarkNode(nodes: BookmarkNode[], id: string, update: (node: BookmarkNode) => BookmarkNode): BookmarkNode[] {
+  return nodes.map(node => {
+    if (node.id === id) return update(node);
+    return node.type === 'folder' ? { ...node, children: updateBookmarkNode(node.children, id, update) } : node;
+  });
+}
+
+function removeBookmarkNode(nodes: BookmarkNode[], id: string): { nodes: BookmarkNode[]; removed?: BookmarkNode } {
+  let removed: BookmarkNode | undefined;
+  const remaining = nodes.flatMap<BookmarkNode>(node => {
+    if (node.id === id) {
+      removed = node;
+      return [];
+    }
+    if (node.type === 'folder') {
+      const nested = removeBookmarkNode(node.children, id);
+      if (nested.removed) removed = nested.removed;
+      return [{ ...node, children: nested.nodes }];
+    }
+    return [node];
+  });
+  return { nodes: remaining, removed };
+}
+
+function containsBookmarkNode(node: BookmarkNode, id: string): boolean {
+  return node.id === id || (node.type === 'folder' && node.children.some(child => containsBookmarkNode(child, id)));
+}
+
+function insertBookmarkBefore(nodes: BookmarkNode[], targetId: string, moving: BookmarkNode): { nodes: BookmarkNode[]; inserted: boolean } {
+  const result: BookmarkNode[] = [];
+  for (const node of nodes) {
+    if (node.id === targetId) return { nodes: [...result, moving, ...nodes.slice(result.length)], inserted: true };
+    if (node.type === 'folder') {
+      const nested = insertBookmarkBefore(node.children, targetId, moving);
+      if (nested.inserted) return { nodes: [...result, { ...node, children: nested.nodes }, ...nodes.slice(result.length + 1)], inserted: true };
+    }
+    result.push(node);
+  }
+  return { nodes: result, inserted: false };
+}
+
+function insertBookmarkAfter(nodes: BookmarkNode[], targetId: string, moving: BookmarkNode): { nodes: BookmarkNode[]; inserted: boolean } {
+  const result: BookmarkNode[] = [];
+  for (const node of nodes) {
+    if (node.id === targetId) return { nodes: [...result, node, moving, ...nodes.slice(result.length + 1)], inserted: true };
+    if (node.type === 'folder') {
+      const nested = insertBookmarkAfter(node.children, targetId, moving);
+      if (nested.inserted) return { nodes: [...result, { ...node, children: nested.nodes }, ...nodes.slice(result.length + 1)], inserted: true };
+    }
+    result.push(node);
+  }
+  return { nodes: result, inserted: false };
+}
+
+function appendBookmarkToFolder(nodes: BookmarkNode[], folderId: string, moving: BookmarkNode): { nodes: BookmarkNode[]; inserted: boolean } {
+  let inserted = false;
+  const next = nodes.map(node => {
+    if (node.id === folderId && node.type === 'folder') {
+      inserted = true;
+      return { ...node, children: [...node.children, moving] };
+    }
+    if (!inserted && node.type === 'folder') {
+      const nested = appendBookmarkToFolder(node.children, folderId, moving);
+      if (nested.inserted) inserted = true;
+      return nested.inserted ? { ...node, children: nested.nodes } : node;
+    }
+    return node;
+  });
+  return { nodes: next, inserted };
+}
+
+function filterBookmarkNodes(nodes: BookmarkNode[], query: string): BookmarkNode[] {
+  if (!query) return nodes;
+  const normalized = query.toLowerCase();
+  return nodes.flatMap<BookmarkNode>(node => {
+    if (node.type === 'bookmark') return `${node.title} ${node.url}`.toLowerCase().includes(normalized) ? [node] : [];
+    if (node.title.toLowerCase().includes(normalized)) return [node];
+    const children = filterBookmarkNodes(node.children, query);
+    return children.length ? [{ ...node, children }] : [];
+  });
 }
 
 function initialTheme(): Theme {
@@ -69,6 +334,16 @@ function initialTheme(): Theme {
 export default function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState('');
+  const [tabsLoaded, setTabsLoaded] = useState(false);
+  const [tabNodes, setTabNodes] = useState<TabNode[]>(initialTabNodes);
+  const [tabNameOverrides, setTabNameOverrides] = useState<Record<string, string>>(initialTabNameOverrides);
+  const [tabFavicons, setTabFavicons] = useState<Record<string, string>>({});
+  const [tabNameDraft, setTabNameDraft] = useState('');
+  const [editingTabId, setEditingTabId] = useState('');
+  const [editingTabFolderId, setEditingTabFolderId] = useState('');
+  const [tabFolderTitle, setTabFolderTitle] = useState('');
+  const [tabDropTargetId, setTabDropTargetId] = useState('');
+  const [tabContextMenu, setTabContextMenu] = useState<{ id: string; type: 'tab' | 'folder'; x: number; y: number } | null>(null);
   const [address, setAddress] = useState('');
   const [message, setMessage] = useState('');
   const [isTauri, setIsTauri] = useState(false);
@@ -76,24 +351,36 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialSidebarCollapsed);
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [sidebarView, setSidebarView] = useState<'tabs' | 'bookmarks' | 'history' | 'downloads'>('tabs');
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>(initialBookmarks);
+  const [bookmarks, setBookmarks] = useState<BookmarkNode[]>(initialBookmarks);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
-  const [findResult, setFindResult] = useState<boolean | null>(null);
+  const [findMatches, setFindMatches] = useState<number | null>(null);
   const [bookmarkSearch, setBookmarkSearch] = useState('');
   const [bookmarkTitle, setBookmarkTitle] = useState('');
   const [bookmarkUrl, setBookmarkUrl] = useState('');
   const [editingBookmarkId, setEditingBookmarkId] = useState('');
+  const [folderTitle, setFolderTitle] = useState('');
+  const [editingFolderId, setEditingFolderId] = useState('');
+  const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
+  const [bookmarkDropTargetId, setBookmarkDropTargetId] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const addressRef = useRef<HTMLInputElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
   const viewRef = useRef<HTMLDivElement>(null);
   const activeTabIdRef = useRef(activeTabId);
+  const tabNodesRef = useRef(tabNodes);
+  const faviconRequests = useRef(new Set<string>());
   const sessionTestStarted = useRef(false);
   const activeTab = tabs.find(tab => tab.id === activeTabId);
+  const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
+  const findInPage = useCallback(async (query: string, backwards = false) => {
+    if (!activeTabId || !query.trim()) { setFindMatches(null); return; }
+    try { setFindMatches(await invoke<number>('find_in_page', { tabId: activeTabId, query, backwards })); }
+    catch (error) { setMessage(String(error)); }
+  }, [activeTabId]);
 
   useEffect(() => {
     localStorage.setItem('browser.sidebarWidth', String(sidebarWidth));
@@ -106,6 +393,39 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('browser.bookmarks', JSON.stringify(bookmarks));
   }, [bookmarks]);
+
+  useEffect(() => {
+    localStorage.setItem('browser.tabTree', JSON.stringify(tabNodes));
+  }, [tabNodes]);
+
+  useEffect(() => {
+    localStorage.setItem('browser.tabNames', JSON.stringify(tabNameOverrides));
+  }, [tabNameOverrides]);
+
+  useEffect(() => {
+    if (!tabsLoaded) return;
+    const reconciled = reconcileTabNodes(tabNodesRef.current, tabs);
+    if (JSON.stringify(reconciled) !== JSON.stringify(tabNodesRef.current)) {
+      tabNodesRef.current = reconciled;
+      setTabNodes(reconciled);
+    }
+    const openIds = new Set(tabs.map(tab => tab.id));
+    setTabNameOverrides(names => Object.fromEntries(Object.entries(names).filter(([id]) => openIds.has(id))));
+  }, [tabs, tabsLoaded]);
+
+  useEffect(() => {
+    for (const tab of tabs) {
+      if (!tab.url || !/^https?:/i.test(tab.url)) continue;
+      const requestKey = `${tab.id}:${tab.url}`;
+      if (faviconRequests.current.has(requestKey)) continue;
+      faviconRequests.current.add(requestKey);
+      window.setTimeout(() => {
+        void invoke<string>('get_tab_favicon', { tabId: tab.id })
+          .then(favicon => { if (favicon) setTabFavicons(current => ({ ...current, [tab.id]: favicon })); })
+          .catch(() => undefined);
+      }, 400);
+    }
+  }, [tabs]);
 
   useEffect(() => {
     localStorage.setItem('browser.theme', theme);
@@ -134,10 +454,29 @@ export default function App() {
     };
   }, [resizingSidebar]);
 
+  useEffect(() => {
+    if (!findOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      findRef.current?.focus();
+      findRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [findOpen]);
+
+  useEffect(() => {
+    if (!findOpen || !findQuery.trim()) {
+      setFindMatches(null);
+      return;
+    }
+    const timer = window.setTimeout(() => void findInPage(findQuery), 125);
+    return () => window.clearTimeout(timer);
+  }, [findOpen, findQuery, findInPage]);
+
   const applySnapshot = useCallback((snapshot: BrowserSnapshot) => {
     setTabs(snapshot.tabs);
     setActiveTabId(snapshot.activeTabId);
     activeTabIdRef.current = snapshot.activeTabId;
+    setTabsLoaded(true);
     const active = snapshot.tabs.find(tab => tab.id === snapshot.activeTabId);
     setAddress(active?.url ?? '');
   }, []);
@@ -162,7 +501,7 @@ export default function App() {
           case 'reload': void runNavigationCommand('reload'); break;
           case 'go-back': void runNavigationCommand('go_back'); break;
           case 'go-forward': void runNavigationCommand('go_forward'); break;
-          case 'find': setFindOpen(true); window.setTimeout(() => findRef.current?.focus(), 0); break;
+          case 'find': openFindPanel(); break;
           case 'next-tab': void invoke<BrowserSnapshot>('cycle_tab', { backwards: false }).then(applySnapshot).catch(error => setMessage(String(error))); break;
           case 'previous-tab': void invoke<BrowserSnapshot>('cycle_tab', { backwards: true }).then(applySnapshot).catch(error => setMessage(String(error))); break;
         }
@@ -209,10 +548,10 @@ export default function App() {
         assertSessionTestState(snapshot, sessionTestUrls, sessionTestUrls[1]);
         const reopened = snapshot.tabs.find(tab => tab.id === snapshot?.activeTabId);
         if (reopened?.zoom !== 1.5) throw new Error(`Expected reopened tab zoom 1.5, got ${reopened?.zoom}`);
-        if (!await invoke<boolean>('find_in_page', { tabId: snapshot.activeTabId, query: 'Native find marker', backwards: false })) {
+        if ((await invoke<number>('find_in_page', { tabId: snapshot.activeTabId, query: 'Native find marker', backwards: false })) < 1) {
           throw new Error('Native find failed to locate text in the WKWebView');
         }
-        if (await invoke<boolean>('find_in_page', { tabId: snapshot.activeTabId, query: 'missing integration phrase', backwards: false })) {
+        if ((await invoke<number>('find_in_page', { tabId: snapshot.activeTabId, query: 'missing integration phrase', backwards: false })) !== 0) {
           throw new Error('Native find reported a match for missing text');
         }
         const linkHook = await invoke<string>('session_test_open_new_tab');
@@ -302,10 +641,10 @@ export default function App() {
         event.preventDefault();
         setSidebarWidth(width => Math.min(sidebarMaxWidth, width + 12));
       }
-      if (event.key === 'Escape' && findOpen) { setFindOpen(false); setFindQuery(''); setFindResult(null); return; }
+      if (event.key === 'Escape' && findOpen) { setFindOpen(false); setFindQuery(''); setFindMatches(null); return; }
       if (!(event.metaKey || event.ctrlKey)) return;
       const key = event.key.toLowerCase();
-      if (key === 'f') { event.preventDefault(); setFindOpen(true); window.setTimeout(() => findRef.current?.focus(), 0); }
+      if (key === 'f') { event.preventDefault(); openFindPanel(); }
       if (key === 'l') { event.preventDefault(); addressRef.current?.focus(); addressRef.current?.select(); }
       if (key === 't') { event.preventDefault(); if (event.shiftKey) void reopenClosedTab(); else void createTab(); }
       if (key === 'w' && activeTabId) { event.preventDefault(); void closeTab(activeTabId); }
@@ -315,12 +654,6 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   });
-
-  async function findInPage(backwards = false) {
-    if (!activeTabId || !findQuery.trim()) { setFindResult(null); return; }
-    try { setFindResult(await invoke<boolean>('find_in_page', { tabId: activeTabId, query: findQuery, backwards })); }
-    catch (error) { setMessage(String(error)); }
-  }
 
   async function openHistoryEntry(url: string) {
     if (!activeTabId) {
@@ -378,20 +711,313 @@ export default function App() {
     event.preventDefault();
     const url = bookmarkUrl.trim();
     if (!url) return;
+    const duplicate = findBookmarkByUrl(bookmarks, url);
+    if (duplicate && duplicate.id !== editingBookmarkId) {
+      setMessage('That address is already bookmarked.');
+      return;
+    }
     if (editingBookmarkId) {
-      setBookmarks(items => items.map(item => item.id === editingBookmarkId ? { ...item, title: bookmarkTitle.trim() || url, url } : item));
+      setBookmarks(items => updateBookmarkNode(items, editingBookmarkId, node => node.type === 'bookmark'
+        ? { ...node, title: bookmarkTitle.trim() || url, url }
+        : node));
     } else {
-      setBookmarks(items => [{ id: crypto.randomUUID(), title: bookmarkTitle.trim() || url, url }, ...items]);
+      setBookmarks(items => [{ id: crypto.randomUUID(), type: 'bookmark', title: bookmarkTitle.trim() || url, url }, ...items]);
     }
     setBookmarkTitle(''); setBookmarkUrl(''); setEditingBookmarkId('');
+    setMessage('');
+  }
+
+  function openFindPanel() {
+    setFindOpen(true);
+    window.requestAnimationFrame(() => {
+      findRef.current?.focus();
+      findRef.current?.select();
+    });
   }
 
   function addCurrentPage() {
     if (!activeTab?.url) return;
-    setBookmarkTitle(activeTab.title || activeTab.url);
-    setBookmarkUrl(activeTab.url);
-    setEditingBookmarkId('');
-    setSidebarView('bookmarks');
+    const existing = findBookmarkByUrl(bookmarks, activeTab.url);
+    if (existing) {
+      setMessage('This page is already bookmarked.');
+      return;
+    }
+    setBookmarks(items => [{ id: crypto.randomUUID(), type: 'bookmark', title: activeTab.title || activeTab.url, url: activeTab.url }, ...items]);
+    setMessage('Bookmark added.');
+  }
+
+  function editBookmark(bookmark: BookmarkLink) {
+    setEditingBookmarkId(bookmark.id);
+    setBookmarkTitle(bookmark.title);
+    setBookmarkUrl(bookmark.url);
+  }
+
+  function createBookmarkFolder(parentId?: string) {
+    const folder: BookmarkFolder = { id: crypto.randomUUID(), type: 'folder', title: 'New Folder', children: [] };
+    setBookmarks(items => {
+      if (!parentId) return [folder, ...items];
+      return appendBookmarkToFolder(items, parentId, folder).nodes;
+    });
+    if (parentId) setExpandedFolderIds(ids => ids.includes(parentId) ? ids : [...ids, parentId]);
+    setExpandedFolderIds(ids => ids.includes(folder.id) ? ids : [...ids, folder.id]);
+    setFolderTitle(folder.title);
+    setEditingFolderId(folder.id);
+  }
+
+  function saveFolderTitle(folderId: string) {
+    const title = folderTitle.trim() || 'New Folder';
+    setBookmarks(items => updateBookmarkNode(items, folderId, node => node.type === 'folder' ? { ...node, title } : node));
+    setEditingFolderId('');
+  }
+
+  function deleteBookmarkNode(node: BookmarkNode) {
+    if (node.type === 'folder' && !window.confirm(`Delete “${node.title}” and everything inside it?`)) return;
+    setBookmarks(items => removeBookmarkNode(items, node.id).nodes);
+  }
+
+  function moveBookmarkNode(draggedId: string, targetId?: string, folderId?: string, position: 'before' | 'after' = 'before') {
+    if (!draggedId || draggedId === targetId || draggedId === folderId) return;
+    setBookmarks(items => {
+      const moving = findBookmarkNode(items, draggedId);
+      const destinationId = folderId ?? targetId;
+      if (!moving || (destinationId && moving.type === 'folder' && containsBookmarkNode(moving, destinationId))) return items;
+      const remaining = removeBookmarkNode(items, draggedId).nodes;
+      if (folderId) return appendBookmarkToFolder(remaining, folderId, moving).nodes;
+      if (targetId) {
+        const inserted = position === 'after'
+          ? insertBookmarkAfter(remaining, targetId, moving)
+          : insertBookmarkBefore(remaining, targetId, moving);
+        return inserted.inserted ? inserted.nodes : items;
+      }
+      return [...remaining, moving];
+    });
+  }
+
+  function dropBookmark(event: React.DragEvent, targetId?: string, folderId?: string, position: 'before' | 'after' = 'before') {
+    event.preventDefault();
+    event.stopPropagation();
+    moveBookmarkNode(event.dataTransfer.getData('text/plain'), targetId, folderId, position);
+    setBookmarkDropTargetId('');
+    if (folderId) setExpandedFolderIds(ids => ids.includes(folderId) ? ids : [...ids, folderId]);
+  }
+
+  function storeTabTree(nodes: TabNode[]) {
+    tabNodesRef.current = nodes;
+    setTabNodes(nodes);
+  }
+
+  function reorderTabsFromTree(nodes: TabNode[]) {
+    storeTabTree(nodes);
+    void invoke<BrowserSnapshot>('reorder_tabs', { tabIds: flattenTabIds(nodes) })
+      .then(applySnapshot)
+      .catch(error => setMessage(String(error)));
+  }
+
+  function createTabFolder() {
+    const folder: TabFolder = { id: crypto.randomUUID(), type: 'folder', title: 'New Folder', collapsed: false, children: [] };
+    storeTabTree([folder, ...tabNodesRef.current]);
+    setEditingTabFolderId(folder.id);
+    setTabFolderTitle(folder.title);
+  }
+
+  function saveTabFolderTitle(folderId: string) {
+    const title = tabFolderTitle.trim() || 'New Folder';
+    storeTabTree(updateTabNode(tabNodesRef.current, folderId, node => node.type === 'folder' ? { ...node, title } : node));
+    setEditingTabFolderId('');
+  }
+
+  function deleteTabFolder(folderId: string) {
+    const result = unwrapTabFolder(tabNodesRef.current, folderId);
+    if (result.unwrapped) reorderTabsFromTree(result.nodes);
+  }
+
+  function moveTabNode(draggedId: string, targetId?: string, folderId?: string, position: 'before' | 'after' = 'before') {
+    if (!draggedId || draggedId === targetId || draggedId === folderId) return;
+    const moving = findTabNode(tabNodesRef.current, draggedId);
+    const destinationId = folderId ?? targetId;
+    if (!moving || (destinationId && moving.type === 'folder' && containsTabNode(moving, destinationId))) return;
+    const remaining = removeTabNode(tabNodesRef.current, draggedId).nodes;
+    let result: TabNode[];
+    if (folderId) result = appendTabNodeToFolder(remaining, folderId, moving).nodes;
+    else if (targetId) result = insertTabNode(remaining, targetId, moving, position === 'after').nodes;
+    else result = [...remaining, moving];
+    reorderTabsFromTree(result);
+    setTabDropTargetId('');
+    if (folderId) storeTabTree(updateTabNode(tabNodesRef.current, folderId, node => node.type === 'folder' ? { ...node, collapsed: false } : node));
+  }
+
+  function dropTab(event: React.DragEvent, targetId?: string, folderId?: string, position: 'before' | 'after' = 'before') {
+    event.preventDefault();
+    event.stopPropagation();
+    moveTabNode(event.dataTransfer.getData('text/plain'), targetId, folderId, position);
+    setTabDropTargetId('');
+  }
+
+  function saveTabName(tabId: string) {
+    const title = tabNameDraft.trim();
+    setTabNameOverrides(names => {
+      const next = { ...names };
+      if (title) next[tabId] = title;
+      else delete next[tabId];
+      return next;
+    });
+    setEditingTabId('');
+  }
+
+  function renderTabNodes(nodes: TabNode[], depth = 0): React.ReactNode {
+    return nodes.map(node => {
+      if (node.type === 'folder') {
+        const expanded = !node.collapsed;
+        return <div className="tab-folder" key={node.id}>
+          <div
+            className={`tab-folder-row ${tabDropTargetId === `before:${node.id}` ? 'drop-before' : ''} ${tabDropTargetId === `after:${node.id}` ? 'drop-after' : ''} ${tabDropTargetId === `folder:${node.id}` ? 'drop-inside' : ''}`}
+            style={{ paddingLeft: depth * 14 }}
+            draggable
+            onContextMenu={event => { event.preventDefault(); setTabContextMenu({ id: node.id, type: 'folder', x: Math.min(event.clientX, window.innerWidth - 165), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
+            onDragStart={event => { event.dataTransfer.setData('text/plain', node.id); event.dataTransfer.effectAllowed = 'move'; }}
+            onDragEnd={() => setTabDropTargetId('')}
+            onDragEnter={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTabDropTargetId(`folder:${node.id}`); }}
+            onDragOver={event => {
+              event.preventDefault(); event.dataTransfer.dropEffect = 'move';
+              const bounds = event.currentTarget.getBoundingClientRect();
+              const progress = (event.clientY - bounds.top) / bounds.height;
+              setTabDropTargetId(progress < 0.25 ? `before:${node.id}` : progress > 0.75 ? `after:${node.id}` : `folder:${node.id}`);
+            }}
+            onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTabDropTargetId(''); }}
+            onDrop={event => {
+              const bounds = event.currentTarget.getBoundingClientRect();
+              const progress = (event.clientY - bounds.top) / bounds.height;
+              if (progress < 0.25) dropTab(event, node.id, undefined, 'before');
+              else if (progress > 0.75) dropTab(event, node.id, undefined, 'after');
+              else dropTab(event, undefined, node.id);
+            }}
+          >
+            <button className="tab-folder-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`} onClick={() => storeTabTree(updateTabNode(tabNodesRef.current, node.id, item => item.type === 'folder' ? { ...item, collapsed: !item.collapsed } : item))}>{expanded ? '▾' : '▸'}</button>
+            <span className="tab-folder-icon" aria-hidden="true">▰</span>
+            {editingTabFolderId === node.id
+              ? <input className="tab-folder-name-input" aria-label="Tab folder name" autoFocus value={tabFolderTitle} onChange={event => setTabFolderTitle(event.target.value)} onBlur={() => saveTabFolderTitle(node.id)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveTabFolderTitle(node.id); } if (event.key === 'Escape') { setEditingTabFolderId(''); setTabFolderTitle(node.title); } }} />
+              : <span className="tab-folder-title">{node.title}</span>}
+          </div>
+          {expanded && <div className={`tab-folder-children ${tabDropTargetId === `folder:${node.id}` ? 'drop-inside' : ''}`}
+            onDragEnter={event => { if (event.target === event.currentTarget || (event.target instanceof HTMLElement && event.target.classList.contains('tab-folder-empty'))) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTabDropTargetId(`folder:${node.id}`); } }}
+            onDragOver={event => { if (event.target === event.currentTarget || (event.target instanceof HTMLElement && event.target.classList.contains('tab-folder-empty'))) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTabDropTargetId(`folder:${node.id}`); } }}
+            onDrop={event => dropTab(event, undefined, node.id)}>
+            {node.children.length ? renderTabNodes(node.children, depth + 1) : <div className="tab-folder-empty" style={{ paddingLeft: (depth + 1) * 14 + 30 }}>Drop tabs here</div>}
+          </div>}
+        </div>;
+      }
+      const tab = tabs.find(item => item.id === node.id);
+      if (!tab) return null;
+      const title = tabNameOverrides[tab.id] || tab.title || 'New Tab';
+      const icon = tabFavicons[tab.id];
+      return <div
+        className={`tab-row ${tab.id === activeTabId ? 'selected' : ''} ${tabDropTargetId === `before:${node.id}` ? 'drop-before' : ''} ${tabDropTargetId === `after:${node.id}` ? 'drop-after' : ''}`}
+        key={node.id}
+        style={{ marginLeft: depth * 14 }}
+        draggable
+        onContextMenu={event => { event.preventDefault(); setTabContextMenu({ id: tab.id, type: 'tab', x: Math.min(event.clientX, window.innerWidth - 165), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
+        onDragStart={event => { event.dataTransfer.setData('text/plain', node.id); event.dataTransfer.effectAllowed = 'move'; }}
+        onDragEnd={() => setTabDropTargetId('')}
+        onDragEnter={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTabDropTargetId(`before:${node.id}`); }}
+        onDragOver={event => {
+          event.preventDefault(); event.dataTransfer.dropEffect = 'move';
+          const bounds = event.currentTarget.getBoundingClientRect();
+          setTabDropTargetId(event.clientY < bounds.top + bounds.height / 2 ? `before:${node.id}` : `after:${node.id}`);
+        }}
+        onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTabDropTargetId(''); }}
+        onDrop={event => {
+          const bounds = event.currentTarget.getBoundingClientRect();
+          dropTab(event, node.id, undefined, event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after');
+        }}
+      >
+        {editingTabId === tab.id
+          ? <input className="tab-rename-input" aria-label="Tab name" value={tabNameDraft} autoFocus onChange={event => setTabNameDraft(event.target.value)} onBlur={() => saveTabName(tab.id)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveTabName(tab.id); } if (event.key === 'Escape') setEditingTabId(''); }} />
+          : <button className="tab-select" role="tab" aria-selected={tab.id === activeTabId} onClick={() => void selectTab(tab.id)} title={tab.url || 'New tab'}>
+              <span className={`tab-favicon ${tab.loading ? 'is-loading' : ''}`}>{tab.loading ? '◌' : icon ? <img src={icon} alt="" onError={() => setTabFavicons(current => { const next = { ...current }; delete next[tab.id]; return next; })} /> : tab.url ? '◉' : '✳'}</span>
+              <span className="tab-title">{title}</span>
+            </button>}
+        <button className="tab-close" aria-label={`Close ${title}`} onClick={() => void closeTab(tab.id)}>×</button>
+      </div>;
+    });
+  }
+
+  function renderBookmarkNodes(nodes: BookmarkNode[], depth = 0): React.ReactNode {
+    return nodes.map(node => {
+      if (node.type === 'folder') {
+        const expanded = expandedFolderIds.includes(node.id) || Boolean(bookmarkSearch.trim());
+        return <div className="bookmark-node folder-node" key={node.id}>
+          <div
+            className={`folder-row ${bookmarkDropTargetId === `before:${node.id}` ? 'drop-before' : ''} ${bookmarkDropTargetId === `after:${node.id}` ? 'drop-after' : ''} ${bookmarkDropTargetId === `folder:${node.id}` ? 'drop-inside' : ''}`}
+            style={{ paddingLeft: depth * 14 }}
+            draggable
+            onDragStart={event => { event.dataTransfer.setData('text/plain', node.id); event.dataTransfer.effectAllowed = 'move'; }}
+            onDragEnd={() => setBookmarkDropTargetId('')}
+            onDragEnter={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setBookmarkDropTargetId(`folder:${node.id}`); }}
+            onDragOver={event => {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'move';
+              const bounds = event.currentTarget.getBoundingClientRect();
+              const progress = (event.clientY - bounds.top) / bounds.height;
+              setBookmarkDropTargetId(progress < 0.25 ? `before:${node.id}` : progress > 0.75 ? `after:${node.id}` : `folder:${node.id}`);
+            }}
+            onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setBookmarkDropTargetId(''); }}
+            onDrop={event => {
+              const bounds = event.currentTarget.getBoundingClientRect();
+              const progress = (event.clientY - bounds.top) / bounds.height;
+              if (progress < 0.25) dropBookmark(event, node.id, undefined, 'before');
+              else if (progress > 0.75) dropBookmark(event, node.id, undefined, 'after');
+              else dropBookmark(event, undefined, node.id);
+            }}
+          >
+            <button className="folder-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`} onClick={() => setExpandedFolderIds(ids => expanded ? ids.filter(id => id !== node.id) : [...ids, node.id])}>{expanded ? '▾' : '▸'}</button>
+            <span className="bookmark-icon folder-icon" aria-hidden="true">▰</span>
+            {editingFolderId === node.id ? <input className="folder-title-input" aria-label="Folder name" autoFocus value={folderTitle} onChange={event => setFolderTitle(event.target.value)} onBlur={() => saveFolderTitle(node.id)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveFolderTitle(node.id); } if (event.key === 'Escape') { setEditingFolderId(''); setFolderTitle(node.title); } }} /> : <span className="folder-title" title={node.title}>{node.title}</span>}
+            <div className="folder-actions">
+              <button className="folder-action" aria-label={`Create subfolder in ${node.title}`} title="New subfolder" onClick={() => createBookmarkFolder(node.id)}>＋</button>
+              <button className="folder-action" aria-label={`Rename ${node.title}`} title="Rename folder" onClick={() => { setFolderTitle(node.title); setEditingFolderId(node.id); }}>✎</button>
+              <button className="folder-action" aria-label={`Delete ${node.title}`} title="Delete folder and contents" onClick={() => deleteBookmarkNode(node)}>×</button>
+            </div>
+          </div>
+          {expanded && <div className={`folder-children ${bookmarkDropTargetId === `folder:${node.id}` ? 'drop-inside' : ''}`}
+            onDragEnter={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setBookmarkDropTargetId(`folder:${node.id}`); }}
+            onDragOver={event => {
+              if (event.target === event.currentTarget || (event.target instanceof HTMLElement && event.target.classList.contains('folder-empty'))) {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                setBookmarkDropTargetId(`folder:${node.id}`);
+              }
+            }}
+            onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setBookmarkDropTargetId(''); }}
+            onDrop={event => dropBookmark(event, undefined, node.id)}>
+            {node.children.length ? renderBookmarkNodes(node.children, depth + 1) : <div className="folder-empty" style={{ paddingLeft: (depth + 1) * 14 + 30 }}>Drop bookmarks here</div>}
+          </div>}
+        </div>;
+      }
+      return <div
+        className={`bookmark-row bookmark-tree-row ${bookmarkDropTargetId === `before:${node.id}` ? 'drop-before' : ''} ${bookmarkDropTargetId === `after:${node.id}` ? 'drop-after' : ''}`}
+        key={node.id}
+        style={{ paddingLeft: depth * 14 }}
+        draggable
+        onDragStart={event => { event.dataTransfer.setData('text/plain', node.id); event.dataTransfer.effectAllowed = 'move'; }}
+        onDragEnd={() => setBookmarkDropTargetId('')}
+        onDragEnter={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setBookmarkDropTargetId(`before:${node.id}`); }}
+        onDragOver={event => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          const bounds = event.currentTarget.getBoundingClientRect();
+          setBookmarkDropTargetId(event.clientY < bounds.top + bounds.height / 2 ? `before:${node.id}` : `after:${node.id}`);
+        }}
+        onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setBookmarkDropTargetId(''); }}
+        onDrop={event => {
+          const bounds = event.currentTarget.getBoundingClientRect();
+          dropBookmark(event, node.id, undefined, event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after');
+        }}
+      >
+        <button className="bookmark-open" title={node.url} onClick={() => void openBookmark(node.url)}><span className="bookmark-icon">☆</span><span><strong>{node.title}</strong><small>{node.url}</small></span></button>
+        <button className="bookmark-edit" aria-label={`Edit ${node.title}`} onClick={() => editBookmark(node)}>✎</button>
+        <button className="bookmark-delete" aria-label={`Delete ${node.title}`} onClick={() => deleteBookmarkNode(node)}>×</button>
+      </div>;
+    });
   }
 
   async function openBookmark(url: string) {
@@ -425,33 +1051,32 @@ export default function App() {
           <button role="tab" aria-selected={sidebarView === 'downloads'} className={sidebarView === 'downloads' ? 'active' : ''} onClick={() => setSidebarView('downloads')}>Downloads</button>
         </div>
         {sidebarView === 'tabs' ? <>
-        <div className="tab-list" role="tablist" aria-label="Open tabs">
-          {tabs.map(tab => (
-            <div className={`tab-row ${tab.id === activeTabId ? 'selected' : ''}`} key={tab.id}>
-              <button className="tab-select" role="tab" aria-selected={tab.id === activeTabId} onClick={() => void selectTab(tab.id)} title={tab.url || 'New tab'}>
-                <span className={`tab-favicon ${tab.loading ? 'is-loading' : ''}`}>{tab.loading ? '◌' : tab.url ? '◉' : '✳'}</span>
-                <span className="tab-title">{tab.title || 'New Tab'}</span>
-              </button>
-              <button className="tab-close" aria-label={`Close ${tab.title || 'New Tab'}`} onClick={() => void closeTab(tab.id)}>×</button>
-            </div>
-          ))}
+        <div className={`tab-list tab-tree ${tabDropTargetId === 'root' ? 'drop-root' : ''}`} role="tablist" aria-label="Open tabs"
+          onDragEnter={event => { if (event.target === event.currentTarget) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTabDropTargetId('root'); } }}
+          onDragOver={event => { if (event.target === event.currentTarget) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTabDropTargetId('root'); } }}
+          onDrop={event => { if (event.target === event.currentTarget) dropTab(event); }}>
+          {renderTabNodes(tabNodes)}
         </div>
-        <button className="new-tab" onClick={() => void createTab()}><span>＋</span> New tab <kbd>⌘ T</kbd></button>
+        <div className="tab-actions">
+          <button className="new-tab" onClick={() => void createTab()}><span>＋</span> New tab <kbd>⌘ T</kbd></button>
+          <button className="new-tab-folder" title="Create tab folder" aria-label="Create tab folder" onClick={createTabFolder}>＋ Folder</button>
+        </div>
         </> : sidebarView === 'bookmarks' ? <div className="bookmark-manager">
-          <input className="bookmark-search" aria-label="Search bookmarks" placeholder="Find a bookmark" value={bookmarkSearch} onChange={event => setBookmarkSearch(event.target.value)} />
+          <div className="bookmark-toolbar"><input className="bookmark-search" aria-label="Search bookmarks" placeholder="Find a bookmark" value={bookmarkSearch} onChange={event => setBookmarkSearch(event.target.value)} /><button className="new-folder-button" onClick={() => createBookmarkFolder()}>＋ Folder</button></div>
           <form className="bookmark-form" onSubmit={saveBookmark}>
             <input aria-label="Bookmark title" placeholder="Name" value={bookmarkTitle} onChange={event => setBookmarkTitle(event.target.value)} />
             <input aria-label="Bookmark address" placeholder="https://example.com" value={bookmarkUrl} onChange={event => setBookmarkUrl(event.target.value)} />
             <button type="submit">{editingBookmarkId ? 'Save changes' : 'Add bookmark'}</button>
             {editingBookmarkId && <button type="button" className="cancel-edit" onClick={() => { setEditingBookmarkId(''); setBookmarkTitle(''); setBookmarkUrl(''); }}>Cancel</button>}
           </form>
-          <div className="bookmark-list" aria-label="Saved bookmarks">
-            {bookmarks.filter(item => `${item.title} ${item.url}`.toLowerCase().includes(bookmarkSearch.toLowerCase())).map(item => <div className="bookmark-row" key={item.id}>
-              <button className="bookmark-open" onClick={() => void openBookmark(item.url)}><span className="bookmark-icon">☆</span><span><strong>{item.title}</strong><small>{item.url}</small></span></button>
-              <button className="bookmark-edit" aria-label={`Edit ${item.title}`} onClick={() => { setEditingBookmarkId(item.id); setBookmarkTitle(item.title); setBookmarkUrl(item.url); }}>✎</button>
-              <button className="bookmark-delete" aria-label={`Delete ${item.title}`} onClick={() => setBookmarks(items => items.filter(bookmark => bookmark.id !== item.id))}>×</button>
-            </div>)}
+          <div className={`bookmark-list bookmark-tree ${bookmarkDropTargetId === 'root' ? 'drop-root' : ''}`}
+            aria-label="Saved bookmarks"
+            onDragEnter={event => { if (event.target === event.currentTarget) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setBookmarkDropTargetId('root'); } }}
+            onDragOver={event => { if (event.target === event.currentTarget) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setBookmarkDropTargetId('root'); } }}
+            onDrop={event => { if (event.target === event.currentTarget) dropBookmark(event); }}>
+            {renderBookmarkNodes(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()))}
             {bookmarks.length === 0 && <p className="bookmark-empty">Your saved pages will appear here.</p>}
+            {bookmarks.length > 0 && !filterBookmarkNodes(bookmarks, bookmarkSearch.trim()).length && <p className="bookmark-empty">No matching bookmarks.</p>}
           </div>
         </div> : sidebarView === 'history' ? <div className="bookmark-manager">
           <div className="bookmark-list" aria-label="Browsing history">
@@ -470,6 +1095,23 @@ export default function App() {
             {downloads.length === 0 && <p className="bookmark-empty">Downloaded files will appear here.</p>}
           </div>
         </div>}
+        {tabContextMenu && <>
+          <div className="sidebar-context-dismiss" onClick={() => setTabContextMenu(null)} />
+          <div className="sidebar-context-menu" style={{ left: tabContextMenu.x, top: tabContextMenu.y }} role="menu">
+            <button role="menuitem" onClick={() => {
+              if (tabContextMenu.type === 'tab') {
+                const tab = tabs.find(item => item.id === tabContextMenu.id);
+                setTabNameDraft(tabNameOverrides[tabContextMenu.id] || tab?.title || '');
+                setEditingTabId(tabContextMenu.id);
+              } else {
+                const folder = findTabNode(tabNodesRef.current, tabContextMenu.id);
+                if (folder?.type === 'folder') { setTabFolderTitle(folder.title); setEditingTabFolderId(folder.id); }
+              }
+              setTabContextMenu(null);
+            }}>Rename</button>
+            {tabContextMenu.type === 'folder' && <button role="menuitem" onClick={() => { deleteTabFolder(tabContextMenu.id); setTabContextMenu(null); }}>Delete folder</button>}
+          </div>
+        </>}
         <div className="sidebar-bottom">
           <button className="profile-button"><span className="avatar">J</span><span className="profile-copy"><strong>Personal</strong><small>Local profile</small></span><span className="profile-menu">···</span></button>
         </div>
@@ -489,13 +1131,13 @@ export default function App() {
             <input ref={addressRef} aria-label="Search or enter address" autoComplete="off" spellCheck={false} placeholder="Search or enter address" value={address} onChange={event => setAddress(event.target.value)} onFocus={event => event.currentTarget.select()} />
             {activeTab?.url && <button type="button" className="clear-address" title="Clear address" onClick={() => { setAddress(''); addressRef.current?.focus(); }}>×</button>}
           </form>
-          {findOpen ? <form className="find-form" aria-label="Find in page" onSubmit={event => { event.preventDefault(); void findInPage(false); }}>
-            <input ref={findRef} aria-label="Find in page" placeholder="Find in page" value={findQuery} onChange={event => { setFindQuery(event.target.value); setFindResult(null); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void findInPage(event.shiftKey); } }} />
-            {findResult !== null && <span className="find-result" role="status">{findResult ? 'Match' : 'No match'}</span>}
-            <button type="submit" title="Find next">↓</button><button type="button" title="Find previous" onClick={() => void findInPage(true)}>↑</button>
-            <button type="button" title="Close find" onClick={() => { setFindOpen(false); setFindQuery(''); setFindResult(null); }}>×</button>
-          </form> : <button className="toolbar-action" title="Find in page (⌘F)" aria-label="Find in page" onClick={() => { setFindOpen(true); window.setTimeout(() => findRef.current?.focus(), 0); }}>⌕</button>}
-          <button className="toolbar-action" title="Bookmark this page" aria-label="Bookmark this page" disabled={!activeTab?.url} onClick={addCurrentPage}><span>☆</span></button>
+          {findOpen ? <form className="find-form" aria-label="Find in page" onSubmit={event => { event.preventDefault(); void findInPage(findQuery); }}>
+            <input ref={findRef} aria-label="Find in page" placeholder="Find in page" value={findQuery} onChange={event => { setFindQuery(event.target.value); setFindMatches(null); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void findInPage(findQuery, event.shiftKey); } }} />
+            {findMatches !== null && <span className="find-result" role="status" aria-live="polite">{findMatches} {findMatches === 1 ? 'match' : 'matches'}</span>}
+            <button type="submit" title="Find next">↓</button><button type="button" title="Find previous" onClick={() => void findInPage(findQuery, true)}>↑</button>
+            <button type="button" title="Close find" onClick={() => { setFindOpen(false); setFindQuery(''); setFindMatches(null); }}>×</button>
+          </form> : <button className="toolbar-action" title="Find in page (⌘F)" aria-label="Find in page" onClick={openFindPanel}>⌕</button>}
+          <button className={`toolbar-action bookmark-toggle ${currentBookmark ? 'is-bookmarked' : ''}`} title={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-label={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-pressed={Boolean(currentBookmark)} disabled={!activeTab?.url} onClick={addCurrentPage}><span>{currentBookmark ? '★' : '☆'}</span></button>
           <button className="toolbar-action" title="Privacy filtering is not enabled yet" aria-label="Privacy filtering is not enabled yet" disabled><span>◈</span></button>
           <button className="toolbar-action" title="Settings" aria-label="Settings" onClick={() => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); }}>⚙</button>
         </header>
@@ -525,7 +1167,6 @@ export default function App() {
           </div>}
           {message && activeTab?.url && <div className="toast" role="status">{message}</div>}
         </div>
-        <footer className="statusbar"><span>{activeTab?.loading ? 'Loading page…' : activeTab?.url ? 'Ready' : 'Ready when you are'}</span><span className="protection-status"><i /> Filtering not enabled</span></footer>
       </section>
     </main>
   );

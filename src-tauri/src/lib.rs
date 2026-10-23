@@ -6,7 +6,7 @@ use browser::tabs::{
     SessionTab, TabState, ViewBounds,
 };
 use std::sync::{atomic::Ordering, MutexGuard};
-use std::{fs, path::PathBuf, process::Command, thread, time::Duration, time::SystemTime};
+use std::{collections::HashSet, fs, path::PathBuf, process::Command, thread, time::Duration, time::SystemTime};
 use tauri::{Emitter, Manager, WebviewUrl};
 
 #[cfg(all(target_os = "macos", feature = "macos-interception-test"))]
@@ -706,13 +706,41 @@ async fn find_in_page(
     tab_id: String,
     query: String,
     backwards: bool,
-) -> Result<bool, String> {
+) -> Result<usize, String> {
     if webview.label() != "main" {
         return Err("Find is only available to the trusted browser UI".into());
     }
     let page = get_page(&app, &tab_id)?;
     let (sender, receiver) = std::sync::mpsc::channel();
     page.eval_with_callback(find_script(&query, backwards), move |result| {
+        let _ = sender.send(result);
+    })
+    .map_err(|error| error.to_string())?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        receiver.recv().map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    serde_json::from_str(&result).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn get_tab_favicon(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    tab_id: String,
+) -> Result<String, String> {
+    if webview.label() != "main" {
+        return Err("Favicons are only available to the trusted browser UI".into());
+    }
+    let page = get_page(&app, &tab_id)?;
+    let script = r#"(() => {
+      const icon = document.querySelector('link[rel~="icon" i], link[rel~="shortcut" i]');
+      if (icon && icon.href) return icon.href;
+      return /^https?:$/.test(location.protocol) ? new URL('/favicon.ico', location.href).href : '';
+    })()"#;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    page.eval_with_callback(script, move |result| {
         let _ = sender.send(result);
     })
     .map_err(|error| error.to_string())?;
@@ -859,6 +887,40 @@ fn select_tab(
             .lock()
             .map_err(|_| "Browser state is unavailable")?,
     ))
+}
+
+#[tauri::command]
+fn reorder_tabs(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    tab_ids: Vec<String>,
+) -> Result<BrowserSnapshot, String> {
+    if webview.label() != "main" {
+        return Err("Tabs can only be reordered from the trusted browser UI".into());
+    }
+    let mut tabs = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?;
+    let requested: HashSet<&str> = tab_ids.iter().map(String::as_str).collect();
+    if tab_ids.len() != tabs.len()
+        || requested.len() != tabs.len()
+        || tabs.iter().any(|tab| !requested.contains(tab.id.as_str()))
+    {
+        return Err("The new tab order does not match the open tabs".into());
+    }
+    let positions: std::collections::HashMap<&str, usize> = tab_ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (id.as_str(), index))
+        .collect();
+    tabs.sort_by_key(|tab| positions[tab.id.as_str()]);
+    emit_snapshot(&app, &tabs);
+    let result = snapshot(&tabs);
+    drop(tabs);
+    persist_session(&state)?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1122,10 +1184,11 @@ fn set_view_bounds(
     let bounds = ViewBounds {
         x,
         // Child WebViews use the window content origin, offset from the main
-        // WebView's CSS viewport on macOS by the native titlebar inset.
+        // WebView's CSS viewport on macOS by the native titlebar inset. Extend
+        // the height by the same inset so the child still reaches the bottom.
         y: y + 20.0,
         width,
-        height: (height - 20.0).max(1.0),
+        height: height + 20.0,
     };
     #[cfg(not(target_os = "macos"))]
     let bounds = ViewBounds {
@@ -1524,12 +1587,14 @@ pub fn run() {
         get_history,
         get_downloads,
         find_in_page,
+        get_tab_favicon,
         cycle_tab,
         reveal_download,
         open_link_in_new_tab,
         sync_page_url,
         create_tab,
         select_tab,
+        reorder_tabs,
         close_tab,
         navigate,
         go_back,
@@ -1550,12 +1615,14 @@ pub fn run() {
         get_history,
         get_downloads,
         find_in_page,
+        get_tab_favicon,
         cycle_tab,
         reveal_download,
         open_link_in_new_tab,
         sync_page_url,
         create_tab,
         select_tab,
+        reorder_tabs,
         close_tab,
         navigate,
         go_back,

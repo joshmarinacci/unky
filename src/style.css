@@ -40,6 +40,33 @@ button:focus-visible, input:focus-visible { outline: 2px solid #ad96f5; outline-
 .sidebar-switcher button { padding-inline: 2px; font-size: 9px; }
 .sidebar-switcher button.active { color: #eeeaf7; background: #302e39; box-shadow: 0 1px 2px #0004; }
 .tab-list { display: flex; width: 100%; min-width: 0; flex-direction: column; gap: 3px; overflow: auto; }
+.tab-tree { gap: 2px; }
+.tab-folder { min-width: 0; }
+.tab-folder-row { position: relative; display: flex; min-width: 0; min-height: 34px; align-items: center; gap: 5px; padding-right: 7px; border: 1px solid transparent; border-radius: 8px; color: #bbb8c3; }
+.tab-folder-row:hover { background: #24232b; }
+.tab-folder-toggle { width: 22px; height: 27px; flex: 0 0 22px; padding: 0; border: 0; border-radius: 5px; color: #aaa5b8; background: transparent; font-size: 15px; }
+.tab-folder-icon { color: #b8a4f0; font-size: 13px; }
+.tab-folder-title { min-width: 0; flex: 1; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.tab-folder-children { position: relative; min-height: 0; margin-left: 9px; border-left: 1px solid #34323d; }
+.tab-folder-children.drop-inside { border-left: 2px solid #ad96f5; background: #332b43; }
+.tab-folder-empty { min-height: 31px; padding-top: 8px; color: #777481; font-size: 10px; font-style: italic; }
+.tab-row, .tab-folder-row { position: relative; }
+.tab-row.drop-before::before, .tab-folder-row.drop-before::before,
+.tab-row.drop-after::after, .tab-folder-row.drop-after::after { position: absolute; z-index: 4; right: 2px; left: 2px; height: 4px; border: 1px solid #f6f0ff; border-radius: 4px; background: #a783f0; box-shadow: 0 0 0 2px #7858b8, 0 0 12px #805fcacc; content: ''; pointer-events: none; }
+.tab-row.drop-before::before, .tab-folder-row.drop-before::before { top: 0; }
+.tab-row.drop-after::after, .tab-folder-row.drop-after::after { bottom: 0; }
+.tab-folder-row.drop-inside { outline: 3px solid #ad96f5; outline-offset: -3px; background: #44345f; box-shadow: inset 0 0 0 3px #a993ef66; }
+.tab-tree.drop-root { outline: 2px dashed #ad96f5; outline-offset: -2px; background: #26212f; }
+.tab-folder-name-input, .tab-rename-input { min-width: 0; flex: 1; padding: 5px 7px; border: 1px solid #62547e; border-radius: 5px; background: #1d1c23; font-size: 12px; }
+.tab-favicon img { display: block; width: 16px; height: 16px; object-fit: contain; }
+.tab-actions { display: flex; gap: 4px; }
+.tab-actions .new-tab { min-width: 0; flex: 1; }
+.new-tab-folder { margin-top: 5px; padding: 0 7px; border: 0; border-radius: 7px; color: #a9a7b1; background: transparent; font-size: 10px; }
+.new-tab-folder:hover { color: #efedf4; background: #222129; }
+.sidebar-context-dismiss { position: fixed; z-index: 10; inset: 0; }
+.sidebar-context-menu { position: fixed; z-index: 11; min-width: 150px; padding: 4px; border: 1px solid #393641; border-radius: 8px; background: #24232b; box-shadow: 0 8px 22px #0006; }
+.sidebar-context-menu button { display: block; width: 100%; padding: 7px 9px; border: 0; border-radius: 5px; color: #e9e8f1; background: transparent; font-size: 11px; text-align: left; }
+.sidebar-context-menu button:hover { background: #393641; }
 .tab-row { display: flex; width: 100%; min-width: 0; align-items: center; overflow: hidden; border: 1px solid transparent; border-radius: 8px; color: #aaa8b2; }
 .tab-row.selected { color: #f2eff8; background: #292831; border-color: #34323e; box-shadow: 0 1px 2px #0003; }
 .tab-select { display: flex; width: 0; min-width: 0; height: 34px; flex: 1; align-items: center; gap: 9px; padding: 0 8px; overflow: hidden; border: 0; background: transparent; text-align: left; }
@@ -55,12 +82,40 @@ button:focus-visible, input:focus-visible { outline: 2px solid #ad96f5; outline-
 kbd { border: 1px solid #3b3943; border-radius: 4px; color: #777580; font: 10px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 .new-tab kbd { margin-left: auto; padding: 1px 5px; }
 .bookmark-manager { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 10px; }
+.bookmark-toolbar { display: flex; align-items: center; gap: 6px; }
 .bookmark-search, .bookmark-form input { width: 100%; min-width: 0; padding: 8px 9px; border: 1px solid #34323d; border-radius: 7px; background: #1d1c23; font-size: 10px; }
+.bookmark-toolbar .bookmark-search { flex: 1; }
+.new-folder-button { flex: 0 0 auto; padding: 7px 8px; border: 1px solid #34323d; border-radius: 7px; color: #c9c5d2; background: #24232b; font-size: 9px; }
+.new-folder-button:hover { border-color: #655783; background: #302b3a; }
 .bookmark-search { margin-bottom: 1px; }
 .bookmark-form { display: flex; flex-direction: column; gap: 6px; padding: 9px; border: 1px solid #302e38; border-radius: 9px; background: #1b1a20; }
 .bookmark-form button { padding: 7px; border: 1px solid #5f527d; border-radius: 6px; color: #f0eaff; background: #493c66; font-size: 10px; }
 .bookmark-form button.cancel-edit { border-color: #3a3841; color: #aaa7b2; background: #26252c; }
 .bookmark-list { display: flex; min-height: 0; flex-direction: column; gap: 3px; overflow: auto; }
+.bookmark-tree { gap: 2px; }
+.bookmark-node { min-width: 0; }
+.folder-row { position: relative; display: flex; min-width: 0; min-height: 34px; align-items: center; gap: 3px; padding-right: 3px; border: 1px solid transparent; border-radius: 7px; color: #bbb8c3; }
+.folder-row:hover { background: #24232b; }
+.folder-row.drop-inside { outline: 3px solid #ad96f5; outline-offset: -3px; background: #44345f; box-shadow: inset 0 0 0 3px #a993ef66; }
+.folder-row.drop-before::before, .bookmark-tree-row.drop-before::before,
+.folder-row.drop-after::after, .bookmark-tree-row.drop-after::after { position: absolute; z-index: 4; right: 2px; left: 2px; height: 4px; border: 1px solid #f6f0ff; border-radius: 4px; background: #a783f0; box-shadow: 0 0 0 2px #7858b8, 0 0 12px #805fcacc; content: ''; pointer-events: none; }
+.folder-row.drop-before::before, .bookmark-tree-row.drop-before::before { top: 0; }
+.folder-row.drop-after::after, .bookmark-tree-row.drop-after::after { bottom: 0; }
+.folder-toggle, .folder-action { display: grid; width: 20px; height: 22px; flex: 0 0 20px; place-items: center; padding: 0; border: 0; border-radius: 4px; color: #9c98a6; background: transparent; font-size: 11px; }
+.folder-toggle { font-size: 18px; line-height: 1; }
+.folder-toggle:hover, .folder-action:hover { color: #f5f2fa; background: #3b3944; }
+.folder-icon { font-size: 13px; }
+.folder-title { min-width: 0; flex: 1; overflow: hidden; color: #d6d3dd; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.folder-title-input { min-width: 0; flex: 1; padding: 4px; border: 1px solid #655783; border-radius: 4px; color: inherit; background: #1d1c23; font-size: 10px; }
+.folder-actions { display: flex; opacity: 0; }
+.folder-row:hover .folder-actions, .folder-row:focus-within .folder-actions { opacity: 1; }
+.folder-action { width: 19px; flex-basis: 19px; }
+.folder-children { min-height: 5px; border-radius: 6px; }
+.folder-children.drop-inside { outline: 3px dashed #ad96f5; outline-offset: -3px; background: #342b46; box-shadow: inset 0 0 0 3px #a993ef66; }
+.folder-empty { min-height: 25px; padding-top: 6px; color: #777580; font-size: 9px; font-style: italic; }
+.bookmark-tree-row { position: relative; border: 1px solid transparent; }
+.bookmark-tree.drop-root { outline: 2px dashed #ad96f5; outline-offset: -3px; background: #211d2b; }
+.bookmark-tree.drop-root::after { min-height: 30px; flex: 0 0 30px; border: 1px dashed #8b75bd; border-radius: 6px; content: ''; pointer-events: none; }
 .bookmark-row { display: flex; min-width: 0; align-items: center; border-radius: 7px; }
 .bookmark-row:hover { background: #24232b; }
 .bookmark-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; padding: 8px 4px; overflow: hidden; border: 0; color: #bbb8c3; background: transparent; text-align: left; }
@@ -105,10 +160,11 @@ kbd { border: 1px solid #3b3943; border-radius: 4px; color: #777580; font: 10px/
 .download-progress { width: 100%; height: 4px; margin-top: 5px; accent-color: #9a84d6; }
 .clear-address { width: 19px; height: 19px; flex: 0 0 19px; padding: 0; border: 0; border-radius: 50%; color: #9996a1; background: #34323b; line-height: 18px; }
 .toolbar-action { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border: 1px solid transparent; border-radius: 8px; color: #bcb7cb; background: transparent; font-size: 17px; }
+.bookmark-toggle.is-bookmarked { color: #d5b86a; }
 .toolbar-action:hover:not(:disabled) { border-color: #34323d; background: #222129; }
 .toolbar-action:disabled { color: #6f6c77; cursor: default; opacity: .7; }
 .toolbar-action.profile-small { width: 26px; height: 26px; flex-basis: 26px; border: 1px solid #62547f; }
-.webview-slot { position: absolute; z-index: 1; top: 64px; right: 0; bottom: 26px; left: 0; overflow: hidden; background: #111116; }
+.webview-slot { position: absolute; z-index: 1; top: 64px; right: 0; bottom: 0; left: 0; overflow: hidden; background: #111116; }
 .start-page { display: flex; width: min(540px, calc(100% - 48px)); flex-direction: column; align-items: center; margin: max(82px, 14vh) auto 40px; text-align: center; }
 .settings-page { height: 100%; overflow: auto; padding: 34px clamp(24px, 8vw, 100px); background: #111116; }
 .settings-heading { display: flex; align-items: center; justify-content: space-between; max-width: 760px; margin: 0 auto 28px; }
@@ -139,9 +195,6 @@ kbd { border: 1px solid #3b3943; border-radius: 4px; color: #777580; font: 10px/
 .dev-note, .message { margin: 20px 0 0; color: #817e8a; font-size: 11px; }
 .message { color: #d7a7a7; }
 .toast { position: absolute; right: 18px; bottom: 15px; max-width: 60%; padding: 8px 12px; border: 1px solid #4a3940; border-radius: 8px; color: #edc6ca; background: #241a20; font-size: 11px; }
-.statusbar { position: relative; z-index: 3; display: flex; height: 26px; flex: 0 0 26px; align-items: center; justify-content: space-between; padding: 0 12px; border-top: 1px solid #26252d; color: #716f79; background: #141419; font-size: 9px; }
-.protection-status { display: flex; align-items: center; gap: 6px; color: #aaa5b5; }
-.protection-status i { width: 6px; height: 6px; border-radius: 50%; background: #d2a65f; box-shadow: 0 0 7px #d2a65f55; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 :root[data-theme="light"] {
@@ -154,13 +207,21 @@ kbd { border: 1px solid #3b3943; border-radius: 4px; color: #777580; font: 10px/
 :root[data-theme="light"] .browser-main,
 :root[data-theme="light"] .webview-slot,
 :root[data-theme="light"] .settings-page { background: #f8f7fa; }
-:root[data-theme="light"] .toolbar,
-:root[data-theme="light"] .statusbar { background: #f1f0f4; border-color: #dfdde5; }
+:root[data-theme="light"] .toolbar { background: #f1f0f4; border-color: #dfdde5; }
 :root[data-theme="light"] .brand-name,
 :root[data-theme="light"] .start-page h1,
 :root[data-theme="light"] .settings-heading h1 { color: #282633; }
 :root[data-theme="light"] .tab-row { color: #5c5966; }
 :root[data-theme="light"] .tab-row.selected { color: #292633; background: #dedce6; border-color: #d2d0db; }
+:root[data-theme="light"] .tab-folder-row { color: #5c5966; }
+:root[data-theme="light"] .tab-folder-row:hover { background: #eae8ef; }
+:root[data-theme="light"] .tab-folder-children { border-color: #d2d0db; }
+:root[data-theme="light"] .tab-folder-children.drop-inside { background: #eee8fa; border-color: #8e73cb; }
+:root[data-theme="light"] .tab-folder-name-input, :root[data-theme="light"] .tab-rename-input { color: #292633; background: #fff; }
+:root[data-theme="light"] .new-tab-folder:hover { color: #282633; background: #e1dfe8; }
+:root[data-theme="light"] .sidebar-context-menu { border-color: #d2d0db; background: #fff; }
+:root[data-theme="light"] .sidebar-context-menu button { color: #393644; }
+:root[data-theme="light"] .sidebar-context-menu button:hover { background: #eae8ef; }
 :root[data-theme="light"] .tab-close:hover,
 :root[data-theme="light"] .sidebar-action:hover,
 :root[data-theme="light"] .new-tab:hover { color: #282633; background: #e1dfe8; }
@@ -179,6 +240,7 @@ kbd { border: 1px solid #3b3943; border-radius: 4px; color: #777580; font: 10px/
 :root[data-theme="light"] .toolbar-action,
 :root[data-theme="light"] .settings-card strong,
 :root[data-theme="light"] .bookmark-open strong { color: #484552; }
+:root[data-theme="light"] .bookmark-toggle.is-bookmarked { color: #9a7415; }
 :root[data-theme="light"] .icon-button:hover:not(:disabled),
 :root[data-theme="light"] .toolbar-action:hover:not(:disabled) { background: #e8e6ee; border-color: #d5d2df; }
 :root[data-theme="light"] .settings-card,
@@ -186,12 +248,23 @@ kbd { border: 1px solid #3b3943; border-radius: 4px; color: #777580; font: 10px/
 :root[data-theme="light"] .settings-card button,
 :root[data-theme="light"] .settings-card select { color: #393644; background: #f0eff4; border-color: #d5d2df; }
 :root[data-theme="light"] .bookmark-row:hover { background: #eae8ef; }
+:root[data-theme="light"] .folder-row:hover { background: #eae8ef; }
+:root[data-theme="light"] .folder-row.drop-inside,
+:root[data-theme="light"] .folder-children.drop-inside { background: #eee8fa; }
+:root[data-theme="light"] .folder-row.drop-before::before,
+:root[data-theme="light"] .bookmark-tree-row.drop-before::before,
+:root[data-theme="light"] .folder-row.drop-after::after,
+:root[data-theme="light"] .bookmark-tree-row.drop-after::after { background: #7b59c5; }
+:root[data-theme="light"] .folder-title { color: #484552; }
+:root[data-theme="light"] .folder-title-input { color: #292633; background: #fff; }
+:root[data-theme="light"] .new-folder-button { color: #484552; background: #fff; border-color: #d3d1db; }
+:root[data-theme="light"] .bookmark-tree.drop-root { background: #f3effa; }
+:root[data-theme="light"] .bookmark-tree.drop-root::after { color: #604b8b; }
 :root[data-theme="light"] .bookmark-open { color: #565360; }
 :root[data-theme="light"] .profile-button { border-color: #d8d6df; }
 :root[data-theme="light"] .profile-copy strong { color: #4f4c59; }
 :root[data-theme="light"] .settings-content h2 { color: #696674; }
 :root[data-theme="light"] .settings-close { color: #55525f; background: #fff; border-color: #d8d6df; }
-:root[data-theme="light"] .protection-status { color: #6f6a76; }
 
 @media (max-width: 900px) {
   .sidebar { width: 196px; flex-basis: 196px; }

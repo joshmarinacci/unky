@@ -107,7 +107,29 @@ pub fn cycle_active_tab(tabs: &mut [TabState], direction: isize) -> Option<Strin
 
 pub fn find_script(query: &str, backwards: bool) -> String {
     let query = serde_json::to_string(query).expect("string serialization cannot fail");
-    format!("window.find({query}, false, {backwards}, true, false, false, false)")
+    format!(
+        r#"(() => {{
+            const query = {query};
+            if (!query) return 0;
+            const needle = query.toLocaleLowerCase();
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+            let count = 0;
+            let node;
+            while ((node = walker.nextNode())) {{
+                const parent = node.parentElement;
+                if (!parent || parent.closest('script,style,noscript,template,[hidden],[aria-hidden="true"]')) continue;
+                const text = (node.nodeValue || '').toLocaleLowerCase();
+                let offset = 0;
+                let index;
+                while ((index = text.indexOf(needle, offset)) !== -1) {{
+                    count += 1;
+                    offset = index + needle.length;
+                }}
+            }}
+            window.find({query}, false, {backwards}, true, false, false, false);
+            return count;
+        }})()"#
+    )
 }
 
 pub fn download_filename(input: &str) -> String {
