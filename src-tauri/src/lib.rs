@@ -6,10 +6,13 @@ use browser::tabs::{
     SessionTab, TabState, ViewBounds,
 };
 use std::sync::{atomic::Ordering, MutexGuard};
-use std::{collections::HashSet, fs, path::PathBuf, process::Command, thread, time::Duration, time::SystemTime};
+use std::{
+    collections::HashSet, fs, path::PathBuf, process::Command, thread, time::Duration,
+    time::SystemTime,
+};
 use tauri::{Emitter, Manager, WebviewUrl};
 
-#[cfg(all(target_os = "macos", feature = "macos-interception-test"))]
+#[cfg(target_os = "macos")]
 mod platforms;
 
 const TAB_EVENT: &str = "browser://tabs-changed";
@@ -750,6 +753,177 @@ async fn get_tab_favicon(
     .await
     .map_err(|error| error.to_string())??;
     serde_json::from_str(&result).map_err(|error| error.to_string())
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PageSecurityInfo {
+    origin: String,
+    secure_https: bool,
+    location: String,
+    camera: String,
+    microphone: String,
+    playing_audio: bool,
+}
+
+#[tauri::command]
+async fn get_page_security_info(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    tab_id: String,
+) -> Result<PageSecurityInfo, String> {
+    if webview.label() != "main" {
+        return Err("Security information is only available to the trusted browser UI".into());
+    }
+    let page = get_page(&app, &tab_id)?;
+    // Permissions.query() is asynchronous in WebKit, while eval_with_callback returns
+    // immediately. Cache its result in the page and read that cache on subsequent polls.
+    let script = r#"(() => {
+      const cacheKey = '__myBrowserSecurityPermissionState';
+      const state = window[cacheKey] || (window[cacheKey] = {});
+      for (const [name, key] of [['geolocation', 'location'], ['camera', 'camera'], ['microphone', 'microphone']]) {
+        if (state[key] === undefined && !state[`${key}Pending`]) {
+          state[`${key}Pending`] = true;
+          try {
+            navigator.permissions.query({ name }).then(permission => {
+              state[key] = permission.state;
+              permission.onchange = () => { state[key] = permission.state; };
+            }).catch(() => { state[key] = 'unsupported'; }).finally(() => { state[`${key}Pending`] = false; });
+          } catch (_) { state[key] = 'unsupported'; state[`${key}Pending`] = false; }
+        }
+      }
+      const mediaPlaying = [...document.querySelectorAll('audio,video')].some(media =>
+        !media.paused && !media.ended && !media.muted && media.volume > 0
+      );
+      return JSON.stringify({
+        origin: location.origin,
+        secureHttps: location.protocol === 'https:' && window.isSecureContext,
+        location: state.location || 'unknown',
+        camera: state.camera || 'unknown',
+        microphone: state.microphone || 'unknown',
+        playingAudio: mediaPlaying
+      });
+    })()"#;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    page.eval_with_callback(script, move |result| {
+        let _ = sender.send(result);
+    })
+    .map_err(|error| error.to_string())?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        receiver.recv().map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    // WebKit's callback result encodes the string value as JSON, hence two parses.
+    let encoded: String = serde_json::from_str(&result).map_err(|error| error.to_string())?;
+    serde_json::from_str(&encoded).map_err(|error| error.to_string())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SecurityPopoverAnchor {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[cfg(target_os = "macos")]
+fn security_popover_inputs(
+    anchor: SecurityPopoverAnchor,
+    info: PageSecurityInfo,
+) -> (
+    platforms::security_popover::AnchorRect,
+    platforms::security_popover::SecurityInfo,
+) {
+    (
+        platforms::security_popover::AnchorRect {
+            x: anchor.x,
+            y: anchor.y,
+            width: anchor.width,
+            height: anchor.height,
+        },
+        platforms::security_popover::SecurityInfo {
+            origin: info.origin,
+            secure_https: info.secure_https,
+            location: info.location,
+            camera: info.camera,
+            microphone: info.microphone,
+            playing_audio: info.playing_audio,
+        },
+    )
+}
+
+#[tauri::command]
+async fn toggle_page_security_popover(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    anchor: SecurityPopoverAnchor,
+    info: PageSecurityInfo,
+) -> Result<bool, String> {
+    if webview.label() != "main" {
+        return Err("Security popovers are only available to the trusted browser UI".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let main = app
+            .get_webview("main")
+            .ok_or("Browser window is unavailable")?;
+        let (anchor, info) = security_popover_inputs(anchor, info);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        main.with_webview(move |platform| {
+            let shown =
+                unsafe { platforms::security_popover::toggle(platform.inner(), anchor, info) };
+            let _ = sender.send(shown);
+        })
+        .map_err(|error| error.to_string())?;
+        return tauri::async_runtime::spawn_blocking(move || {
+            receiver.recv().map_err(|error| error.to_string())
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, anchor, info);
+        Err("Native security popovers are currently available on macOS only".into())
+    }
+}
+
+#[tauri::command]
+async fn update_page_security_popover(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    anchor: SecurityPopoverAnchor,
+    info: PageSecurityInfo,
+) -> Result<bool, String> {
+    if webview.label() != "main" {
+        return Err("Security popovers are only available to the trusted browser UI".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let main = app
+            .get_webview("main")
+            .ok_or("Browser window is unavailable")?;
+        let (anchor, info) = security_popover_inputs(anchor, info);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        main.with_webview(move |platform| {
+            let shown =
+                unsafe { platforms::security_popover::update(platform.inner(), anchor, info) };
+            let _ = sender.send(shown);
+        })
+        .map_err(|error| error.to_string())?;
+        return tauri::async_runtime::spawn_blocking(move || {
+            receiver.recv().map_err(|error| error.to_string())
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, anchor, info);
+        Err("Native security popovers are currently available on macOS only".into())
+    }
 }
 
 #[tauri::command]
@@ -1588,6 +1762,9 @@ pub fn run() {
         get_downloads,
         find_in_page,
         get_tab_favicon,
+        get_page_security_info,
+        toggle_page_security_popover,
+        update_page_security_popover,
         cycle_tab,
         reveal_download,
         open_link_in_new_tab,
@@ -1616,6 +1793,9 @@ pub fn run() {
         get_downloads,
         find_in_page,
         get_tab_favicon,
+        get_page_security_info,
+        toggle_page_security_popover,
+        update_page_security_popover,
         cycle_tab,
         reveal_download,
         open_link_in_new_tab,

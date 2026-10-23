@@ -48,6 +48,8 @@ Open tabs appear in a vertical list in the sidebar and use the page title and fa
 
 The find panel opens with `⌘F`, moves keyboard focus to its search field, and reports the number of matches as you type. The toolbar star adds the current page to bookmarks and fills when that page is saved. Bookmark URLs include query parameters, so pages with different queries can be saved separately. The Bookmarks sidebar supports nested folders, renaming, deletion, and drag-and-drop reordering with visual drop indicators.
 
+The toolbar security button opens a macOS native popover for the active page. It reports whether the page is in a validated HTTPS secure context, the page's Location, Camera, and Microphone permission states, and whether an audio or video element is playing. The permission states come from the page's Permissions API; WebKit may report a permission as unavailable when it does not expose that permission type. The popover is anchored to the toolbar button and refreshes while it remains open.
+
 The appearance setting supports System, Light, and Dark. Website zoom is controlled from the View menu and applies to the active tab (50% to 300%, in 10% steps).
 
 ### macOS shortcuts

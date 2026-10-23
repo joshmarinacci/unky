@@ -163,6 +163,7 @@ kbd { border: 1px solid #3b3943; border-radius: 4px; color: #777580; font: 10px/
 .bookmark-toggle.is-bookmarked { color: #d5b86a; }
 .toolbar-action:hover:not(:disabled) { border-color: #34323d; background: #222129; }
 .toolbar-action:disabled { color: #6f6c77; cursor: default; opacity: .7; }
+.toolbar-action.security-active { color: #d8c5ff; background: #292333; }
 .toolbar-action.profile-small { width: 26px; height: 26px; flex-basis: 26px; border: 1px solid #62547f; }
 .webview-slot { position: absolute; z-index: 1; top: 64px; right: 0; bottom: 0; left: 0; overflow: hidden; background: #111116; }
 .start-page { display: flex; width: min(540px, calc(100% - 48px)); flex-direction: column; align-items: center; margin: max(82px, 14vh) auto 40px; text-align: center; }

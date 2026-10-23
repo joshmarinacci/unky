@@ -14,6 +14,7 @@ type Tab = {
 };
 
 type BrowserSnapshot = { tabs: Tab[]; activeTabId: string };
+type PageSecurityInfo = { secureHttps: boolean; location: string; camera: string; microphone: string; playingAudio: boolean };
 type TabReference = { id: string; type: 'tab' };
 type TabFolder = { id: string; type: 'folder'; title: string; collapsed: boolean; children: TabNode[] };
 type TabNode = TabReference | TabFolder;
@@ -357,6 +358,8 @@ export default function App() {
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [findMatches, setFindMatches] = useState<number | null>(null);
+  const [securityOpen, setSecurityOpen] = useState(false);
+  const [securityInfo, setSecurityInfo] = useState<PageSecurityInfo | null>(null);
   const [bookmarkSearch, setBookmarkSearch] = useState('');
   const [bookmarkTitle, setBookmarkTitle] = useState('');
   const [bookmarkUrl, setBookmarkUrl] = useState('');
@@ -368,6 +371,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const addressRef = useRef<HTMLInputElement>(null);
+  const securityButtonRef = useRef<HTMLButtonElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
   const viewRef = useRef<HTMLDivElement>(null);
   const activeTabIdRef = useRef(activeTabId);
@@ -376,6 +380,45 @@ export default function App() {
   const sessionTestStarted = useRef(false);
   const activeTab = tabs.find(tab => tab.id === activeTabId);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
+  useEffect(() => {
+    if (!securityOpen) return;
+    setSecurityInfo(null);
+    if (!activeTabId || !activeTab?.url) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const info = await invoke<PageSecurityInfo>('get_page_security_info', { tabId: activeTabId });
+        if (cancelled) return;
+        setSecurityInfo(info);
+        const button = securityButtonRef.current;
+        if (!button) return;
+        const rect = button.getBoundingClientRect();
+        const shown = await invoke<boolean>('update_page_security_popover', {
+          anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, info,
+        });
+        if (!cancelled) setSecurityOpen(shown);
+      } catch {
+        if (!cancelled) setSecurityInfo(null);
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 1200);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [securityOpen, activeTabId, activeTab?.url]);
+
+  useEffect(() => {
+    if (!securityOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setSecurityOpen(false); };
+    const closeOutside = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('.security-control')) setSecurityOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    document.addEventListener('pointerdown', closeOutside);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      document.removeEventListener('pointerdown', closeOutside);
+    };
+  }, [securityOpen]);
   const findInPage = useCallback(async (query: string, backwards = false) => {
     if (!activeTabId || !query.trim()) { setFindMatches(null); return; }
     try { setFindMatches(await invoke<number>('find_in_page', { tabId: activeTabId, query, backwards })); }
@@ -1160,7 +1203,18 @@ export default function App() {
             <button type="button" title="Close find" onClick={() => { setFindOpen(false); setFindQuery(''); setFindMatches(null); }}>×</button>
           </form> : <button className="toolbar-action" title="Find in page (⌘F)" aria-label="Find in page" onClick={openFindPanel}>⌕</button>}
           <button className={`toolbar-action bookmark-toggle ${currentBookmark ? 'is-bookmarked' : ''}`} title={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-label={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-pressed={Boolean(currentBookmark)} disabled={!activeTab?.url} onClick={addCurrentPage}><span>{currentBookmark ? '★' : '☆'}</span></button>
-          <button className="toolbar-action" title="Privacy filtering is not enabled yet" aria-label="Privacy filtering is not enabled yet" disabled><span>◈</span></button>
+          <button ref={securityButtonRef} className={`toolbar-action ${securityOpen ? 'security-active' : ''}`} title="Page security and permissions" aria-label="Page security and permissions" aria-expanded={securityOpen} disabled={!activeTab?.url} onClick={async () => {
+            const rect = securityButtonRef.current?.getBoundingClientRect();
+            if (!rect || !activeTab?.url) return;
+            const info = securityInfo || { origin: new URL(activeTab.url).origin, secureHttps: activeTab.url.startsWith('https:'), location: 'unknown', camera: 'unknown', microphone: 'unknown', playingAudio: false };
+            try {
+              const shown = await invoke<boolean>('toggle_page_security_popover', {
+                anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, info,
+              });
+              setSecurityOpen(shown);
+              if (!shown) setSecurityInfo(null);
+            } catch (error) { setMessage(String(error)); }
+          }}><span>◈</span></button>
           <button className="toolbar-action" title="Settings" aria-label="Settings" onClick={() => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); }}>⚙</button>
         </header>
 
