@@ -6,15 +6,7 @@ use objc2_foundation::{NSError, NSString};
 use objc2_web_kit::{WKContentRuleList, WKContentRuleListStore, WKUserContentController};
 use tauri::{AppHandle, Manager};
 
-const RULES: &str = r#"[
-  {
-    "trigger": {
-      "url-filter": "^http://127\\.0\\.0\\.1:4180/blocked\\.png$",
-      "resource-type": ["image"]
-    },
-    "action": { "type": "block" }
-  }
-]"#;
+const FIXTURE_FILTERS: &str = "||localhost^$image,third-party\n";
 
 pub fn install_interception_test(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let mtm = MainThreadMarker::new()
@@ -22,7 +14,18 @@ pub fn install_interception_test(app: AppHandle) -> Result<(), Box<dyn std::erro
     let store = unsafe { WKContentRuleListStore::defaultStore(mtm) }
         .ok_or("WKContentRuleListStore default store unavailable")?;
     let identifier = NSString::from_str("macos-interception-fixture-v1");
-    let encoded_rules = NSString::from_str(RULES);
+    let report =
+        blocker_core::compile_filter_list(FIXTURE_FILTERS).map_err(std::io::Error::other)?;
+    blocker_core::validate_content_rules_json(&report.json).map_err(std::io::Error::other)?;
+    if !report.rejected.is_empty() {
+        eprintln!("macOS fixture filter rules rejected: {:?}", report.rejected);
+    }
+    eprintln!(
+        "macOS fixture filters compiled: {} accepted, {} rejected",
+        report.accepted,
+        report.rejected.len()
+    );
+    let encoded_rules = NSString::from_str(&report.json);
     let completion = RcBlock::new(
         move |rule_list: *mut WKContentRuleList, error: *mut NSError| {
             if !error.is_null() || rule_list.is_null() {

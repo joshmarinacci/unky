@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/blocker-core", "src-tauri"]
+resolver = "2"

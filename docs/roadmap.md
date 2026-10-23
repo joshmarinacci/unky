@@ -12,6 +12,6 @@ The deferred work includes connecting WebView2 interception on Windows and a Web
 
 Until that milestone passes, describe the browser and its filtering implementation as macOS-tested. Do not claim Windows or Linux request-blocking support. Revisit the deferred gate before porting the filtering implementation broadly or publishing cross-platform support claims.
 
-## Next implementation milestone
+## Active implementation milestone
 
-Proceed with basic ad/tracker filtering on macOS only: evaluate the filtering engine, define a small documented rule subset, compile supported rules into WKContentRuleList JSON, and extend the deterministic fixture suite. Keep the rule evaluator separate from the macOS adapter so later platform work can reuse its engine-independent decisions.
+Basic ad/tracker filtering is underway on macOS. The first step is complete: a small documented rule subset compiles through adblock-rust into WKContentRuleList JSON, and the fixture verifies a blocked request never reaches the server. Continue by loading a configured reputable list, safely persisting compiled rules, and exposing truthful protection status. Keep the filtering core separate from the macOS adapter so later platform work can reuse it.
