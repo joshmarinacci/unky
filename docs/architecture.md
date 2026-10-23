@@ -5,9 +5,11 @@
 - `src/` is the trusted React/TypeScript browser chrome.
 - `src-tauri/` owns native window and WebView creation, URL validation, and navigation.
 - The `main` UI and `page` website content are separate WebViews. `page` receives no capability file; the only configured capability is scoped to the `main` WebView label.
-- Rust owns a small independent serializable `TabState` model. Native WebView handles are not serialized.
+- Rust owns the tab state and a separate native website WebView for each open tab. Only tab metadata is serialized; WebView handles stay in Tauri's registry.
+- The trusted UI can create, select, and close tabs, navigate/search, reload/stop, and move backward or forward through observed page navigations. Website views are moved outside the window when inactive and resized to the content area reported by the trusted UI.
+- Page load and title callbacks send tab snapshots to the trusted UI. The start page and toolbar are React; website pixels are rendered by native child WebViews.
 - `crates/blocker-core` is independent of Tauri and converts a documented ABP-style subset into Apple content-blocking JSON.
-- `navigate` accepts only absolute HTTP(S) URLs with a host and no embedded credentials, and only calls through for the trusted `main` WebView label.
+- The `navigate` command is only callable from the trusted `main` WebView, resolves address-bar searches through Google, adds HTTPS to bare hostnames (HTTP for localhost), and rejects non-HTTP(S) targets or embedded credentials.
 - `tests/fixtures/server.py` serves a local page and logs requests.
 
 ## Filtering
@@ -22,4 +24,4 @@ References: [Tauri `WebviewBuilder`](https://docs.rs/tauri/latest/tauri/webview/
 
 ## Intended boundaries
 
-Filtering remains independent of Tauri in `crates/blocker-core`. A later interception adapter must report capabilities and metadata gaps instead of implying that every platform exposes equivalent request context. Tabs, windows, and workspaces remain engine-independent state; native WebView handles stay in an adapter registry.
+Filtering remains independent of Tauri in `crates/blocker-core`. The normal browser UI currently reports filtering as unavailable; the macOS content-rule integration remains a fixture test path. A later interception adapter must report capabilities and metadata gaps instead of implying that every platform exposes equivalent request context. Tabs, windows, and workspaces remain engine-independent state; native WebView handles stay in an adapter registry.

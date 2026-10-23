@@ -14,4 +14,6 @@ Until that milestone passes, describe the browser and its filtering implementati
 
 ## Active implementation milestone
 
-Basic ad/tracker filtering is underway on macOS. The first step is complete: a small documented rule subset compiles through adblock-rust into WKContentRuleList JSON, and the fixture verifies a blocked request never reaches the server. Continue by loading a configured reputable list, safely persisting compiled rules, and exposing truthful protection status. Keep the filtering core separate from the macOS adapter so later platform work can reuse it.
+Build the minimal usable macOS browser shell: native WebViews per tab, tab create/select/close, URL and search navigation, back/forward/reload/stop, and page title/loading state. This is the next slice after the macOS interception proof. Keep the UI truthful: normal browsing currently has no active filtering, even though the macOS fixture path can compile and install a test content rule.
+
+After the shell is usable, resume basic ad/tracker filtering on macOS by loading a configured reputable list, safely persisting compiled rules, and exposing working global and per-site controls. Keep the filtering core separate from the macOS adapter so later platform work can reuse it.
