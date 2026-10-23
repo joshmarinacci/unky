@@ -11,10 +11,16 @@ pub struct TabState {
     pub can_go_back: bool,
     pub can_go_forward: bool,
     pub active: bool,
+    #[serde(default = "default_zoom")]
+    pub zoom: f64,
     #[serde(skip)]
     history: Vec<String>,
     #[serde(skip)]
     history_index: usize,
+}
+
+fn default_zoom() -> f64 {
+    1.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +35,7 @@ pub struct BrowserState {
     pub data: Arc<Mutex<Vec<TabState>>>,
     pub next_id: Arc<std::sync::atomic::AtomicU64>,
     pub bounds: Arc<Mutex<ViewBounds>>,
+    pub settings_open: Arc<Mutex<bool>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -60,6 +67,7 @@ impl TabState {
             can_go_back: false,
             can_go_forward: false,
             active,
+            zoom: 1.0,
             history: if url.is_empty() {
                 Vec::new()
             } else {

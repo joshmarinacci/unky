@@ -8,6 +8,9 @@
 - Rust owns the tab state and a separate native website WebView for each open tab. Only tab metadata is serialized; WebView handles stay in Tauri's registry.
 - The trusted UI can create, select, and close tabs, navigate/search, reload/stop, and move backward or forward through observed page navigations. Website views are moved outside the window when inactive and resized to the content area reported by the trusted UI.
 - Page load and title callbacks send tab snapshots to the trusted UI. The start page and toolbar are React; website pixels are rendered by native child WebViews.
+- The sidebar can switch between tabs and bookmarks, and its width is resizable and persisted in the UI's `localStorage`. Bookmarks are managed in the sidebar and stored locally in that same UI store.
+- Settings can be opened from the app menu (`⌘,`) or toolbar. The interface appearance follows System, Light, or Dark preference. Opening Settings moves website child views out of the visible content area; closing Settings restores the active page view.
+- On macOS, native menu items provide tab, navigation, editing, and zoom shortcuts. `⌘W` closes the active tab, `⌘H` hides the app, and `⌥⌘H` hides other apps. Website zoom is tracked per tab and adjusted from the View menu between 50% and 300%.
 - `crates/blocker-core` is independent of Tauri and converts a documented ABP-style subset into Apple content-blocking JSON.
 - The `navigate` command is only callable from the trusted `main` WebView, resolves address-bar searches through Google, adds HTTPS to bare hostnames (HTTP for localhost), and rejects non-HTTP(S) targets or embedded credentials.
 - `tests/fixtures/server.py` serves a local page and logs requests.

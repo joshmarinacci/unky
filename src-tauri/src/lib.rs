@@ -7,6 +7,8 @@ use tauri::{Emitter, Manager, WebviewUrl};
 mod platforms;
 
 const TAB_EVENT: &str = "browser://tabs-changed";
+const OPEN_SETTINGS_EVENT: &str = "browser://open-settings";
+const SHORTCUT_EVENT: &str = "browser://shortcut";
 
 fn allowed_navigation_url(input: &str) -> Result<url::Url, String> {
     let trimmed = input.trim();
@@ -419,6 +421,44 @@ fn set_view_bounds(
     position_tabs(&app, &state)
 }
 
+#[tauri::command]
+fn set_settings_open(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    open: bool,
+) -> Result<(), String> {
+    if webview.label() != "main" {
+        return Err("Settings are only available to the trusted browser UI".into());
+    }
+    *state
+        .settings_open
+        .lock()
+        .map_err(|_| "Browser state unavailable")? = open;
+    position_tabs(&app, &state)
+}
+
+fn adjust_active_zoom(
+    app: &tauri::AppHandle,
+    state: &BrowserState,
+    action: &str,
+) -> Result<(), String> {
+    let mut tabs = state.data.lock().map_err(|_| "Browser state unavailable")?;
+    let tab = tabs
+        .iter_mut()
+        .find(|tab| tab.active)
+        .ok_or("No active tab")?;
+    tab.zoom = match action {
+        "zoom-in" => (tab.zoom + 0.1).min(3.0),
+        "zoom-out" => (tab.zoom - 0.1).max(0.5),
+        _ => 1.0,
+    };
+    if let Some(page) = app.get_webview(&page_label(&tab.id)) {
+        page.set_zoom(tab.zoom).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), String> {
     let bounds = *state
         .bounds
@@ -430,7 +470,11 @@ fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), Str
         .map_err(|_| "Browser state is unavailable")?;
     for tab in tabs.iter() {
         if let Some(page) = app.get_webview(&page_label(&tab.id)) {
-            let is_visible = tab.active && !tab.url.is_empty();
+            let settings_open = *state
+                .settings_open
+                .lock()
+                .map_err(|_| "Browser state unavailable")?;
+            let is_visible = !settings_open && tab.active && !tab.url.is_empty();
             let position = if is_visible {
                 tauri::LogicalPosition::new(bounds.x, bounds.y)
             } else {
@@ -471,6 +515,81 @@ pub fn run() {
         .setup(|app| {
             let state = app.state::<BrowserState>();
             let bounds = *state.bounds.lock().expect("browser bounds lock poisoned");
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+                let settings = MenuItemBuilder::with_id("open-settings", "Settings…")
+                    .accelerator("CmdOrCtrl+,")
+                    .build(app)?;
+                let app_menu = SubmenuBuilder::new(app, "My Browser")
+                    .item(&settings)
+                    .separator()
+                    .hide()
+                    .hide_others()
+                    .separator()
+                    .quit()
+                    .build()?;
+                let new_tab = MenuItemBuilder::with_id("shortcut-new-tab", "New Tab")
+                    .accelerator("CmdOrCtrl+T")
+                    .build(app)?;
+                let close_tab = MenuItemBuilder::with_id("shortcut-close-tab", "Close Tab")
+                    .accelerator("CmdOrCtrl+W")
+                    .build(app)?;
+                let file_menu = SubmenuBuilder::new(app, "File")
+                    .item(&new_tab)
+                    .item(&close_tab)
+                    .build()?;
+                let edit_menu = SubmenuBuilder::new(app, "Edit")
+                    .undo()
+                    .redo()
+                    .separator()
+                    .cut()
+                    .copy()
+                    .paste()
+                    .separator()
+                    .select_all()
+                    .build()?;
+                let zoom_in = MenuItemBuilder::with_id("zoom-in", "Zoom In")
+                    .accelerator("CmdOrCtrl+Shift+=")
+                    .build(app)?;
+                let zoom_out = MenuItemBuilder::with_id("zoom-out", "Zoom Out")
+                    .accelerator("CmdOrCtrl+-")
+                    .build(app)?;
+                let actual_size = MenuItemBuilder::with_id("zoom-reset", "Actual Size")
+                    .accelerator("CmdOrCtrl+0")
+                    .build(app)?;
+                let focus_address =
+                    MenuItemBuilder::with_id("shortcut-focus-address", "Focus Address Bar")
+                        .accelerator("CmdOrCtrl+L")
+                        .build(app)?;
+                let reload = MenuItemBuilder::with_id("shortcut-reload", "Reload Page")
+                    .accelerator("CmdOrCtrl+R")
+                    .build(app)?;
+                let go_back = MenuItemBuilder::with_id("shortcut-go-back", "Back")
+                    .accelerator("CmdOrCtrl+Alt+Left")
+                    .build(app)?;
+                let go_forward = MenuItemBuilder::with_id("shortcut-go-forward", "Forward")
+                    .accelerator("CmdOrCtrl+Alt+Right")
+                    .build(app)?;
+                let view_menu = SubmenuBuilder::new(app, "View")
+                    .item(&focus_address)
+                    .item(&reload)
+                    .item(&go_back)
+                    .item(&go_forward)
+                    .separator()
+                    .item(&zoom_in)
+                    .item(&zoom_out)
+                    .separator()
+                    .item(&actual_size)
+                    .build()?;
+                let menu = MenuBuilder::new(app)
+                    .item(&app_menu)
+                    .item(&file_menu)
+                    .item(&edit_menu)
+                    .item(&view_menu)
+                    .build()?;
+                app.set_menu(menu)?;
+            }
             #[cfg(all(target_os = "macos", feature = "macos-interception-test"))]
             {
                 let window = app.get_window("main").expect("main window configured");
@@ -513,8 +632,26 @@ pub fn run() {
             go_forward,
             reload,
             stop_loading,
+            set_settings_open,
             set_view_bounds
         ])
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "open-settings" {
+                let _ = app.emit_to("main", OPEN_SETTINGS_EVENT, ());
+            }
+            let id = event.id().as_ref();
+            if id.starts_with("shortcut-") {
+                let _ = app.emit_to("main", SHORTCUT_EVENT, id.trim_start_matches("shortcut-"));
+            }
+            if let Some(action) = ["zoom-in", "zoom-out", "zoom-reset"]
+                .iter()
+                .find(|id| event.id().as_ref() == **id)
+            {
+                if let Some(state) = app.try_state::<BrowserState>() {
+                    let _ = adjust_active_zoom(app, &state, action);
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running browser");
 }

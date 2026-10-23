@@ -28,6 +28,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid #ad96f5; outline-
 .brand-name { color: #f4f2f8; font: 700 15px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; letter-spacing: -.5px; }
 .sidebar-menu { margin-left: auto; color: #85838d; font-weight: 700; letter-spacing: 2px; }
 .workspace-label { display: flex; align-items: center; margin: 25px 10px 10px; color: #73717c; font-size: 9px; font-weight: 700; letter-spacing: 1.05px; }
+.sidebar-switcher { display: flex; gap: 4px; margin: 22px 4px 10px; padding: 3px; border-radius: 8px; background: #111116; }
+.sidebar-switcher button { flex: 1; padding: 6px 4px; border: 0; border-radius: 6px; color: #85838f; background: transparent; font-size: 10px; }
+.sidebar-switcher button.active { color: #eeeaf7; background: #302e39; box-shadow: 0 1px 2px #0004; }
 .tab-list { display: flex; width: 100%; min-width: 0; flex-direction: column; gap: 3px; overflow: auto; }
 .tab-row { display: flex; width: 100%; min-width: 0; align-items: center; overflow: hidden; border: 1px solid transparent; border-radius: 8px; color: #aaa8b2; }
 .tab-row.selected { color: #f2eff8; background: #292831; border-color: #34323e; box-shadow: 0 1px 2px #0003; }
@@ -43,6 +46,25 @@ button:focus-visible, input:focus-visible { outline: 2px solid #ad96f5; outline-
 .new-tab > span { font-size: 17px; font-weight: 300; }
 kbd { border: 1px solid #3b3943; border-radius: 4px; color: #777580; font: 10px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 .new-tab kbd { margin-left: auto; padding: 1px 5px; }
+.bookmark-manager { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 10px; }
+.bookmark-search, .bookmark-form input { width: 100%; min-width: 0; padding: 8px 9px; border: 1px solid #34323d; border-radius: 7px; background: #1d1c23; font-size: 10px; }
+.bookmark-search { margin-bottom: 1px; }
+.bookmark-form { display: flex; flex-direction: column; gap: 6px; padding: 9px; border: 1px solid #302e38; border-radius: 9px; background: #1b1a20; }
+.bookmark-form button { padding: 7px; border: 1px solid #5f527d; border-radius: 6px; color: #f0eaff; background: #493c66; font-size: 10px; }
+.bookmark-form button.cancel-edit { border-color: #3a3841; color: #aaa7b2; background: #26252c; }
+.bookmark-list { display: flex; min-height: 0; flex-direction: column; gap: 3px; overflow: auto; }
+.bookmark-row { display: flex; min-width: 0; align-items: center; border-radius: 7px; }
+.bookmark-row:hover { background: #24232b; }
+.bookmark-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; padding: 8px 4px; overflow: hidden; border: 0; color: #bbb8c3; background: transparent; text-align: left; }
+.bookmark-open > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.bookmark-open strong, .bookmark-open small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bookmark-open strong { color: #d6d3dd; font-size: 10px; font-weight: 500; }
+.bookmark-open small { color: #777580; font-size: 9px; }
+.bookmark-icon { color: #bba8ee; font-size: 16px; }
+.bookmark-edit, .bookmark-delete { width: 23px; height: 24px; flex: 0 0 23px; border: 0; border-radius: 5px; color: #898692; background: transparent; opacity: 0; }
+.bookmark-row:hover .bookmark-edit, .bookmark-row:hover .bookmark-delete, .bookmark-edit:focus-visible, .bookmark-delete:focus-visible { opacity: 1; }
+.bookmark-edit:hover, .bookmark-delete:hover { color: #f5f2fa; background: #3b3944; }
+.bookmark-empty { padding: 10px 5px; color: #817e89; font-size: 10px; line-height: 1.5; }
 .sidebar-bottom { display: flex; flex-direction: column; gap: 2px; margin-top: auto; }
 .sidebar-action { display: flex; height: 33px; align-items: center; gap: 10px; padding: 0 10px; border: 0; border-radius: 7px; color: #a6a4ae; background: transparent; font-size: 11px; text-align: left; }
 .sidebar-action span { width: 15px; color: #85828d; font-size: 14px; text-align: center; }
@@ -73,6 +95,20 @@ kbd { border: 1px solid #3b3943; border-radius: 4px; color: #777580; font: 10px/
 .toolbar-action.profile-small { width: 26px; height: 26px; flex-basis: 26px; border: 1px solid #62547f; }
 .webview-slot { position: absolute; z-index: 1; top: 64px; right: 0; bottom: 26px; left: 0; overflow: hidden; background: #111116; }
 .start-page { display: flex; width: min(540px, calc(100% - 48px)); flex-direction: column; align-items: center; margin: max(82px, 14vh) auto 40px; text-align: center; }
+.settings-page { height: 100%; overflow: auto; padding: 34px clamp(24px, 8vw, 100px); background: #111116; }
+.settings-heading { display: flex; align-items: center; justify-content: space-between; max-width: 760px; margin: 0 auto 28px; }
+.settings-heading .eyebrow { margin: 0 0 6px; text-align: left; }
+.settings-heading h1 { margin: 0; color: #f0eef5; font-size: 28px; letter-spacing: -.7px; }
+.settings-close { width: 32px; height: 32px; border: 1px solid #373540; border-radius: 8px; color: #bbb8c4; background: #201f26; font-size: 20px; }
+.settings-content { max-width: 760px; margin: auto; }
+.settings-content h2 { margin: 24px 0 9px; color: #aaa6b5; font-size: 11px; font-weight: 600; }
+.settings-card { display: flex; min-height: 62px; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 15px; border: 1px solid #302e38; border-radius: 9px; background: #19181f; }
+.settings-card > div { display: flex; flex-direction: column; gap: 5px; }
+.settings-card strong { color: #e2dfe9; font-size: 12px; font-weight: 500; }
+.settings-card small, .settings-card > span { color: #85828f; font-size: 10px; }
+.settings-card button { padding: 7px 10px; border: 1px solid #454151; border-radius: 6px; color: #d5d0e1; background: #292731; font-size: 10px; }
+.settings-badge { color: #d0aa6c !important; }
+.settings-card select { padding: 7px 26px 7px 9px; border: 1px solid #454151; border-radius: 6px; color: #d5d0e1; background: #292731; font-size: 10px; }
 .start-orb { display: grid; width: 62px; height: 62px; place-items: center; border: 1px solid #4d4563; border-radius: 21px 21px 21px 7px; color: #d2c3ff; background: radial-gradient(circle at 28% 22%, #574b76, #292335 70%); box-shadow: 0 12px 50px #7961bd20; font-size: 29px; }
 .eyebrow { margin: 29px 0 7px; color: #9384b9; font-size: 9px; font-weight: 700; letter-spacing: 1.6px; }
 .start-page h1 { margin: 0; color: #f0eef5; font: 600 29px/1.25 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; letter-spacing: -1.1px; }
@@ -92,6 +128,54 @@ kbd { border: 1px solid #3b3943; border-radius: 4px; color: #777580; font: 10px/
 .protection-status { display: flex; align-items: center; gap: 6px; color: #aaa5b5; }
 .protection-status i { width: 6px; height: 6px; border-radius: 50%; background: #d2a65f; box-shadow: 0 0 7px #d2a65f55; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+:root[data-theme="light"] {
+  color: #272633;
+  background: #f5f4f8;
+  --sidebar: #eeedf2;
+  --sidebar-border: #d8d6df;
+}
+:root[data-theme="light"] .browser-shell,
+:root[data-theme="light"] .browser-main,
+:root[data-theme="light"] .webview-slot,
+:root[data-theme="light"] .settings-page { background: #f8f7fa; }
+:root[data-theme="light"] .toolbar,
+:root[data-theme="light"] .statusbar { background: #f1f0f4; border-color: #dfdde5; }
+:root[data-theme="light"] .brand-name,
+:root[data-theme="light"] .start-page h1,
+:root[data-theme="light"] .settings-heading h1 { color: #282633; }
+:root[data-theme="light"] .tab-row { color: #5c5966; }
+:root[data-theme="light"] .tab-row.selected { color: #292633; background: #dedce6; border-color: #d2d0db; }
+:root[data-theme="light"] .tab-close:hover,
+:root[data-theme="light"] .sidebar-action:hover,
+:root[data-theme="light"] .new-tab:hover { color: #282633; background: #e1dfe8; }
+:root[data-theme="light"] .sidebar-switcher { background: #e2e0e8; }
+:root[data-theme="light"] .sidebar-switcher button.active { color: #292633; background: #fff; }
+:root[data-theme="light"] .address-form,
+:root[data-theme="light"] .bookmark-search,
+:root[data-theme="light"] .bookmark-form input,
+:root[data-theme="light"] .start-search { color: #292633; background: #fff; border-color: #d3d1db; }
+:root[data-theme="light"] .address-form input,
+:root[data-theme="light"] .start-search input { color: #292633; }
+:root[data-theme="light"] .start-search input::placeholder,
+:root[data-theme="light"] .address-form input::placeholder { color: #87838f; }
+:root[data-theme="light"] .icon-button,
+:root[data-theme="light"] .toolbar-action,
+:root[data-theme="light"] .settings-card strong,
+:root[data-theme="light"] .bookmark-open strong { color: #484552; }
+:root[data-theme="light"] .icon-button:hover:not(:disabled),
+:root[data-theme="light"] .toolbar-action:hover:not(:disabled) { background: #e8e6ee; border-color: #d5d2df; }
+:root[data-theme="light"] .settings-card,
+:root[data-theme="light"] .bookmark-form { background: #fff; border-color: #dedce5; }
+:root[data-theme="light"] .settings-card button,
+:root[data-theme="light"] .settings-card select { color: #393644; background: #f0eff4; border-color: #d5d2df; }
+:root[data-theme="light"] .bookmark-row:hover { background: #eae8ef; }
+:root[data-theme="light"] .bookmark-open { color: #565360; }
+:root[data-theme="light"] .profile-button { border-color: #d8d6df; }
+:root[data-theme="light"] .profile-copy strong { color: #4f4c59; }
+:root[data-theme="light"] .settings-content h2 { color: #696674; }
+:root[data-theme="light"] .settings-close { color: #55525f; background: #fff; border-color: #d8d6df; }
+:root[data-theme="light"] .protection-status { color: #6f6a76; }
 
 @media (max-width: 900px) {
   .sidebar { width: 196px; flex-basis: 196px; }

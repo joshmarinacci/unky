@@ -26,6 +26,29 @@ The local fixture is served on `127.0.0.1:4179`, with its image resources on `12
 
 After installing dependencies, run `python3 tests/macos_interception_test.py` on macOS. The test enables the `macos-interception-test` Cargo feature, compiles an ABP-style domain rule through `blocker-core` and adblock-rust into a WKContentRuleList, then loads the fixture from `http://127.0.0.1:4179/`. It passes only when the server records `/allowed.png` and does not record `/blocked.png`.
 
+## Browser interface
+
+The macOS development app has a native menu bar and a React browser interface. It supports multiple website tabs, an address/search bar, back and forward navigation, reload/stop, a resizable sidebar, bookmarks, and a settings page. Bookmarks, the sidebar width, and the appearance preference are stored in the local browser UI's `localStorage`.
+
+The appearance setting supports System, Light, and Dark. Website zoom is controlled from the View menu and applies to the active tab (50% to 300%, in 10% steps).
+
+### macOS shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `⌘T` | New tab |
+| `⌘W` | Close the active tab |
+| `⌘,` | Open Settings |
+| `⌘H` | Hide the app |
+| `⌥⌘H` | Hide other apps |
+| `⌘L` | Focus the address bar |
+| `⌘R` | Reload the page |
+| `⌥⌘←` / `⌥⌘→` | Back / forward |
+| `⌘⇧=` / `⌘-` | Zoom in / out |
+| `⌘0` | Reset website zoom |
+
+The Edit menu also provides the standard Undo, Redo, Cut, Copy, Paste, and Select All commands.
+
 ## Current status
 
-Milestone 0 is scaffolded. The separate website WebView uses Tauri's unstable child-WebView API. The first adblock-rust to WKContentRuleList pipeline passes the macOS fixture test for a small domain-rule subset. Windows and Linux interception validation is deferred to a later cross-platform milestone; macOS is the active development platform for now. See [the roadmap](docs/roadmap.md), [filtering scope](docs/filtering.md), and [platform matrix](docs/platform-matrix.md). This prototype is not a general-purpose secure browser yet.
+The initial browser interface is implemented for macOS. The separate website WebView uses Tauri's unstable child-WebView API. The first adblock-rust to WKContentRuleList pipeline passes the macOS fixture test for a small domain-rule subset. Windows and Linux interception validation is deferred to a later cross-platform milestone; macOS is the active development platform for now. See [the roadmap](docs/roadmap.md), [filtering scope](docs/filtering.md), and [platform matrix](docs/platform-matrix.md). This prototype is not a general-purpose secure browser yet.
