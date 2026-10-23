@@ -415,15 +415,17 @@ export default function App() {
 
   useEffect(() => {
     for (const tab of tabs) {
-      if (!tab.url || !/^https?:/i.test(tab.url)) continue;
+      // Wait until navigation finishes so the page's <link rel="icon"> is
+      // present before querying the native WebView (e.g. Hacker News).
+      if (tab.loading || !tab.url || !/^https?:/i.test(tab.url)) continue;
       const requestKey = `${tab.id}:${tab.url}`;
       if (faviconRequests.current.has(requestKey)) continue;
       faviconRequests.current.add(requestKey);
       window.setTimeout(() => {
         void invoke<string>('get_tab_favicon', { tabId: tab.id })
           .then(favicon => { if (favicon) setTabFavicons(current => ({ ...current, [tab.id]: favicon })); })
-          .catch(() => undefined);
-      }, 400);
+          .catch(() => { faviconRequests.current.delete(requestKey); });
+      }, 100);
     }
   }, [tabs]);
 
@@ -532,6 +534,25 @@ export default function App() {
       snapshot = await invoke<BrowserSnapshot>('get_browser_state');
       if (phase === 'exercise') {
         assertSessionTestState(snapshot, sessionTestUrls, sessionTestUrls[1]);
+        const expectedFavicon = 'http://127.0.0.1:4179/favicon.svg';
+        const nativeFavicon = await invoke<string>('get_tab_favicon', { tabId: snapshot.activeTabId });
+        if (nativeFavicon !== expectedFavicon) {
+          throw new Error(`Native WebView did not resolve the fixture favicon: ${nativeFavicon || 'missing'}`);
+        }
+        let renderedFavicon = '';
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          const row = Array.from(document.querySelectorAll<HTMLElement>('.tab-row'))
+            .find(item => item.dataset.tabId === snapshot?.activeTabId);
+          const image = row?.querySelector<HTMLImageElement>('.tab-favicon img');
+          if (image?.complete && image.naturalWidth > 0) {
+            renderedFavicon = image.src;
+            break;
+          }
+          await new Promise(resolve => window.setTimeout(resolve, 50));
+        }
+        if (renderedFavicon !== expectedFavicon) {
+          throw new Error(`Native tab favicon was not loaded after page navigation: ${renderedFavicon || 'missing'}`);
+        }
         const survivor = await invoke<BrowserSnapshot>('close_tab', { tabId: snapshot.activeTabId });
         assertSessionTestState(survivor, [sessionTestUrls[0]], sessionTestUrls[0]);
         window.dispatchEvent(new KeyboardEvent('keydown', {
@@ -913,6 +934,7 @@ export default function App() {
       return <div
         className={`tab-row ${tab.id === activeTabId ? 'selected' : ''} ${tabDropTargetId === `before:${node.id}` ? 'drop-before' : ''} ${tabDropTargetId === `after:${node.id}` ? 'drop-after' : ''}`}
         key={node.id}
+        data-tab-id={tab.id}
         style={{ marginLeft: depth * 14 }}
         draggable
         onContextMenu={event => { event.preventDefault(); setTabContextMenu({ id: tab.id, type: 'tab', x: Math.min(event.clientX, window.innerWidth - 165), y: Math.min(event.clientY, window.innerHeight - 90) }); }}

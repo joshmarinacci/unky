@@ -84,7 +84,7 @@ def run_phase(phase, session_path, report_path, app_log, downloads_dir):
         "MY_BROWSER_SESSION_TEST_DOWNLOAD_DIR": str(downloads_dir),
     })
     process = subprocess.Popen(
-        ["pnpm", "tauri", "dev", "--features", "macos-session-test"],
+        ["npm", "run", "tauri", "--", "dev", "--features", "macos-session-test"],
         cwd=ROOT,
         env=env,
         stdout=app_log,
@@ -147,7 +147,7 @@ def main():
                 if [tab["url"] for tab in restore["snapshot"]["tabs"]] != [FIRST_URL, SECOND_URL]:
                     raise AssertionError(f"Restarted tab state was unexpected: {restore['snapshot']}")
                 wait_for_page_requests(server_log_path, {FIRST_URL: 2, SECOND_URL: 3})
-                print("PASS: native WKWebViews exercised find, new-tab links, tab cycling, downloads, history, and session restore")
+                print("PASS: native WKWebViews exercised favicon loading, find, new-tab links, tab cycling, downloads, history, and session restore")
             finally:
                 stop_process(server)
 

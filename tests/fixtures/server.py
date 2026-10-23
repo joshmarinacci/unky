@@ -10,6 +10,14 @@ os.chdir(ROOT)
 
 class PageHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/favicon.svg":
+            payload = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#7c5cbf"/></svg>'
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if self.path == "/download.txt":
             payload = ("native webview download fixture\n" * 8192).encode()
             self.send_response(200)
