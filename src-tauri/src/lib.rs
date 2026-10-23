@@ -1,10 +1,12 @@
 mod browser;
 use browser::tabs::{
-    remember_closed_tab, snapshot, take_recently_closed, BrowserSnapshot, BrowserState,
-    PersistedSession, SessionTab, TabState, ViewBounds,
+    cycle_active_tab, download_filename, find_script, next_download_path, record_history_entry,
+    remember_closed_tab, snapshot, take_recently_closed, update_history_title, BrowserSnapshot,
+    BrowserState, DownloadEntry, DownloadStatus, HistoryEntry, PersistedHistory, PersistedSession,
+    SessionTab, TabState, ViewBounds,
 };
 use std::sync::{atomic::Ordering, MutexGuard};
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, process::Command, thread, time::Duration, time::SystemTime};
 use tauri::{Emitter, Manager, WebviewUrl};
 
 #[cfg(all(target_os = "macos", feature = "macos-interception-test"))]
@@ -13,6 +15,8 @@ mod platforms;
 const TAB_EVENT: &str = "browser://tabs-changed";
 const OPEN_SETTINGS_EVENT: &str = "browser://open-settings";
 const SHORTCUT_EVENT: &str = "browser://shortcut";
+const HISTORY_EVENT: &str = "browser://history-changed";
+const DOWNLOADS_EVENT: &str = "browser://downloads-changed";
 
 fn allowed_navigation_url(input: &str) -> Result<url::Url, String> {
     let trimmed = input.trim();
@@ -104,6 +108,167 @@ fn read_session(path: &PathBuf) -> PersistedSession {
         .unwrap_or_default()
 }
 
+fn persist_history(state: &BrowserState) -> Result<(), String> {
+    let path = state
+        .history_file
+        .lock()
+        .map_err(|_| "History path is unavailable")?
+        .clone();
+    let Some(path) = path else {
+        return Ok(());
+    };
+    let entries = state
+        .history
+        .lock()
+        .map_err(|_| "History is unavailable")?
+        .clone();
+    let persisted = PersistedHistory {
+        version: 1,
+        entries,
+    };
+    let parent = path
+        .parent()
+        .ok_or("History path has no parent directory")?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let temporary = path.with_extension("json.tmp");
+    fs::write(
+        &temporary,
+        serde_json::to_vec_pretty(&persisted).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    fs::rename(temporary, path).map_err(|error| error.to_string())
+}
+
+fn read_history(path: &PathBuf) -> Vec<HistoryEntry> {
+    fs::read(path)
+        .ok()
+        .and_then(|contents| serde_json::from_slice::<PersistedHistory>(&contents).ok())
+        .filter(|history| history.version == 1)
+        .map(|mut history| {
+            history.entries.truncate(500);
+            history.entries
+        })
+        .unwrap_or_default()
+}
+
+fn record_history_visit(app: &tauri::AppHandle, state: &BrowserState, url: String, title: String) {
+    if let Ok(mut history) = state.history.lock() {
+        let visited_at = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or_default();
+        record_history_entry(
+            &mut history,
+            HistoryEntry {
+                url,
+                title,
+                visited_at,
+            },
+        );
+        let snapshot = history.clone();
+        drop(history);
+        let _ = persist_history(state);
+        let _ = app.emit_to("main", HISTORY_EVENT, snapshot);
+    }
+}
+
+fn update_history_entry_title(
+    app: &tauri::AppHandle,
+    state: &BrowserState,
+    url: &str,
+    title: &str,
+) {
+    if let Ok(mut history) = state.history.lock() {
+        update_history_title(&mut history, url, title);
+        let snapshot = history.clone();
+        drop(history);
+        let _ = persist_history(state);
+        let _ = app.emit_to("main", HISTORY_EVENT, snapshot);
+    }
+}
+
+fn emit_downloads(
+    app: &tauri::AppHandle,
+    downloads: &std::sync::Arc<std::sync::Mutex<Vec<DownloadEntry>>>,
+) {
+    if let Ok(items) = downloads.lock() {
+        let _ = app.emit_to("main", DOWNLOADS_EVENT, items.clone());
+    }
+}
+
+fn monitor_download(
+    app: tauri::AppHandle,
+    downloads: std::sync::Arc<std::sync::Mutex<Vec<DownloadEntry>>>,
+    download_id: String,
+    path: PathBuf,
+) {
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(250));
+        let mut should_stop = false;
+        let mut changed = false;
+        if let Ok(mut items) = downloads.lock() {
+            if let Some(item) = items.iter_mut().find(|item| item.id == download_id) {
+                if item.status != DownloadStatus::Downloading {
+                    should_stop = true;
+                } else if let Ok(metadata) = fs::metadata(&path) {
+                    if metadata.len() != item.bytes_received {
+                        item.bytes_received = metadata.len();
+                        changed = true;
+                    }
+                }
+            } else {
+                should_stop = true;
+            }
+        }
+        if changed {
+            emit_downloads(&app, &downloads);
+        }
+        if should_stop {
+            break;
+        }
+    });
+}
+
+fn download_directory(app: &tauri::AppHandle) -> PathBuf {
+    #[cfg(feature = "macos-session-test")]
+    if let Some(path) = std::env::var_os("MY_BROWSER_SESSION_TEST_DOWNLOAD_DIR") {
+        return PathBuf::from(path);
+    }
+    app.path().download_dir().unwrap_or_else(|_| {
+        app.path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::env::temp_dir())
+            .join("Downloads")
+    })
+}
+
+fn open_url_in_new_tab(
+    app: &tauri::AppHandle,
+    state: &BrowserState,
+    input: &str,
+) -> Result<(), String> {
+    let parsed = allowed_navigation_url(input)?;
+    let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+    let id = format!("tab-{number}");
+    let bounds = *state
+        .bounds
+        .lock()
+        .map_err(|_| "Browser bounds are unavailable")?;
+    create_page_webview(app, state, &id, parsed.clone(), bounds)?;
+    let mut tabs = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?;
+    for tab in tabs.iter_mut() {
+        tab.active = false;
+    }
+    tabs.push(TabState::new(id, parsed.to_string(), true));
+    emit_snapshot(app, &tabs);
+    drop(tabs);
+    persist_session(state)?;
+    position_tabs(app, state)
+}
+
 fn validated_session_tab(tab: SessionTab) -> Option<SessionTab> {
     let url = if tab.url.is_empty() {
         String::new()
@@ -166,6 +331,132 @@ fn report_session_test(
     .map_err(|error| error.to_string())
 }
 
+#[cfg(feature = "macos-session-test")]
+#[tauri::command]
+async fn session_test_open_new_tab(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<String, String> {
+    if webview.label() != "main" {
+        return Err("Session test controls are only available to the trusted browser UI".into());
+    }
+    let active_id = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .iter()
+        .find(|tab| tab.active)
+        .map(|tab| tab.id.clone())
+        .ok_or("No active tab")?;
+    let page = get_page(&app, &active_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        page.eval("document.getElementById('new-tab-link').click()")
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    tauri::async_runtime::spawn_blocking(|| thread::sleep(Duration::from_millis(400)))
+        .await
+        .map_err(|error| error.to_string())?;
+    let page = get_page(&app, &active_id)?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    page.eval_with_callback(
+        "JSON.stringify({hook:window.__MY_BROWSER_LINK_HOOK__===true,tauri:typeof window.__TAURI_INTERNALS__?.invoke,result:window.__MY_BROWSER_LINK_RESULT__||''})",
+        move |result| { let _ = sender.send(result); },
+    )
+    .map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv_timeout(Duration::from_secs(2))
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[cfg(feature = "macos-session-test")]
+#[tauri::command]
+async fn session_test_start_download(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<(), String> {
+    if webview.label() != "main" {
+        return Err("Session test controls are only available to the trusted browser UI".into());
+    }
+    let active_id = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .iter()
+        .find(|tab| tab.active)
+        .map(|tab| tab.id.clone())
+        .ok_or("No active tab")?;
+    let page = get_page(&app, &active_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        page.eval("document.getElementById('download-link').click()")
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn open_link_in_new_tab(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    url: String,
+) -> Result<(), String> {
+    if !webview.label().starts_with("page-") {
+        return Err("Links can only be opened from a browser page".into());
+    }
+    open_url_in_new_tab(&app, &state, &url)
+}
+
+#[tauri::command]
+fn sync_page_url(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    url: String,
+    kind: String,
+) -> Result<(), String> {
+    let label = webview.label();
+    let tab_id = label
+        .strip_prefix("page-")
+        .ok_or("Page URL updates are only available from browser pages")?;
+    let current_url = webview.url().map_err(|error| error.to_string())?;
+    let parsed_url = allowed_navigation_url(&url)?;
+    if parsed_url.origin() != current_url.origin() {
+        return Err("Page URL updates must stay on the current origin".into());
+    }
+    if !matches!(kind.as_str(), "push" | "replace" | "traverse") {
+        return Err("Invalid page URL update type".into());
+    }
+
+    let mut tabs = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?;
+    let tab = tabs
+        .iter_mut()
+        .find(|tab| tab.id == tab_id)
+        .ok_or("That tab no longer exists")?;
+    if tab.url == parsed_url.as_str() {
+        return Ok(());
+    }
+    if kind == "replace" {
+        tab.replace_navigation(parsed_url.to_string());
+    } else {
+        tab.record_navigation(parsed_url.to_string());
+    }
+    emit_snapshot(&app, &tabs);
+    drop(tabs);
+    persist_session(&state)
+}
+
 fn create_page_webview(
     app: &tauri::AppHandle,
     state: &BrowserState,
@@ -181,8 +472,45 @@ fn create_page_webview(
     let event_app = app.clone();
     let title_data = state.data.clone();
     let title_app = app.clone();
+    let download_app = app.clone();
+    let download_items = state.downloads.clone();
+    let next_download_id = state.next_download_id.clone();
     let label = page_label(id);
     let builder = tauri::webview::WebviewBuilder::new(label, WebviewUrl::External(url))
+        .initialization_script(
+            r#"document.addEventListener('click', event => {
+              window.__MY_BROWSER_LINK_HOOK__ = true;
+              const link = event.target instanceof Element ? event.target.closest('a[target="_blank"][href]') : null;
+              if (!link) return;
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              window.__MY_BROWSER_LINK_RESULT__ = 'pending';
+              window.__TAURI_INTERNALS__.invoke('open_link_in_new_tab', { url: link.href })
+                .then(() => { window.__MY_BROWSER_LINK_RESULT__ = 'opened'; })
+                .catch(error => { window.__MY_BROWSER_LINK_RESULT__ = String(error); console.error(error); });
+            }, true);"#,
+        )
+        .initialization_script(
+            r#"(() => {
+              let lastUrl = window.location.href;
+              const syncUrl = kind => {
+                const url = window.location.href;
+                if (url === lastUrl) return;
+                lastUrl = url;
+                window.__TAURI_INTERNALS__.invoke('sync_page_url', { url, kind }).catch(error => console.error('Could not sync browser URL', error));
+              };
+              for (const [method, kind] of [['pushState', 'push'], ['replaceState', 'replace']]) {
+                const original = history[method];
+                history[method] = function(...args) {
+                  const result = Reflect.apply(original, this, args);
+                  syncUrl(kind);
+                  return result;
+                };
+              }
+              window.addEventListener('popstate', () => syncUrl('traverse'));
+              window.addEventListener('hashchange', () => syncUrl('traverse'));
+            })();"#,
+        )
         .on_navigation({
             let state_data = state_data.clone();
             let navigation_tab_id = navigation_tab_id.clone();
@@ -216,9 +544,24 @@ fn create_page_webview(
                             tab.record_navigation(payload.url().to_string());
                         }
                     }
+                    let history_visit = if is_web_url
+                        && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+                    {
+                        Some((tab.url.clone(), tab.title.clone()))
+                    } else {
+                        None
+                    };
                     emit_snapshot(&event_app, &tabs);
                     drop(tabs);
                     let _ = persist_session(&event_app.state::<BrowserState>());
+                    if let Some((url, title)) = history_visit {
+                        record_history_visit(
+                            &event_app,
+                            &event_app.state::<BrowserState>(),
+                            url,
+                            title,
+                        );
+                    }
                 }
             }
         })
@@ -231,13 +574,75 @@ fn create_page_webview(
                     tab.title = if title.trim().is_empty() {
                         "New Tab".into()
                     } else {
-                        title
+                        title.clone()
                     };
+                    let history_url = tab.url.clone();
                     emit_snapshot(&title_app, &tabs);
                     drop(tabs);
                     let _ = persist_session(&title_app.state::<BrowserState>());
+                    update_history_entry_title(
+                        &title_app,
+                        &title_app.state::<BrowserState>(),
+                        &history_url,
+                        &title,
+                    );
                 }
             }
+        })
+        .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Deny)
+        .on_download(move |_webview, event| match event {
+            tauri::webview::DownloadEvent::Requested { url, destination } => {
+                let directory = download_directory(&download_app);
+                if fs::create_dir_all(&directory).is_err() {
+                    return false;
+                }
+                let filename = download_filename(url.as_str());
+                let Ok(mut items) = download_items.lock() else {
+                    return false;
+                };
+                let in_use: Vec<PathBuf> = items.iter().map(|item| item.path.clone()).collect();
+                let path = next_download_path(&directory, &filename, &in_use);
+                let number = next_download_id.fetch_add(1, Ordering::Relaxed) + 1;
+                let id = format!("download-{number}");
+                *destination = path.clone();
+                items.insert(
+                    0,
+                    DownloadEntry {
+                        id: id.clone(),
+                        url: url.to_string(),
+                        filename,
+                        path: path.clone(),
+                        status: DownloadStatus::Downloading,
+                        bytes_received: 0,
+                    },
+                );
+                drop(items);
+                emit_downloads(&download_app, &download_items);
+                monitor_download(download_app.clone(), download_items.clone(), id, path);
+                true
+            }
+            tauri::webview::DownloadEvent::Finished { url, path, success } => {
+                if let Ok(mut items) = download_items.lock() {
+                    if let Some(item) = items.iter_mut().find(|item| {
+                        item.url == url.as_str() && item.status == DownloadStatus::Downloading
+                    }) {
+                        if let Some(saved_path) = path {
+                            item.path = saved_path;
+                        }
+                        item.status = if success {
+                            DownloadStatus::Completed
+                        } else {
+                            DownloadStatus::Failed
+                        };
+                        item.bytes_received = fs::metadata(&item.path)
+                            .map(|metadata| metadata.len())
+                            .unwrap_or(item.bytes_received);
+                    }
+                }
+                emit_downloads(&download_app, &download_items);
+                true
+            }
+            _ => true,
         });
     window
         .add_child(
@@ -262,6 +667,129 @@ fn get_browser_state(
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
     Ok(snapshot(&tabs))
+}
+
+#[tauri::command]
+fn get_history(
+    webview: tauri::Webview,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<Vec<HistoryEntry>, String> {
+    if webview.label() != "main" {
+        return Err("History is only available to the trusted browser UI".into());
+    }
+    Ok(state
+        .history
+        .lock()
+        .map_err(|_| "History is unavailable")?
+        .clone())
+}
+
+#[tauri::command]
+fn get_downloads(
+    webview: tauri::Webview,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<Vec<DownloadEntry>, String> {
+    if webview.label() != "main" {
+        return Err("Downloads are only available to the trusted browser UI".into());
+    }
+    Ok(state
+        .downloads
+        .lock()
+        .map_err(|_| "Downloads are unavailable")?
+        .clone())
+}
+
+#[tauri::command]
+async fn find_in_page(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    tab_id: String,
+    query: String,
+    backwards: bool,
+) -> Result<bool, String> {
+    if webview.label() != "main" {
+        return Err("Find is only available to the trusted browser UI".into());
+    }
+    let page = get_page(&app, &tab_id)?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    page.eval_with_callback(find_script(&query, backwards), move |result| {
+        let _ = sender.send(result);
+    })
+    .map_err(|error| error.to_string())?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        receiver.recv().map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    serde_json::from_str(&result).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn cycle_tab(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    backwards: bool,
+) -> Result<BrowserSnapshot, String> {
+    if webview.label() != "main" {
+        return Err("Tabs can only be cycled from the trusted browser UI".into());
+    }
+    let mut tabs = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?;
+    cycle_active_tab(&mut tabs, if backwards { -1 } else { 1 });
+    emit_snapshot(&app, &tabs);
+    drop(tabs);
+    persist_session(&state)?;
+    position_tabs(&app, &state)?;
+    let tabs = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?;
+    Ok(snapshot(&tabs))
+}
+
+#[tauri::command]
+fn reveal_download(
+    webview: tauri::Webview,
+    state: tauri::State<'_, BrowserState>,
+    download_id: String,
+) -> Result<(), String> {
+    if webview.label() != "main" {
+        return Err("Downloads are only available to the trusted browser UI".into());
+    }
+    let path = state
+        .downloads
+        .lock()
+        .map_err(|_| "Downloads are unavailable")?
+        .iter()
+        .find(|item| item.id == download_id && item.status == DownloadStatus::Completed)
+        .map(|item| item.path.clone())
+        .ok_or("That completed download is unavailable")?;
+    if !path.exists() {
+        return Err("The downloaded file no longer exists".into());
+    }
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg("-R").arg(&path);
+        command
+    };
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("explorer");
+        command.arg(format!("/select,{}", path.display()));
+        command
+    };
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(path.parent().unwrap_or_else(|| std::path::Path::new(".")));
+        command
+    };
+    command.spawn().map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -810,6 +1338,12 @@ pub fn run() {
                 .session_file
                 .lock()
                 .expect("session path lock poisoned") = Some(session_path.clone());
+            let history_path = session_path.with_file_name("history.json");
+            *state
+                .history_file
+                .lock()
+                .expect("history path lock poisoned") = Some(history_path.clone());
+            *state.history.lock().expect("history lock poisoned") = read_history(&history_path);
             let saved_session = read_session(&session_path);
             *state
                 .recently_closed
@@ -845,10 +1379,19 @@ pub fn run() {
                     MenuItemBuilder::with_id("shortcut-reopen-closed-tab", "Reopen Closed Tab")
                         .accelerator("CmdOrCtrl+Shift+T")
                         .build(app)?;
+                let next_tab = MenuItemBuilder::with_id("shortcut-next-tab", "Next Tab")
+                    .accelerator("Ctrl+Tab")
+                    .build(app)?;
+                let previous_tab =
+                    MenuItemBuilder::with_id("shortcut-previous-tab", "Previous Tab")
+                        .accelerator("Ctrl+Shift+Tab")
+                        .build(app)?;
                 let file_menu = SubmenuBuilder::new(app, "File")
                     .item(&new_tab)
                     .item(&close_tab)
                     .item(&reopen_closed_tab)
+                    .item(&next_tab)
+                    .item(&previous_tab)
                     .build()?;
                 let edit_menu = SubmenuBuilder::new(app, "Edit")
                     .undo()
@@ -873,6 +1416,9 @@ pub fn run() {
                     MenuItemBuilder::with_id("shortcut-focus-address", "Focus Address Bar")
                         .accelerator("CmdOrCtrl+L")
                         .build(app)?;
+                let find = MenuItemBuilder::with_id("shortcut-find", "Find in Page")
+                    .accelerator("CmdOrCtrl+F")
+                    .build(app)?;
                 let reload = MenuItemBuilder::with_id("shortcut-reload", "Reload Page")
                     .accelerator("CmdOrCtrl+R")
                     .build(app)?;
@@ -884,6 +1430,7 @@ pub fn run() {
                     .build(app)?;
                 let view_menu = SubmenuBuilder::new(app, "View")
                     .item(&focus_address)
+                    .item(&find)
                     .item(&reload)
                     .item(&go_back)
                     .item(&go_forward)
@@ -974,6 +1521,13 @@ pub fn run() {
     #[cfg(feature = "macos-session-test")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
+        get_history,
+        get_downloads,
+        find_in_page,
+        cycle_tab,
+        reveal_download,
+        open_link_in_new_tab,
+        sync_page_url,
         create_tab,
         select_tab,
         close_tab,
@@ -986,11 +1540,20 @@ pub fn run() {
         set_view_bounds,
         reopen_closed_tab,
         session_test_phase,
-        report_session_test
+        report_session_test,
+        session_test_open_new_tab,
+        session_test_start_download
     ]);
     #[cfg(not(feature = "macos-session-test"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
+        get_history,
+        get_downloads,
+        find_in_page,
+        cycle_tab,
+        reveal_download,
+        open_link_in_new_tab,
+        sync_page_url,
         create_tab,
         select_tab,
         close_tab,

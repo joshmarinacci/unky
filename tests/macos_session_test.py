@@ -73,7 +73,7 @@ def wait_for_page_requests(server_log_path, expected_counts, timeout=20):
     raise TimeoutError(f"Expected fixture page requests were not observed:\n{server_log_path.read_text()}")
 
 
-def run_phase(phase, session_path, report_path, app_log):
+def run_phase(phase, session_path, report_path, app_log, downloads_dir):
     report_path.unlink(missing_ok=True)
     env = os.environ.copy()
     env.update({
@@ -81,6 +81,7 @@ def run_phase(phase, session_path, report_path, app_log):
         "MY_BROWSER_SESSION_TEST_PHASE": phase,
         "MY_BROWSER_SESSION_TEST_PATH": str(session_path),
         "MY_BROWSER_SESSION_TEST_REPORT": str(report_path),
+        "MY_BROWSER_SESSION_TEST_DOWNLOAD_DIR": str(downloads_dir),
     })
     process = subprocess.Popen(
         ["pnpm", "tauri", "dev", "--features", "macos-session-test"],
@@ -93,7 +94,9 @@ def run_phase(phase, session_path, report_path, app_log):
     try:
         report = wait_for_report(process, report_path, app_log)
         if not report.get("success"):
-            raise AssertionError(f"Session {phase} phase failed: {report.get('details')}\n{report}")
+            app_log.flush()
+            app_log.seek(0)
+            raise AssertionError(f"Session {phase} phase failed: {report.get('details')}\n{report}\n{app_log.read()}")
         return report
     finally:
         stop_process(process)
@@ -126,16 +129,25 @@ def main():
             )
             try:
                 wait_for_server(server, server_log_path)
-                exercise = run_phase("exercise", session_path, report_path, app_log)
+                downloads_dir = temp_dir / "downloads"
+                exercise = run_phase("exercise", session_path, report_path, app_log, downloads_dir)
                 if [tab["url"] for tab in exercise["snapshot"]["tabs"]] != [FIRST_URL, SECOND_URL]:
                     raise AssertionError(f"Reopened tab state was unexpected: {exercise['snapshot']}")
                 wait_for_page_requests(server_log_path, {FIRST_URL: 1, SECOND_URL: 2})
+                deadline = time.monotonic() + 10
+                downloaded_file = downloads_dir / "download.txt"
+                while time.monotonic() < deadline and not downloaded_file.exists():
+                    time.sleep(0.1)
+                if not downloaded_file.exists() or downloaded_file.stat().st_size == 0:
+                    raise AssertionError("Native WKWebView did not save the downloaded fixture")
+                if "DOWNLOAD /download.txt" not in server_log_path.read_text():
+                    raise AssertionError("Fixture server did not receive the native download request")
 
-                restore = run_phase("restore", session_path, report_path, app_log)
+                restore = run_phase("restore", session_path, report_path, app_log, downloads_dir)
                 if [tab["url"] for tab in restore["snapshot"]["tabs"]] != [FIRST_URL, SECOND_URL]:
                     raise AssertionError(f"Restarted tab state was unexpected: {restore['snapshot']}")
                 wait_for_page_requests(server_log_path, {FIRST_URL: 2, SECOND_URL: 3})
-                print("PASS: native WKWebViews restored the session, reopened a closed tab, and restored it again after restart")
+                print("PASS: native WKWebViews exercised find, new-tab links, tab cycling, downloads, history, and session restore")
             finally:
                 stop_process(server)
 

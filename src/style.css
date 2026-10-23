@@ -19,17 +19,25 @@ button:focus-visible, input:focus-visible { outline: 2px solid #ad96f5; outline-
 
 .browser-shell { display: flex; width: 100vw; height: 100vh; background: #111116; }
 .sidebar { position: relative; z-index: 2; display: flex; width: 224px; min-width: 0; flex: 0 0 224px; flex-direction: column; height: 100%; padding: 19px 11px 12px; overflow: hidden; background: var(--sidebar); border-right: 1px solid var(--sidebar-border); }
+.sidebar.collapsed { padding: 19px 9px 12px; }
 .sidebar-sizer { position: absolute; z-index: 5; top: 0; right: -3px; bottom: 0; width: 6px; cursor: col-resize; touch-action: none; }
 .sidebar-sizer::after { position: absolute; top: 0; right: 2px; bottom: 0; width: 1px; background: transparent; content: ''; }
 .sidebar-sizer:hover::after, .sidebar-sizer:focus-visible::after, .sidebar-sizer.dragging::after { background: #8d7ac5; }
 .sidebar-sizer:focus-visible { outline: 0; }
 .brand-row { display: flex; height: 39px; align-items: center; gap: 10px; padding: 0 10px 13px; }
+.sidebar.collapsed .brand-row { height: auto; flex-direction: column; gap: 10px; padding: 0 0 8px; }
 .brand-mark { display: grid; width: 22px; height: 22px; place-items: center; border: 1px solid #a795e6; border-radius: 8px 8px 8px 3px; color: #d2c2ff; font: 800 15px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transform: rotate(-5deg); }
 .brand-name { color: #f4f2f8; font: 700 15px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; letter-spacing: -.5px; }
-.sidebar-menu { margin-left: auto; color: #85838d; font-weight: 700; letter-spacing: 2px; }
+.sidebar-collapse-button { display: grid; width: 26px; height: 26px; flex: 0 0 26px; place-items: center; margin-left: auto; padding: 0; border: 1px solid transparent; border-radius: 6px; color: #96939e; background: transparent; font-size: 21px; line-height: 1; }
+.sidebar-collapse-button:hover { color: #f1eef7; background: #292831; }
+.sidebar-collapse-button:focus-visible { outline: 2px solid #8d7ac5; outline-offset: 1px; }
+.sidebar.collapsed .brand-name, .sidebar.collapsed .sidebar-content, .sidebar.collapsed .sidebar-sizer { display: none; }
+.sidebar.collapsed .sidebar-collapse-button { width: 28px; height: 26px; flex-basis: 28px; margin-left: 0; }
+.sidebar-content { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .workspace-label { display: flex; align-items: center; margin: 25px 10px 10px; color: #73717c; font-size: 9px; font-weight: 700; letter-spacing: 1.05px; }
 .sidebar-switcher { display: flex; gap: 4px; margin: 22px 4px 10px; padding: 3px; border-radius: 8px; background: #111116; }
 .sidebar-switcher button { flex: 1; padding: 6px 4px; border: 0; border-radius: 6px; color: #85838f; background: transparent; font-size: 10px; }
+.sidebar-switcher button { padding-inline: 2px; font-size: 9px; }
 .sidebar-switcher button.active { color: #eeeaf7; background: #302e39; box-shadow: 0 1px 2px #0004; }
 .tab-list { display: flex; width: 100%; min-width: 0; flex-direction: column; gap: 3px; overflow: auto; }
 .tab-row { display: flex; width: 100%; min-width: 0; align-items: center; overflow: hidden; border: 1px solid transparent; border-radius: 8px; color: #aaa8b2; }
@@ -88,6 +96,13 @@ kbd { border: 1px solid #3b3943; border-radius: 4px; color: #777580; font: 10px/
 .address-form input, .start-search input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; font-size: 11px; }
 .address-form input:focus-visible, .start-search input:focus-visible { outline: 0; }
 .address-form input::selection { background: #625287; }
+.find-form { display: flex; height: 31px; min-width: 160px; align-items: center; gap: 3px; padding: 0 5px; border: 1px solid #33313b; border-radius: 8px; background: #1d1c23; }
+.find-form input { width: 100px; min-width: 40px; border: 0; outline: 0; color: inherit; background: transparent; font-size: 10px; }
+.find-form button { width: 21px; height: 23px; padding: 0; border: 0; border-radius: 5px; color: #bcb7cb; background: transparent; }
+.find-form button:hover { background: #302e39; }
+.find-result { white-space: nowrap; color: #aaa5b5; font-size: 9px; }
+.download-row .bookmark-open { cursor: default; }
+.download-progress { width: 100%; height: 4px; margin-top: 5px; accent-color: #9a84d6; }
 .clear-address { width: 19px; height: 19px; flex: 0 0 19px; padding: 0; border: 0; border-radius: 50%; color: #9996a1; background: #34323b; line-height: 18px; }
 .toolbar-action { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border: 1px solid transparent; border-radius: 8px; color: #bcb7cb; background: transparent; font-size: 17px; }
 .toolbar-action:hover:not(:disabled) { border-color: #34323d; background: #222129; }
@@ -152,6 +167,7 @@ kbd { border: 1px solid #3b3943; border-radius: 4px; color: #777580; font: 10px/
 :root[data-theme="light"] .sidebar-switcher { background: #e2e0e8; }
 :root[data-theme="light"] .sidebar-switcher button.active { color: #292633; background: #fff; }
 :root[data-theme="light"] .address-form,
+:root[data-theme="light"] .find-form,
 :root[data-theme="light"] .bookmark-search,
 :root[data-theme="light"] .bookmark-form input,
 :root[data-theme="light"] .start-search { color: #292633; background: #fff; border-color: #d3d1db; }

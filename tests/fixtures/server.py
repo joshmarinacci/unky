@@ -1,6 +1,7 @@
 from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+import time
 import os
 
 ROOT = Path(__file__).parent
@@ -8,6 +9,22 @@ PNG = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010804000000b
 os.chdir(ROOT)
 
 class PageHandler(SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/download.txt":
+            payload = ("native webview download fixture\n" * 8192).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Disposition", 'attachment; filename="fixture-download.txt"')
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            for offset in range(0, len(payload), 8192):
+                self.wfile.write(payload[offset:offset + 8192])
+                self.wfile.flush()
+                time.sleep(0.025)
+            print(f"DOWNLOAD {self.path} {len(payload)}", flush=True)
+            return
+        super().do_GET()
+
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
         super().end_headers()

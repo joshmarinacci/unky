@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +40,126 @@ pub struct BrowserState {
     pub settings_open: Arc<Mutex<bool>>,
     pub recently_closed: Arc<Mutex<Vec<SessionTab>>>,
     pub session_file: Arc<Mutex<Option<PathBuf>>>,
+    pub history: Arc<Mutex<Vec<HistoryEntry>>>,
+    pub history_file: Arc<Mutex<Option<PathBuf>>>,
+    pub downloads: Arc<Mutex<Vec<DownloadEntry>>>,
+    pub next_download_id: Arc<std::sync::atomic::AtomicU64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    pub url: String,
+    pub title: String,
+    pub visited_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadEntry {
+    pub id: String,
+    pub url: String,
+    pub filename: String,
+    pub path: PathBuf,
+    pub status: DownloadStatus,
+    pub bytes_received: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DownloadStatus {
+    Downloading,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedHistory {
+    pub version: u32,
+    pub entries: Vec<HistoryEntry>,
+}
+
+pub fn record_history_entry(entries: &mut Vec<HistoryEntry>, entry: HistoryEntry) {
+    entries.retain(|existing| existing.url != entry.url);
+    entries.insert(0, entry);
+    entries.truncate(500);
+}
+
+pub fn update_history_title(entries: &mut [HistoryEntry], url: &str, title: &str) {
+    if let Some(entry) = entries.iter_mut().find(|entry| entry.url == url) {
+        entry.title = title.to_string();
+    }
+}
+
+pub fn cycle_active_tab(tabs: &mut [TabState], direction: isize) -> Option<String> {
+    if tabs.is_empty() {
+        return None;
+    }
+    let current = tabs.iter().position(|tab| tab.active).unwrap_or(0) as isize;
+    let count = tabs.len() as isize;
+    let next = (current + direction).rem_euclid(count) as usize;
+    for (index, tab) in tabs.iter_mut().enumerate() {
+        tab.active = index == next;
+    }
+    Some(tabs[next].id.clone())
+}
+
+pub fn find_script(query: &str, backwards: bool) -> String {
+    let query = serde_json::to_string(query).expect("string serialization cannot fail");
+    format!("window.find({query}, false, {backwards}, true, false, false, false)")
+}
+
+pub fn download_filename(input: &str) -> String {
+    let candidate = Url::parse(input)
+        .ok()
+        .and_then(|url| {
+            url.path_segments()
+                .and_then(|mut segments| segments.next_back())
+                .map(str::to_string)
+        })
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "download".into());
+    let safe: String = candidate
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let safe = safe.trim_matches('.');
+    if safe.is_empty() {
+        "download".into()
+    } else {
+        safe.into()
+    }
+}
+
+pub fn next_download_path(directory: &Path, filename: &str, in_use: &[PathBuf]) -> PathBuf {
+    let initial = directory.join(filename);
+    if !initial.exists() && !in_use.iter().any(|path| path == &initial) {
+        return initial;
+    }
+    let path = Path::new(filename);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("download");
+    let extension = path.extension().and_then(|value| value.to_str());
+    for suffix in 1.. {
+        let name = match extension {
+            Some(extension) => format!("{stem} ({suffix}).{extension}"),
+            None => format!("{stem} ({suffix})"),
+        };
+        let candidate = directory.join(name);
+        if !candidate.exists() && !in_use.iter().any(|path| path == &candidate) {
+            return candidate;
+        }
+    }
+    unreachable!("an available download path should always exist")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +285,18 @@ impl TabState {
         self.can_go_forward = false;
     }
 
+    pub fn replace_navigation(&mut self, url: String) {
+        if self.history.is_empty() {
+            self.history.push(url.clone());
+            self.history_index = 0;
+        } else {
+            self.history[self.history_index] = url.clone();
+        }
+        self.url = url;
+        self.can_go_back = self.history_index > 0;
+        self.can_go_forward = self.history_index + 1 < self.history.len();
+    }
+
     pub fn move_history(&mut self, forward: bool) -> Option<String> {
         if forward && self.history_index + 1 < self.history.len() {
             self.history_index += 1;
@@ -192,7 +325,12 @@ pub fn snapshot(tabs: &[TabState]) -> BrowserSnapshot {
 
 #[cfg(test)]
 mod tests {
-    use super::{remember_closed_tab, take_recently_closed, SessionTab};
+    use super::{
+        cycle_active_tab, download_filename, find_script, next_download_path, record_history_entry,
+        remember_closed_tab, take_recently_closed, update_history_title, HistoryEntry, SessionTab,
+        TabState,
+    };
+    use std::{fs, time::SystemTime};
 
     fn tab(id: usize) -> SessionTab {
         SessionTab {
@@ -227,5 +365,102 @@ mod tests {
             take_recently_closed(&mut recently_closed).unwrap().id,
             "tab-24"
         );
+    }
+
+    #[test]
+    fn history_deduplicates_the_latest_page_updates_titles_and_keeps_a_limit() {
+        let mut history = Vec::new();
+        record_history_entry(
+            &mut history,
+            HistoryEntry {
+                url: "https://example.com".into(),
+                title: "Old title".into(),
+                visited_at: 1,
+            },
+        );
+        record_history_entry(
+            &mut history,
+            HistoryEntry {
+                url: "https://other.test".into(),
+                title: "Other".into(),
+                visited_at: 2,
+            },
+        );
+        record_history_entry(
+            &mut history,
+            HistoryEntry {
+                url: "https://example.com".into(),
+                title: "Updated title".into(),
+                visited_at: 3,
+            },
+        );
+        update_history_title(&mut history, "https://example.com", "Page title");
+
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].url, "https://example.com");
+        assert_eq!(history[0].title, "Page title");
+        assert_eq!(history[0].visited_at, 3);
+
+        for index in 0..510 {
+            record_history_entry(
+                &mut history,
+                HistoryEntry {
+                    url: format!("https://example.com/{index}"),
+                    title: format!("Page {index}"),
+                    visited_at: index,
+                },
+            );
+        }
+        assert_eq!(history.len(), 500);
+        assert_eq!(history[0].url, "https://example.com/509");
+    }
+
+    #[test]
+    fn download_names_are_sanitized_and_paths_do_not_overwrite() {
+        assert_eq!(
+            download_filename("https://example.com/files/report.pdf?token=abc"),
+            "report.pdf"
+        );
+        assert_eq!(download_filename("https://example.com/"), "download");
+        assert_eq!(
+            download_filename("https://example.com/files/%2e%2e%2fsecret"),
+            "_2e_2e_2fsecret"
+        );
+
+        let unique = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("browser-download-path-test-{unique}"));
+        fs::create_dir_all(&directory).unwrap();
+        let initial = directory.join("report.pdf");
+        fs::write(&initial, "existing").unwrap();
+        let in_use = vec![directory.join("report (1).pdf")];
+
+        let selected = next_download_path(&directory, "report.pdf", &in_use);
+
+        assert_eq!(selected, directory.join("report (2).pdf"));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn tab_cycling_wraps_in_both_directions() {
+        let mut tabs = vec![
+            TabState::new("tab-1".into(), "https://one.test".into(), false),
+            TabState::new("tab-2".into(), "https://two.test".into(), true),
+            TabState::new("tab-3".into(), "https://three.test".into(), false),
+        ];
+
+        assert_eq!(cycle_active_tab(&mut tabs, 1).as_deref(), Some("tab-3"));
+        assert_eq!(cycle_active_tab(&mut tabs, 1).as_deref(), Some("tab-1"));
+        assert_eq!(cycle_active_tab(&mut tabs, -1).as_deref(), Some("tab-3"));
+        assert_eq!(cycle_active_tab(&mut [], 1), None);
+    }
+
+    #[test]
+    fn find_script_escapes_queries_and_sets_direction() {
+        let script = find_script("two \"words\"", true);
+        assert!(script.contains("two \\\"words\\\""));
+        assert!(script.contains(", true, true, false"));
     }
 }
