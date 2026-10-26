@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Button as AriaButton, ListBox, ListBoxItem, Popover, Select, SelectValue, Tab, TabList, TabPanel, TabPanels, Tabs, Tree, TreeItem, TreeItemContent, useDragAndDrop } from 'react-aria-components';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Download, ExternalLink, Folder, FolderPlus, Globe2, GripVertical, LoaderCircle, LockKeyhole, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, X } from 'lucide-react';
+import { AppButton, AppInput } from './components/ui';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -110,6 +113,22 @@ function reconcileTabNodes(nodes: TabNode[], tabs: Tab[]): TabNode[] {
 
 function flattenTabIds(nodes: TabNode[]): string[] {
   return nodes.flatMap(node => node.type === 'tab' ? [node.id] : flattenTabIds(node.children));
+}
+
+function expandedTabFolderIds(nodes: TabNode[]): string[] {
+  return nodes.flatMap(node => node.type === 'folder'
+    ? [...(!node.collapsed ? [node.id] : []), ...expandedTabFolderIds(node.children)]
+    : []);
+}
+
+function setTabFolderExpansion(nodes: TabNode[], expandedIds: Set<string>): TabNode[] {
+  return nodes.map(node => node.type === 'folder'
+    ? { ...node, collapsed: !expandedIds.has(node.id), children: setTabFolderExpansion(node.children, expandedIds) }
+    : node);
+}
+
+function bookmarkFolderIds(nodes: BookmarkNode[]): string[] {
+  return nodes.flatMap(node => node.type === 'folder' ? [node.id, ...bookmarkFolderIds(node.children)] : []);
 }
 
 function findTabNode(nodes: TabNode[], id: string): TabNode | undefined {
@@ -343,7 +362,6 @@ export default function App() {
   const [editingTabId, setEditingTabId] = useState('');
   const [editingTabFolderId, setEditingTabFolderId] = useState('');
   const [tabFolderTitle, setTabFolderTitle] = useState('');
-  const [tabDropTargetId, setTabDropTargetId] = useState('');
   const [tabContextMenu, setTabContextMenu] = useState<{ id: string; type: 'tab' | 'folder'; x: number; y: number } | null>(null);
   const [address, setAddress] = useState('');
   const [message, setMessage] = useState('');
@@ -367,7 +385,6 @@ export default function App() {
   const [folderTitle, setFolderTitle] = useState('');
   const [editingFolderId, setEditingFolderId] = useState('');
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
-  const [bookmarkDropTargetId, setBookmarkDropTargetId] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const addressRef = useRef<HTMLInputElement>(null);
@@ -380,6 +397,32 @@ export default function App() {
   const sessionTestStarted = useRef(false);
   const activeTab = tabs.find(tab => tab.id === activeTabId);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
+  const tabDragAndDrop = useDragAndDrop<TabNode>({
+    getItems: keys => [...keys].map(key => ({ 'text/plain': String(key) })),
+    shouldAcceptItemDrop: target => target.dropPosition !== 'on' || findTabNode(tabNodesRef.current, String(target.key))?.type === 'folder',
+    onMove: event => {
+      if (event.dropOperation !== 'move') return;
+      for (const key of event.keys) {
+        const draggedId = String(key);
+        if (event.target.dropPosition === 'on') moveTabNode(draggedId, undefined, String(event.target.key));
+        else moveTabNode(draggedId, String(event.target.key), undefined, event.target.dropPosition);
+      }
+    },
+  });
+  const bookmarkDragAndDrop = useDragAndDrop<BookmarkNode>({
+    getItems: keys => [...keys].map(key => ({ 'text/plain': String(key) })),
+    shouldAcceptItemDrop: target => target.dropPosition !== 'on' || findBookmarkNode(bookmarks, String(target.key))?.type === 'folder',
+    onMove: event => {
+      if (event.dropOperation !== 'move') return;
+      for (const key of event.keys) {
+        const draggedId = String(key);
+        if (event.target.dropPosition === 'on') {
+          moveBookmarkNode(draggedId, undefined, String(event.target.key));
+          setExpandedFolderIds(ids => ids.includes(String(event.target.key)) ? ids : [...ids, String(event.target.key)]);
+        } else moveBookmarkNode(draggedId, String(event.target.key), undefined, event.target.dropPosition);
+      }
+    },
+  });
   useEffect(() => {
     if (!securityOpen) return;
     setSecurityInfo(null);
@@ -857,14 +900,6 @@ export default function App() {
     });
   }
 
-  function dropBookmark(event: React.DragEvent, targetId?: string, folderId?: string, position: 'before' | 'after' = 'before') {
-    event.preventDefault();
-    event.stopPropagation();
-    moveBookmarkNode(event.dataTransfer.getData('text/plain'), targetId, folderId, position);
-    setBookmarkDropTargetId('');
-    if (folderId) setExpandedFolderIds(ids => ids.includes(folderId) ? ids : [...ids, folderId]);
-  }
-
   function storeTabTree(nodes: TabNode[]) {
     tabNodesRef.current = nodes;
     setTabNodes(nodes);
@@ -906,15 +941,7 @@ export default function App() {
     else if (targetId) result = insertTabNode(remaining, targetId, moving, position === 'after').nodes;
     else result = [...remaining, moving];
     reorderTabsFromTree(result);
-    setTabDropTargetId('');
     if (folderId) storeTabTree(updateTabNode(tabNodesRef.current, folderId, node => node.type === 'folder' ? { ...node, collapsed: false } : node));
-  }
-
-  function dropTab(event: React.DragEvent, targetId?: string, folderId?: string, position: 'before' | 'after' = 'before') {
-    event.preventDefault();
-    event.stopPropagation();
-    moveTabNode(event.dataTransfer.getData('text/plain'), targetId, folderId, position);
-    setTabDropTargetId('');
   }
 
   function saveTabName(tabId: string) {
@@ -932,77 +959,48 @@ export default function App() {
     return nodes.map(node => {
       if (node.type === 'folder') {
         const expanded = !node.collapsed;
-        return <div className="tab-folder" key={node.id}>
-          <div
-            className={`tab-folder-row ${tabDropTargetId === `before:${node.id}` ? 'drop-before' : ''} ${tabDropTargetId === `after:${node.id}` ? 'drop-after' : ''} ${tabDropTargetId === `folder:${node.id}` ? 'drop-inside' : ''}`}
-            style={{ paddingLeft: depth * 14 }}
-            draggable
-            onContextMenu={event => { event.preventDefault(); setTabContextMenu({ id: node.id, type: 'folder', x: Math.min(event.clientX, window.innerWidth - 165), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
-            onDragStart={event => { event.dataTransfer.setData('text/plain', node.id); event.dataTransfer.effectAllowed = 'move'; }}
-            onDragEnd={() => setTabDropTargetId('')}
-            onDragEnter={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTabDropTargetId(`folder:${node.id}`); }}
-            onDragOver={event => {
-              event.preventDefault(); event.dataTransfer.dropEffect = 'move';
-              const bounds = event.currentTarget.getBoundingClientRect();
-              const progress = (event.clientY - bounds.top) / bounds.height;
-              setTabDropTargetId(progress < 0.25 ? `before:${node.id}` : progress > 0.75 ? `after:${node.id}` : `folder:${node.id}`);
-            }}
-            onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTabDropTargetId(''); }}
-            onDrop={event => {
-              const bounds = event.currentTarget.getBoundingClientRect();
-              const progress = (event.clientY - bounds.top) / bounds.height;
-              if (progress < 0.25) dropTab(event, node.id, undefined, 'before');
-              else if (progress > 0.75) dropTab(event, node.id, undefined, 'after');
-              else dropTab(event, undefined, node.id);
-            }}
-          >
-            <button className="tab-folder-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`} onClick={() => storeTabTree(updateTabNode(tabNodesRef.current, node.id, item => item.type === 'folder' ? { ...item, collapsed: !item.collapsed } : item))}>{expanded ? '▾' : '▸'}</button>
-            <span className="tab-folder-icon" aria-hidden="true">▰</span>
+        return <TreeItem
+          key={node.id}
+          id={node.id}
+          textValue={`Folder ${node.title}`}
+          hasChildItems
+          className="tab-tree-item"
+          onContextMenu={event => { event.preventDefault(); setTabContextMenu({ id: node.id, type: 'folder', x: Math.min(event.clientX, window.innerWidth - 165), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
+        >
+          <TreeItemContent>{({ isExpanded }) => <div className="tab-folder-row" style={{ paddingLeft: depth * 14 }}>
+            <AriaButton slot="chevron" className="tab-folder-toggle" aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.title}`}>{isExpanded ? <ChevronDown className="ui-icon" size={14} aria-hidden="true" /> : <ChevronRight className="ui-icon" size={14} aria-hidden="true" />}</AriaButton>
+            <span className="tab-folder-icon" aria-hidden="true"><Folder className="ui-icon" size={14} /></span>
             {editingTabFolderId === node.id
-              ? <input className="tab-folder-name-input" aria-label="Tab folder name" autoFocus value={tabFolderTitle} onChange={event => setTabFolderTitle(event.target.value)} onBlur={() => saveTabFolderTitle(node.id)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveTabFolderTitle(node.id); } if (event.key === 'Escape') { setEditingTabFolderId(''); setTabFolderTitle(node.title); } }} />
+              ? <AppInput className="tab-folder-name-input" aria-label="Tab folder name" autoFocus value={tabFolderTitle} onChange={event => setTabFolderTitle(event.target.value)} onBlur={() => saveTabFolderTitle(node.id)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveTabFolderTitle(node.id); } if (event.key === 'Escape') { setEditingTabFolderId(''); setTabFolderTitle(node.title); } }} />
               : <span className="tab-folder-title">{node.title}</span>}
-          </div>
-          {expanded && <div className={`tab-folder-children ${tabDropTargetId === `folder:${node.id}` ? 'drop-inside' : ''}`}
-            onDragEnter={event => { if (event.target === event.currentTarget || (event.target instanceof HTMLElement && event.target.classList.contains('tab-folder-empty'))) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTabDropTargetId(`folder:${node.id}`); } }}
-            onDragOver={event => { if (event.target === event.currentTarget || (event.target instanceof HTMLElement && event.target.classList.contains('tab-folder-empty'))) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTabDropTargetId(`folder:${node.id}`); } }}
-            onDrop={event => dropTab(event, undefined, node.id)}>
-            {node.children.length ? renderTabNodes(node.children, depth + 1) : <div className="tab-folder-empty" style={{ paddingLeft: (depth + 1) * 14 + 30 }}>Drop tabs here</div>}
-          </div>}
-        </div>;
+            <span className="tree-drag-slot"><AriaButton slot="drag" className="tree-drag-handle" aria-label={`Move folder ${node.title}`}><GripVertical className="ui-icon" size={14} aria-hidden="true" /></AriaButton></span>
+            {!node.children.length && expanded && <span className="tree-empty-hint">Drop tabs here</span>}
+          </div>}</TreeItemContent>
+          {renderTabNodes(node.children, depth + 1)}
+        </TreeItem>;
       }
       const tab = tabs.find(item => item.id === node.id);
       if (!tab) return null;
       const title = tabNameOverrides[tab.id] || tab.title || 'New Tab';
       const icon = tabFavicons[tab.id];
-      return <div
-        className={`tab-row ${tab.id === activeTabId ? 'selected' : ''} ${tabDropTargetId === `before:${node.id}` ? 'drop-before' : ''} ${tabDropTargetId === `after:${node.id}` ? 'drop-after' : ''}`}
+      return <TreeItem
         key={node.id}
-        data-tab-id={tab.id}
-        style={{ marginLeft: depth * 14 }}
-        draggable
+        id={node.id}
+        textValue={title}
+        className="tab-tree-item"
+        aria-current={tab.id === activeTabId ? 'page' : undefined}
+        onAction={() => void selectTab(tab.id)}
         onContextMenu={event => { event.preventDefault(); setTabContextMenu({ id: tab.id, type: 'tab', x: Math.min(event.clientX, window.innerWidth - 165), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
-        onDragStart={event => { event.dataTransfer.setData('text/plain', node.id); event.dataTransfer.effectAllowed = 'move'; }}
-        onDragEnd={() => setTabDropTargetId('')}
-        onDragEnter={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTabDropTargetId(`before:${node.id}`); }}
-        onDragOver={event => {
-          event.preventDefault(); event.dataTransfer.dropEffect = 'move';
-          const bounds = event.currentTarget.getBoundingClientRect();
-          setTabDropTargetId(event.clientY < bounds.top + bounds.height / 2 ? `before:${node.id}` : `after:${node.id}`);
-        }}
-        onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTabDropTargetId(''); }}
-        onDrop={event => {
-          const bounds = event.currentTarget.getBoundingClientRect();
-          dropTab(event, node.id, undefined, event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after');
-        }}
       >
-        {editingTabId === tab.id
-          ? <input className="tab-rename-input" aria-label="Tab name" value={tabNameDraft} autoFocus onChange={event => setTabNameDraft(event.target.value)} onBlur={() => saveTabName(tab.id)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveTabName(tab.id); } if (event.key === 'Escape') setEditingTabId(''); }} />
-          : <button className="tab-select" role="tab" aria-selected={tab.id === activeTabId} onClick={() => void selectTab(tab.id)} title={tab.url || 'New tab'}>
-              <span className={`tab-favicon ${tab.loading ? 'is-loading' : ''}`}>{tab.loading ? '◌' : icon ? <img src={icon} alt="" onError={() => setTabFavicons(current => { const next = { ...current }; delete next[tab.id]; return next; })} /> : tab.url ? '◉' : '✳'}</span>
-              <span className="tab-title">{title}</span>
-            </button>}
-        <button className="tab-close" aria-label={`Close ${title}`} onClick={() => void closeTab(tab.id)}>×</button>
-      </div>;
+        <TreeItemContent><div className={`tab-row ${tab.id === activeTabId ? 'selected' : ''}`} style={{ paddingLeft: depth * 14 }} data-tab-id={tab.id}>
+          <span className={`tab-favicon ${tab.loading ? 'is-loading' : ''}`}>{tab.loading ? <LoaderCircle className="ui-icon" size={14} aria-hidden="true" /> : icon ? <img src={icon} alt="" onError={() => setTabFavicons(current => { const next = { ...current }; delete next[tab.id]; return next; })} /> : tab.url ? <Globe2 className="ui-icon" size={14} aria-hidden="true" /> : <Sparkles className="ui-icon" size={14} aria-hidden="true" />}</span>
+          {editingTabId === tab.id
+            ? <AppInput className="tab-rename-input" aria-label="Tab name" value={tabNameDraft} autoFocus onChange={event => setTabNameDraft(event.target.value)} onBlur={() => saveTabName(tab.id)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); saveTabName(tab.id); } if (event.key === 'Escape') { event.stopPropagation(); setEditingTabId(''); } }} />
+            : <span className="tab-title">{title}</span>}
+          <span className="tree-drag-slot"><AriaButton slot="drag" className="tree-drag-handle" aria-label={`Move ${title}`}><GripVertical className="ui-icon" size={14} aria-hidden="true" /></AriaButton></span>
+          <AppButton className="tab-close" aria-label={`Close ${title}`} onClick={() => void closeTab(tab.id)}><X className="ui-icon" size={14} aria-hidden="true" /></AppButton>
+        </div></TreeItemContent>
+      </TreeItem>;
     });
   }
 
@@ -1010,78 +1008,44 @@ export default function App() {
     return nodes.map(node => {
       if (node.type === 'folder') {
         const expanded = expandedFolderIds.includes(node.id) || Boolean(bookmarkSearch.trim());
-        return <div className="bookmark-node folder-node" key={node.id}>
-          <div
-            className={`folder-row ${bookmarkDropTargetId === `before:${node.id}` ? 'drop-before' : ''} ${bookmarkDropTargetId === `after:${node.id}` ? 'drop-after' : ''} ${bookmarkDropTargetId === `folder:${node.id}` ? 'drop-inside' : ''}`}
-            style={{ paddingLeft: depth * 14 }}
-            draggable
-            onDragStart={event => { event.dataTransfer.setData('text/plain', node.id); event.dataTransfer.effectAllowed = 'move'; }}
-            onDragEnd={() => setBookmarkDropTargetId('')}
-            onDragEnter={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setBookmarkDropTargetId(`folder:${node.id}`); }}
-            onDragOver={event => {
-              event.preventDefault();
-              event.dataTransfer.dropEffect = 'move';
-              const bounds = event.currentTarget.getBoundingClientRect();
-              const progress = (event.clientY - bounds.top) / bounds.height;
-              setBookmarkDropTargetId(progress < 0.25 ? `before:${node.id}` : progress > 0.75 ? `after:${node.id}` : `folder:${node.id}`);
-            }}
-            onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setBookmarkDropTargetId(''); }}
-            onDrop={event => {
-              const bounds = event.currentTarget.getBoundingClientRect();
-              const progress = (event.clientY - bounds.top) / bounds.height;
-              if (progress < 0.25) dropBookmark(event, node.id, undefined, 'before');
-              else if (progress > 0.75) dropBookmark(event, node.id, undefined, 'after');
-              else dropBookmark(event, undefined, node.id);
-            }}
-          >
-            <button className="folder-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`} onClick={() => setExpandedFolderIds(ids => expanded ? ids.filter(id => id !== node.id) : [...ids, node.id])}>{expanded ? '▾' : '▸'}</button>
-            <span className="bookmark-icon folder-icon" aria-hidden="true">▰</span>
-            {editingFolderId === node.id ? <input className="folder-title-input" aria-label="Folder name" autoFocus value={folderTitle} onChange={event => setFolderTitle(event.target.value)} onBlur={() => saveFolderTitle(node.id)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveFolderTitle(node.id); } if (event.key === 'Escape') { setEditingFolderId(''); setFolderTitle(node.title); } }} /> : <span className="folder-title" title={node.title}>{node.title}</span>}
-            <div className="folder-actions">
-              <button className="folder-action" aria-label={`Create subfolder in ${node.title}`} title="New subfolder" onClick={() => createBookmarkFolder(node.id)}>＋</button>
-              <button className="folder-action" aria-label={`Rename ${node.title}`} title="Rename folder" onClick={() => { setFolderTitle(node.title); setEditingFolderId(node.id); }}>✎</button>
-              <button className="folder-action" aria-label={`Delete ${node.title}`} title="Delete folder and contents" onClick={() => deleteBookmarkNode(node)}>×</button>
-            </div>
-          </div>
-          {expanded && <div className={`folder-children ${bookmarkDropTargetId === `folder:${node.id}` ? 'drop-inside' : ''}`}
-            onDragEnter={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setBookmarkDropTargetId(`folder:${node.id}`); }}
-            onDragOver={event => {
-              if (event.target === event.currentTarget || (event.target instanceof HTMLElement && event.target.classList.contains('folder-empty'))) {
-                event.preventDefault();
-                event.dataTransfer.dropEffect = 'move';
-                setBookmarkDropTargetId(`folder:${node.id}`);
-              }
-            }}
-            onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setBookmarkDropTargetId(''); }}
-            onDrop={event => dropBookmark(event, undefined, node.id)}>
-            {node.children.length ? renderBookmarkNodes(node.children, depth + 1) : <div className="folder-empty" style={{ paddingLeft: (depth + 1) * 14 + 30 }}>Drop bookmarks here</div>}
-          </div>}
-        </div>;
+        return <TreeItem
+          key={node.id}
+          id={node.id}
+          textValue={`Folder ${node.title}`}
+          hasChildItems
+          className="bookmark-tree-item"
+        >
+          <TreeItemContent>{({ isExpanded }) => <div className="folder-row" style={{ paddingLeft: depth * 14 }}>
+            <AriaButton slot="chevron" className="folder-toggle" aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.title}`}>{isExpanded ? <ChevronDown className="ui-icon" size={14} aria-hidden="true" /> : <ChevronRight className="ui-icon" size={14} aria-hidden="true" />}</AriaButton>
+            <span className="bookmark-icon folder-icon" aria-hidden="true"><Folder className="ui-icon" size={14} /></span>
+            {editingFolderId === node.id
+              ? <AppInput className="folder-title-input" aria-label="Folder name" autoFocus value={folderTitle} onChange={event => setFolderTitle(event.target.value)} onBlur={() => saveFolderTitle(node.id)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveFolderTitle(node.id); } if (event.key === 'Escape') { setEditingFolderId(''); setFolderTitle(node.title); } }} />
+              : <span className="folder-title" title={node.title}>{node.title}</span>}
+            <span className="tree-drag-slot"><AriaButton slot="drag" className="tree-drag-handle" aria-label={`Move folder ${node.title}`}><GripVertical className="ui-icon" size={14} aria-hidden="true" /></AriaButton></span>
+            <span className="folder-actions">
+              <AppButton className="folder-action" aria-label={`Create subfolder in ${node.title}`} title="New subfolder" onClick={() => createBookmarkFolder(node.id)}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /></AppButton>
+              <AppButton className="folder-action" aria-label={`Rename ${node.title}`} title="Rename folder" onClick={() => { setFolderTitle(node.title); setEditingFolderId(node.id); }}><Pencil className="ui-icon" size={14} aria-hidden="true" /></AppButton>
+              <AppButton className="folder-action" aria-label={`Delete ${node.title}`} title="Delete folder and contents" onClick={() => deleteBookmarkNode(node)}><X className="ui-icon" size={14} aria-hidden="true" /></AppButton>
+            </span>
+            {!node.children.length && expanded && <span className="tree-empty-hint">Drop bookmarks here</span>}
+          </div>}</TreeItemContent>
+          {renderBookmarkNodes(node.children, depth + 1)}
+        </TreeItem>;
       }
-      return <div
-        className={`bookmark-row bookmark-tree-row ${bookmarkDropTargetId === `before:${node.id}` ? 'drop-before' : ''} ${bookmarkDropTargetId === `after:${node.id}` ? 'drop-after' : ''}`}
+      return <TreeItem
         key={node.id}
-        style={{ paddingLeft: depth * 14 }}
-        draggable
-        onDragStart={event => { event.dataTransfer.setData('text/plain', node.id); event.dataTransfer.effectAllowed = 'move'; }}
-        onDragEnd={() => setBookmarkDropTargetId('')}
-        onDragEnter={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setBookmarkDropTargetId(`before:${node.id}`); }}
-        onDragOver={event => {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'move';
-          const bounds = event.currentTarget.getBoundingClientRect();
-          setBookmarkDropTargetId(event.clientY < bounds.top + bounds.height / 2 ? `before:${node.id}` : `after:${node.id}`);
-        }}
-        onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setBookmarkDropTargetId(''); }}
-        onDrop={event => {
-          const bounds = event.currentTarget.getBoundingClientRect();
-          dropBookmark(event, node.id, undefined, event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after');
-        }}
+        id={node.id}
+        textValue={`${node.title} ${node.url}`}
+        className="bookmark-tree-item"
+        onAction={() => void openBookmark(node.url)}
       >
-        <button className="bookmark-open" title={node.url} onClick={() => void openBookmark(node.url)}><span className="bookmark-icon">☆</span><span><strong>{node.title}</strong><small>{node.url}</small></span></button>
-        <button className="bookmark-edit" aria-label={`Edit ${node.title}`} onClick={() => editBookmark(node)}>✎</button>
-        <button className="bookmark-delete" aria-label={`Delete ${node.title}`} onClick={() => deleteBookmarkNode(node)}>×</button>
-      </div>;
+        <TreeItemContent><div className="bookmark-row bookmark-tree-row" style={{ paddingLeft: depth * 14 }}>
+          <span className="bookmark-open"><span className="bookmark-icon"><Star className="ui-icon" size={14} aria-hidden="true" /></span><span><strong>{node.title}</strong><small>{node.url}</small></span></span>
+          <span className="tree-drag-slot"><AriaButton slot="drag" className="tree-drag-handle" aria-label={`Move ${node.title}`}><GripVertical className="ui-icon" size={14} aria-hidden="true" /></AriaButton></span>
+          <AppButton className="bookmark-edit" aria-label={`Edit ${node.title}`} onClick={() => editBookmark(node)}><Pencil className="ui-icon" size={14} aria-hidden="true" /></AppButton>
+          <AppButton className="bookmark-delete" aria-label={`Delete ${node.title}`} onClick={() => deleteBookmarkNode(node)}><X className="ui-icon" size={14} aria-hidden="true" /></AppButton>
+        </div></TreeItemContent>
+      </TreeItem>;
     });
   }
 
@@ -1104,66 +1068,80 @@ export default function App() {
     <main className="browser-shell">
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`} style={{ width: sidebarCollapsed ? 48 : sidebarWidth, flexBasis: sidebarCollapsed ? 48 : sidebarWidth }}>
         <div className="brand-row">
-          <div className="brand-mark" aria-hidden="true">◉</div>
+          <div className="brand-mark" aria-hidden="true"><CircleDot className="ui-icon" size={17} /></div>
           <span className="brand-name">My Browser</span>
-          <button className="sidebar-collapse-button" type="button" aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!sidebarCollapsed} aria-controls="sidebar-content" onClick={() => setSidebarCollapsed(collapsed => !collapsed)}>{sidebarCollapsed ? '›' : '‹'}</button>
+          <AppButton className="sidebar-collapse-button" type="button" aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!sidebarCollapsed} aria-controls="sidebar-content" onClick={() => setSidebarCollapsed(collapsed => !collapsed)}>{sidebarCollapsed ? <PanelLeftOpen className="ui-icon" size={16} aria-hidden="true" /> : <PanelLeftClose className="ui-icon" size={16} aria-hidden="true" />}</AppButton>
         </div>
         <div className="sidebar-content" id="sidebar-content">
-        <div className="sidebar-switcher" role="tablist" aria-label="Sidebar views">
-          <button role="tab" aria-selected={sidebarView === 'tabs'} className={sidebarView === 'tabs' ? 'active' : ''} onClick={() => setSidebarView('tabs')}>Tabs</button>
-          <button role="tab" aria-selected={sidebarView === 'bookmarks'} className={sidebarView === 'bookmarks' ? 'active' : ''} onClick={() => setSidebarView('bookmarks')}>Bookmarks</button>
-          <button role="tab" aria-selected={sidebarView === 'history'} className={sidebarView === 'history' ? 'active' : ''} onClick={() => setSidebarView('history')}>History</button>
-          <button role="tab" aria-selected={sidebarView === 'downloads'} className={sidebarView === 'downloads' ? 'active' : ''} onClick={() => setSidebarView('downloads')}>Downloads</button>
-        </div>
+        <Tabs className="sidebar-tabs" selectedKey={sidebarView} onSelectionChange={key => setSidebarView(key as typeof sidebarView)}>
+          <TabList className="sidebar-switcher" aria-label="Sidebar views">
+            <Tab id="tabs">Tabs</Tab>
+            <Tab id="bookmarks">Bookmarks</Tab>
+            <Tab id="history">History</Tab>
+            <Tab id="downloads">Downloads</Tab>
+          </TabList>
+          <TabPanels className="sidebar-panels">
+          <TabPanel id={sidebarView} className="sidebar-panel">
         {sidebarView === 'tabs' ? <>
-        <div className={`tab-list tab-tree ${tabDropTargetId === 'root' ? 'drop-root' : ''}`} role="tablist" aria-label="Open tabs"
-          onDragEnter={event => { if (event.target === event.currentTarget) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTabDropTargetId('root'); } }}
-          onDragOver={event => { if (event.target === event.currentTarget) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setTabDropTargetId('root'); } }}
-          onDrop={event => { if (event.target === event.currentTarget) dropTab(event); }}>
+        <Tree
+          className="tab-list tab-tree"
+          aria-label="Open tabs"
+          selectionMode="none"
+          keyboardNavigationBehavior="tab"
+          expandedKeys={new Set(expandedTabFolderIds(tabNodes))}
+          onExpandedChange={keys => storeTabTree(setTabFolderExpansion(tabNodesRef.current, new Set([...keys].map(String))))}
+          dragAndDropHooks={tabDragAndDrop.dragAndDropHooks}
+        >
           {renderTabNodes(tabNodes)}
-        </div>
+        </Tree>
         <div className="tab-actions">
-          <button className="new-tab" onClick={() => void createTab()}><span>＋</span> New tab <kbd>⌘ T</kbd></button>
-          <button className="new-tab-folder" title="Create tab folder" aria-label="Create tab folder" onClick={createTabFolder}>＋ Folder</button>
+          <AppButton className="new-tab" onClick={() => void createTab()}><Plus className="ui-icon" size={16} aria-hidden="true" /> New tab <kbd>⌘ T</kbd></AppButton>
+          <AppButton className="new-tab-folder" title="Create tab folder" aria-label="Create tab folder" onClick={createTabFolder}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
         </div>
         </> : sidebarView === 'bookmarks' ? <div className="bookmark-manager">
-          <div className="bookmark-toolbar"><input className="bookmark-search" aria-label="Search bookmarks" placeholder="Find a bookmark" value={bookmarkSearch} onChange={event => setBookmarkSearch(event.target.value)} /><button className="new-folder-button" onClick={() => createBookmarkFolder()}>＋ Folder</button></div>
+          <div className="bookmark-toolbar"><AppInput className="bookmark-search" aria-label="Search bookmarks" placeholder="Find a bookmark" value={bookmarkSearch} onChange={event => setBookmarkSearch(event.target.value)} /><AppButton className="new-folder-button" onClick={() => createBookmarkFolder()}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton></div>
           <form className="bookmark-form" onSubmit={saveBookmark}>
-            <input aria-label="Bookmark title" placeholder="Name" value={bookmarkTitle} onChange={event => setBookmarkTitle(event.target.value)} />
-            <input aria-label="Bookmark address" placeholder="https://example.com" value={bookmarkUrl} onChange={event => setBookmarkUrl(event.target.value)} />
-            <button type="submit">{editingBookmarkId ? 'Save changes' : 'Add bookmark'}</button>
-            {editingBookmarkId && <button type="button" className="cancel-edit" onClick={() => { setEditingBookmarkId(''); setBookmarkTitle(''); setBookmarkUrl(''); }}>Cancel</button>}
+            <AppInput aria-label="Bookmark title" placeholder="Name" value={bookmarkTitle} onChange={event => setBookmarkTitle(event.target.value)} />
+            <AppInput aria-label="Bookmark address" placeholder="https://example.com" value={bookmarkUrl} onChange={event => setBookmarkUrl(event.target.value)} />
+            <AppButton type="submit">{editingBookmarkId ? 'Save changes' : 'Add bookmark'}</AppButton>
+            {editingBookmarkId && <AppButton type="button" className="cancel-edit" onClick={() => { setEditingBookmarkId(''); setBookmarkTitle(''); setBookmarkUrl(''); }}>Cancel</AppButton>}
           </form>
-          <div className={`bookmark-list bookmark-tree ${bookmarkDropTargetId === 'root' ? 'drop-root' : ''}`}
+          <Tree
+            className="bookmark-list bookmark-tree"
             aria-label="Saved bookmarks"
-            onDragEnter={event => { if (event.target === event.currentTarget) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setBookmarkDropTargetId('root'); } }}
-            onDragOver={event => { if (event.target === event.currentTarget) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setBookmarkDropTargetId('root'); } }}
-            onDrop={event => { if (event.target === event.currentTarget) dropBookmark(event); }}>
+            selectionMode="none"
+            keyboardNavigationBehavior="tab"
+            expandedKeys={new Set(bookmarkSearch.trim() ? bookmarkFolderIds(filterBookmarkNodes(bookmarks, bookmarkSearch.trim())) : expandedFolderIds)}
+            onExpandedChange={keys => setExpandedFolderIds([...keys].map(String))}
+            dragAndDropHooks={bookmarkDragAndDrop.dragAndDropHooks}
+            renderEmptyState={() => <p className="bookmark-empty">{bookmarks.length === 0 ? 'Your saved pages will appear here.' : 'No matching bookmarks.'}</p>}
+          >
             {renderBookmarkNodes(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()))}
-            {bookmarks.length === 0 && <p className="bookmark-empty">Your saved pages will appear here.</p>}
-            {bookmarks.length > 0 && !filterBookmarkNodes(bookmarks, bookmarkSearch.trim()).length && <p className="bookmark-empty">No matching bookmarks.</p>}
-          </div>
+          </Tree>
         </div> : sidebarView === 'history' ? <div className="bookmark-manager">
           <div className="bookmark-list" aria-label="Browsing history">
             {history.map((item, index) => <div className="bookmark-row" key={`${item.url}-${item.visitedAt}-${index}`}>
-              <button className="bookmark-open" onClick={() => void openHistoryEntry(item.url)}><span className="bookmark-icon">◷</span><span><strong>{item.title || item.url}</strong><small>{item.url}</small></span></button>
+              <AppButton className="bookmark-open" onClick={() => void openHistoryEntry(item.url)}><span className="bookmark-icon"><Clock3 className="ui-icon" size={14} aria-hidden="true" /></span><span><strong>{item.title || item.url}</strong><small>{item.url}</small></span></AppButton>
             </div>)}
             {history.length === 0 && <p className="bookmark-empty">Pages you visit will appear here.</p>}
           </div>
         </div> : <div className="bookmark-manager">
           <div className="bookmark-list" aria-label="Downloads">
             {downloads.map(item => <div className="bookmark-row download-row" key={item.id}>
-              <div className="bookmark-open"><span className="bookmark-icon">↓</span><span><strong>{item.filename}</strong><small>{item.status === 'completed' ? 'Complete' : item.status === 'failed' ? 'Failed' : `Downloading · ${item.bytesReceived.toLocaleString()} bytes`}</small>
+              <div className="bookmark-open"><span className="bookmark-icon"><Download className="ui-icon" size={14} aria-hidden="true" /></span><span><strong>{item.filename}</strong><small>{item.status === 'completed' ? 'Complete' : item.status === 'failed' ? 'Failed' : `Downloading · ${item.bytesReceived.toLocaleString()} bytes`}</small>
                 {item.status === 'downloading' && <progress className="download-progress" max={1} />}</span></div>
-              <button className="bookmark-edit" disabled={item.status !== 'completed'} aria-label={`Reveal ${item.filename}`} onClick={() => void invoke('reveal_download', { downloadId: item.id }).catch(error => setMessage(String(error)))}>↗</button>
+              <AppButton className="bookmark-edit" disabled={item.status !== 'completed'} aria-label={`Reveal ${item.filename}`} onClick={() => void invoke('reveal_download', { downloadId: item.id }).catch(error => setMessage(String(error)))}><ExternalLink className="ui-icon" size={14} aria-hidden="true" /></AppButton>
             </div>)}
             {downloads.length === 0 && <p className="bookmark-empty">Downloaded files will appear here.</p>}
           </div>
         </div>}
+          </TabPanel>
+          </TabPanels>
+        </Tabs>
         {tabContextMenu && <>
           <div className="sidebar-context-dismiss" onClick={() => setTabContextMenu(null)} />
           <div className="sidebar-context-menu" style={{ left: tabContextMenu.x, top: tabContextMenu.y }} role="menu">
-            <button role="menuitem" onClick={() => {
+            <AppButton role="menuitem" onClick={() => {
               if (tabContextMenu.type === 'tab') {
                 const tab = tabs.find(item => item.id === tabContextMenu.id);
                 setTabNameDraft(tabNameOverrides[tabContextMenu.id] || tab?.title || '');
@@ -1173,12 +1151,12 @@ export default function App() {
                 if (folder?.type === 'folder') { setTabFolderTitle(folder.title); setEditingTabFolderId(folder.id); }
               }
               setTabContextMenu(null);
-            }}>Rename</button>
-            {tabContextMenu.type === 'folder' && <button role="menuitem" onClick={() => { deleteTabFolder(tabContextMenu.id); setTabContextMenu(null); }}>Delete folder</button>}
+            }}>Rename</AppButton>
+            {tabContextMenu.type === 'folder' && <AppButton role="menuitem" onClick={() => { deleteTabFolder(tabContextMenu.id); setTabContextMenu(null); }}>Delete folder</AppButton>}
           </div>
         </>}
         <div className="sidebar-bottom">
-          <button className="profile-button"><span className="avatar">J</span><span className="profile-copy"><strong>Personal</strong><small>Local profile</small></span><span className="profile-menu">···</span></button>
+          <AppButton className="profile-button"><span className="avatar">J</span><span className="profile-copy"><strong>Personal</strong><small>Local profile</small></span><MoreHorizontal className="ui-icon profile-menu" size={16} aria-hidden="true" /></AppButton>
         </div>
         </div>
         <div className={`sidebar-sizer ${resizingSidebar ? 'dragging' : ''}`} role="separator" aria-label="Resize tab sidebar" aria-orientation="vertical" aria-valuemin={sidebarMinWidth} aria-valuemax={sidebarMaxWidth} aria-valuenow={Math.round(sidebarWidth)} tabIndex={0} data-sidebar-sizer onPointerDown={event => { event.preventDefault(); setResizingSidebar(true); }} onDoubleClick={() => { setSidebarWidth(sidebarDefaultWidth); localStorage.removeItem('browser.sidebarWidth'); }} />
@@ -1187,23 +1165,23 @@ export default function App() {
       <section className="browser-main">
         <header className="toolbar">
           <div className="nav-controls" aria-label="Page navigation">
-            <button className="icon-button" title="Go back" aria-label="Go back" disabled={!activeTab?.canGoBack} onClick={() => void runNavigationCommand('go_back')}>‹</button>
-            <button className="icon-button" title="Go forward" aria-label="Go forward" disabled={!activeTab?.canGoForward} onClick={() => void runNavigationCommand('go_forward')}>›</button>
-            <button className="icon-button reload-button" title={activeTab?.loading ? 'Stop loading' : 'Reload'} aria-label={activeTab?.loading ? 'Stop loading' : 'Reload'} onClick={() => void runNavigationCommand(activeTab?.loading ? 'stop_loading' : 'reload')}>{activeTab?.loading ? '×' : '↻'}</button>
+            <AppButton className="icon-button" title="Go back" aria-label="Go back" disabled={!activeTab?.canGoBack} onClick={() => void runNavigationCommand('go_back')}><ArrowLeft className="ui-icon" size={17} aria-hidden="true" /></AppButton>
+            <AppButton className="icon-button" title="Go forward" aria-label="Go forward" disabled={!activeTab?.canGoForward} onClick={() => void runNavigationCommand('go_forward')}><ArrowRight className="ui-icon" size={17} aria-hidden="true" /></AppButton>
+            <AppButton className="icon-button reload-button" title={activeTab?.loading ? 'Stop loading' : 'Reload'} aria-label={activeTab?.loading ? 'Stop loading' : 'Reload'} onClick={() => void runNavigationCommand(activeTab?.loading ? 'stop_loading' : 'reload')}>{activeTab?.loading ? <X className="ui-icon" size={16} aria-hidden="true" /> : <RotateCw className="ui-icon" size={16} aria-hidden="true" />}</AppButton>
           </div>
           <form className="address-form" onSubmit={navigate}>
-            <span className="security-icon" aria-hidden="true">{activeTab?.url.startsWith('https:') ? '▣' : '◌'}</span>
-            <input ref={addressRef} aria-label="Search or enter address" autoComplete="off" spellCheck={false} placeholder="Search or enter address" value={address} onChange={event => setAddress(event.target.value)} onFocus={event => event.currentTarget.select()} />
-            {activeTab?.url && <button type="button" className="clear-address" title="Clear address" onClick={() => { setAddress(''); addressRef.current?.focus(); }}>×</button>}
+            <span className="security-icon" aria-hidden="true">{activeTab?.url.startsWith('https:') ? <LockKeyhole className="ui-icon" size={13} /> : <Globe2 className="ui-icon" size={13} />}</span>
+            <AppInput ref={addressRef} aria-label="Search or enter address" autoComplete="off" spellCheck={false} placeholder="Search or enter address" value={address} onChange={event => setAddress(event.target.value)} onFocus={event => event.currentTarget.select()} />
+            {activeTab?.url && <AppButton type="button" className="clear-address" title="Clear address" aria-label="Clear address" onClick={() => { setAddress(''); addressRef.current?.focus(); }}><X className="ui-icon" size={13} aria-hidden="true" /></AppButton>}
           </form>
           {findOpen ? <form className="find-form" aria-label="Find in page" onSubmit={event => { event.preventDefault(); void findInPage(findQuery); }}>
-            <input ref={findRef} aria-label="Find in page" placeholder="Find in page" value={findQuery} onChange={event => { setFindQuery(event.target.value); setFindMatches(null); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void findInPage(findQuery, event.shiftKey); } }} />
+            <AppInput ref={findRef} aria-label="Find in page" placeholder="Find in page" value={findQuery} onChange={event => { setFindQuery(event.target.value); setFindMatches(null); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void findInPage(findQuery, event.shiftKey); } }} />
             {findMatches !== null && <span className="find-result" role="status" aria-live="polite">{findMatches} {findMatches === 1 ? 'match' : 'matches'}</span>}
-            <button type="submit" title="Find next">↓</button><button type="button" title="Find previous" onClick={() => void findInPage(findQuery, true)}>↑</button>
-            <button type="button" title="Close find" onClick={() => { setFindOpen(false); setFindQuery(''); setFindMatches(null); }}>×</button>
-          </form> : <button className="toolbar-action" title="Find in page (⌘F)" aria-label="Find in page" onClick={openFindPanel}>⌕</button>}
-          <button className={`toolbar-action bookmark-toggle ${currentBookmark ? 'is-bookmarked' : ''}`} title={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-label={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-pressed={Boolean(currentBookmark)} disabled={!activeTab?.url} onClick={addCurrentPage}><span>{currentBookmark ? '★' : '☆'}</span></button>
-          <button ref={securityButtonRef} className={`toolbar-action ${securityOpen ? 'security-active' : ''}`} title="Page security and permissions" aria-label="Page security and permissions" aria-expanded={securityOpen} disabled={!activeTab?.url} onClick={async () => {
+            <AppButton type="submit" title="Find next" aria-label="Find next"><ArrowDown className="ui-icon" size={13} aria-hidden="true" /></AppButton><AppButton type="button" title="Find previous" aria-label="Find previous" onClick={() => void findInPage(findQuery, true)}><ArrowUp className="ui-icon" size={13} aria-hidden="true" /></AppButton>
+            <AppButton type="button" title="Close find" aria-label="Close find" onClick={() => { setFindOpen(false); setFindQuery(''); setFindMatches(null); }}><X className="ui-icon" size={13} aria-hidden="true" /></AppButton>
+          </form> : <AppButton className="toolbar-action" title="Find in page (⌘F)" aria-label="Find in page" onClick={openFindPanel}><Search className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
+          <AppButton className={`toolbar-action bookmark-toggle ${currentBookmark ? 'is-bookmarked' : ''}`} title={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-label={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-pressed={Boolean(currentBookmark)} disabled={!activeTab?.url} onClick={addCurrentPage}><Star className="ui-icon" size={17} aria-hidden="true" fill={currentBookmark ? 'currentColor' : 'none'} /></AppButton>
+          <AppButton ref={securityButtonRef} className={`toolbar-action ${securityOpen ? 'security-active' : ''}`} title="Page security and permissions" aria-label="Page security and permissions" aria-expanded={securityOpen} disabled={!activeTab?.url} onClick={async () => {
             const rect = securityButtonRef.current?.getBoundingClientRect();
             if (!rect || !activeTab?.url) return;
             const info = securityInfo || { origin: new URL(activeTab.url).origin, secureHttps: activeTab.url.startsWith('https:'), location: 'unknown', camera: 'unknown', microphone: 'unknown', playingAudio: false };
@@ -1214,18 +1192,27 @@ export default function App() {
               setSecurityOpen(shown);
               if (!shown) setSecurityInfo(null);
             } catch (error) { setMessage(String(error)); }
-          }}><span>◈</span></button>
-          <button className="toolbar-action" title="Settings" aria-label="Settings" onClick={() => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); }}>⚙</button>
+          }}><Shield className="ui-icon" size={17} aria-hidden="true" /></AppButton>
+          <AppButton className="toolbar-action" title="Settings" aria-label="Settings" onClick={() => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); }}><Settings className="ui-icon" size={17} aria-hidden="true" /></AppButton>
         </header>
 
         <div className="webview-slot" ref={viewRef}>
           {settingsOpen ? <section className="settings-page" aria-label="Settings">
-            <header className="settings-heading"><div><p className="eyebrow">MY BROWSER</p><h1>Settings</h1></div><button className="settings-close" onClick={closeSettings} aria-label="Close settings">×</button></header>
+            <header className="settings-heading"><div><p className="eyebrow">MY BROWSER</p><h1>Settings</h1></div><AppButton className="settings-close" onClick={closeSettings} aria-label="Close settings"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>
             <div className="settings-content">
               <h2>General</h2>
-              <div className="settings-card"><div><strong>Bookmarks</strong><small>Saved locally in this browser profile.</small></div><button onClick={() => { closeSettings(); setSidebarView('bookmarks'); }}>Manage bookmarks</button></div>
+              <div className="settings-card"><div><strong>Bookmarks</strong><small>Saved locally in this browser profile.</small></div><AppButton onClick={() => { closeSettings(); setSidebarView('bookmarks'); }}>Manage bookmarks</AppButton></div>
               <h2>Appearance</h2>
-              <div className="settings-card"><div><strong>Color scheme</strong><small>Choose the browser interface appearance.</small></div><select aria-label="Color scheme" value={theme} onChange={event => setTheme(event.target.value as Theme)}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
+              <div className="settings-card"><div><strong>Color scheme</strong><small>Choose the browser interface appearance.</small></div>
+                <Select aria-label="Color scheme" selectedKey={theme} onSelectionChange={key => setTheme(key as Theme)} className="theme-select">
+                  <AriaButton className="theme-select-trigger"><SelectValue /></AriaButton>
+                  <Popover className="theme-select-popover"><ListBox>
+                    <ListBoxItem id="system">System</ListBoxItem>
+                    <ListBoxItem id="light">Light</ListBoxItem>
+                    <ListBoxItem id="dark">Dark</ListBoxItem>
+                  </ListBox></Popover>
+                </Select>
+              </div>
               <div className="settings-card"><div><strong>Sidebar width</strong><small>Resize the sidebar by dragging its right edge.</small></div><span>{Math.round(sidebarWidth)} px</span></div>
               <h2>Privacy</h2>
               <div className="settings-card"><div><strong>Content filtering</strong><small>Filtering is not enabled for normal browsing yet.</small></div><span className="settings-badge">Not enabled</span></div>
@@ -1233,13 +1220,13 @@ export default function App() {
               <div className="settings-card"><div><strong>My Browser</strong><small>macOS development build</small></div><span>0.1.0</span></div>
             </div>
           </section> : (!activeTab?.url || !isTauri) && <div className="start-page">
-            <div className="start-orb">✳</div>
+            <div className="start-orb"><Sparkles className="ui-icon" size={28} aria-hidden="true" /></div>
             <p className="eyebrow">A CLEARER PLACE TO BROWSE</p>
             <h1>Where to?</h1>
-            <form className="start-search" onSubmit={navigate}><span>⌕</span><input aria-label="Search the web" placeholder="Search or enter a website" value={address} onChange={event => setAddress(event.target.value)} /><kbd>↵</kbd></form>
+            <form className="start-search" onSubmit={navigate}><Search className="ui-icon" size={18} aria-hidden="true" /><AppInput aria-label="Search the web" placeholder="Search or enter a website" value={address} onChange={event => setAddress(event.target.value)} /><kbd>↵</kbd></form>
             {!isTauri && <p className="dev-note">Run the desktop app to open websites in the native browser view.</p>}
             {message && <p className="message" role="status">{message}</p>}
-            <div className="quick-links"><button onClick={() => void navigateTo('https://www.google.com')}>Google</button><button onClick={() => void navigateTo('https://wikipedia.org')}>Wikipedia</button><button onClick={() => void navigateTo('https://github.com')}>GitHub</button></div>
+            <div className="quick-links"><AppButton onClick={() => void navigateTo('https://www.google.com')}>Google</AppButton><AppButton onClick={() => void navigateTo('https://wikipedia.org')}>Wikipedia</AppButton><AppButton onClick={() => void navigateTo('https://github.com')}>GitHub</AppButton></div>
           </div>}
           {message && activeTab?.url && <div className="toast" role="status">{message}</div>}
         </div>
