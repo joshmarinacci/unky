@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-test-capability",
+  "description": "Debug-only WebdriverIO capabilities for the trusted browser window.",
+  "windows": ["main", "wdio-host"],
+  "permissions": [
+    "allow-main-browser-commands",
+    "allow-desktop-test-inspect-page",
+    "wdio:default",
+    "wdio-webdriver:default"
+  ]
+}

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Desktop fixture · One</title>
+    <style>
+      :root { color-scheme: light; font: 18px/1.5 -apple-system, BlinkMacSystemFont, sans-serif; color: #15253b; background: #eaf2fa; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+      main { width: min(720px, calc(100% - 64px)); padding: 48px; border-radius: 24px; background: white; box-shadow: 0 18px 60px #193d6426; }
+      .eyebrow { color: #176b87; text-transform: uppercase; letter-spacing: .12em; font-size: 13px; font-weight: 700; }
+      h1 { margin: 12px 0; font-size: 40px; }
+      a { display: inline-block; margin: 8px 12px 0 0; padding: 10px 16px; color: white; border-radius: 9px; background: #176b87; text-decoration: none; }
+      #loaded { margin-top: 24px; padding: 12px; background: #e5f7ee; border-radius: 8px; }
+    </style>
+  </head>
+  <body>
+    <main data-testid="fixture-one">
+      <div class="eyebrow">Local browser test site</div>
+      <h1>Fixture Page One</h1>
+      <p>This deterministic page is rendered in a real website child WebView.</p>
+      <div id="loaded" data-testid="page-loaded">Page one is ready.</div>
+      <nav aria-label="Fixture navigation">
+        <a href="/two" data-testid="navigate-two">Open page two</a>
+        <a href="/slow" data-testid="slow-page">Load delayed page</a>
+      </nav>
+    </main>
+    <script>
+      window.__desktopTestErrors = [];
+      addEventListener('error', event => window.__desktopTestErrors.push(String(event.message)));
+      addEventListener('unhandledrejection', event => window.__desktopTestErrors.push(String(event.reason)));
+      fetch('/api/status').catch(error => window.__desktopTestErrors.push(String(error)));
+    </script>
+  </body>
+</html>

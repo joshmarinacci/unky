@@ -1,0 +1,15 @@
+{
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "capabilities": [
+        "main-capability",
+        "browser-pages-capability",
+        "desktop-test-capability"
+      ]
+    }
+  },
+  "build": {
+    "beforeBuildCommand": "npm run build -- --mode desktop-test"
+  }
+}

@@ -1,4 +1,6 @@
 mod browser;
+#[cfg(all(feature = "desktop-test", not(debug_assertions)))]
+compile_error!("desktop-test is only supported in debug builds");
 use browser::tabs::{
     cycle_active_tab, download_filename, find_script, next_download_path, record_history_entry,
     remember_closed_tab, snapshot, take_recently_closed, update_history_title, BrowserSnapshot,
@@ -60,6 +62,11 @@ fn allowed_navigation_url(input: &str) -> Result<url::Url, String> {
 
 fn page_label(id: &str) -> String {
     format!("page-{id}")
+}
+
+fn is_trusted_browser_ui(label: &str) -> bool {
+    label == "main"
+        || (cfg!(all(debug_assertions, feature = "desktop-test")) && label == "wdio-host")
 }
 
 fn emit_snapshot(app: &tauri::AppHandle, data: &MutexGuard<'_, Vec<TabState>>) {
@@ -304,7 +311,7 @@ fn validated_session_tab(tab: SessionTab) -> Option<SessionTab> {
 #[cfg(feature = "macos-session-test")]
 #[tauri::command]
 fn session_test_phase(webview: tauri::Webview) -> Result<String, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Session test controls are only available to the trusted browser UI".into());
     }
     std::env::var("MY_BROWSER_SESSION_TEST_PHASE")
@@ -319,7 +326,7 @@ fn report_session_test(
     details: String,
     snapshot: BrowserSnapshot,
 ) -> Result<(), String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Session test controls are only available to the trusted browser UI".into());
     }
     let report_path = std::env::var_os("MY_BROWSER_SESSION_TEST_REPORT")
@@ -341,7 +348,7 @@ async fn session_test_open_new_tab(
     app: tauri::AppHandle,
     state: tauri::State<'_, BrowserState>,
 ) -> Result<String, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Session test controls are only available to the trusted browser UI".into());
     }
     let active_id = state
@@ -385,7 +392,7 @@ async fn session_test_start_download(
     app: tauri::AppHandle,
     state: tauri::State<'_, BrowserState>,
 ) -> Result<(), String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Session test controls are only available to the trusted browser UI".into());
     }
     let active_id = state
@@ -460,6 +467,101 @@ fn sync_page_url(
     persist_session(&state)
 }
 
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopPageDiagnostics {
+    browser: BrowserSnapshot,
+    tab_id: String,
+    loading: bool,
+    url: String,
+    title: String,
+    ready_state: String,
+    text: String,
+    dom: String,
+    errors: Vec<String>,
+}
+
+/// WebDriver attaches to the trusted `main` webview. Website tabs are separate native
+/// WKWebViews, so this debug-only command inspects the selected child through Tauri's handle.
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+#[tauri::command]
+async fn desktop_test_inspect_page(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    tab_id: Option<String>,
+) -> Result<DesktopPageDiagnostics, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Desktop diagnostics are only available to the trusted browser UI".into());
+    }
+    let (id, loading, browser) = {
+        let tabs = state
+            .data
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?;
+        let tab = match tab_id {
+            Some(id) => tabs.iter().find(|tab| tab.id == id),
+            None => tabs.iter().find(|tab| tab.active),
+        }
+        .ok_or("The requested browser tab does not exist")?;
+        (tab.id.clone(), tab.loading, snapshot(&tabs))
+    };
+
+    let page = get_page(&app, &id)?;
+    let script = r#"JSON.stringify((() => ({
+      url: location.href,
+      title: document.title,
+      readyState: document.readyState,
+      text: document.body?.innerText ?? '',
+      dom: document.documentElement?.outerHTML ?? '',
+      errors: window.__MY_BROWSER_TEST_ERRORS__ ?? []
+    }))())"#;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    page.eval_with_callback(script, move |result| {
+        let _ = sender.send(result);
+    })
+    .map_err(|error| error.to_string())?;
+    let encoded = tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let mut page: serde_json::Value =
+        serde_json::from_str(&encoded).map_err(|error| error.to_string())?;
+    if let Some(json) = page.as_str() {
+        page = serde_json::from_str(json).map_err(|error| error.to_string())?;
+    }
+    Ok(DesktopPageDiagnostics {
+        browser,
+        tab_id: id,
+        loading,
+        url: page["url"].as_str().unwrap_or_default().to_string(),
+        title: page["title"].as_str().unwrap_or_default().to_string(),
+        ready_state: page["readyState"].as_str().unwrap_or_default().to_string(),
+        text: page["text"]
+            .as_str()
+            .unwrap_or_default()
+            .chars()
+            .take(20_000)
+            .collect(),
+        dom: page["dom"]
+            .as_str()
+            .unwrap_or_default()
+            .chars()
+            .take(100_000)
+            .collect(),
+        errors: page["errors"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|error| error.as_str().map(str::to_string))
+            .collect(),
+    })
+}
+
 fn create_page_webview(
     app: &tauri::AppHandle,
     state: &BrowserState,
@@ -480,6 +582,11 @@ fn create_page_webview(
     let next_download_id = state.next_download_id.clone();
     let label = page_label(id);
     let builder = tauri::webview::WebviewBuilder::new(label, WebviewUrl::External(url))
+        .initialization_script(
+            r#"window.__MY_BROWSER_TEST_ERRORS__ = [];
+              window.addEventListener('error', event => window.__MY_BROWSER_TEST_ERRORS__.push(String(event.message)));
+              window.addEventListener('unhandledrejection', event => window.__MY_BROWSER_TEST_ERRORS__.push(String(event.reason)));"#,
+        )
         .initialization_script(
             r#"document.addEventListener('click', event => {
               window.__MY_BROWSER_LINK_HOOK__ = true;
@@ -662,7 +769,7 @@ fn get_browser_state(
     webview: tauri::Webview,
     state: tauri::State<'_, BrowserState>,
 ) -> Result<BrowserSnapshot, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Browser state is only available to the trusted UI".into());
     }
     let tabs = state
@@ -677,7 +784,7 @@ fn get_history(
     webview: tauri::Webview,
     state: tauri::State<'_, BrowserState>,
 ) -> Result<Vec<HistoryEntry>, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("History is only available to the trusted browser UI".into());
     }
     Ok(state
@@ -692,7 +799,7 @@ fn get_downloads(
     webview: tauri::Webview,
     state: tauri::State<'_, BrowserState>,
 ) -> Result<Vec<DownloadEntry>, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Downloads are only available to the trusted browser UI".into());
     }
     Ok(state
@@ -710,7 +817,7 @@ async fn find_in_page(
     query: String,
     backwards: bool,
 ) -> Result<usize, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Find is only available to the trusted browser UI".into());
     }
     let page = get_page(&app, &tab_id)?;
@@ -733,7 +840,7 @@ async fn get_tab_favicon(
     app: tauri::AppHandle,
     tab_id: String,
 ) -> Result<String, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Favicons are only available to the trusted browser UI".into());
     }
     let page = get_page(&app, &tab_id)?;
@@ -772,7 +879,7 @@ async fn get_page_security_info(
     app: tauri::AppHandle,
     tab_id: String,
 ) -> Result<PageSecurityInfo, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Security information is only available to the trusted browser UI".into());
     }
     let page = get_page(&app, &tab_id)?;
@@ -861,7 +968,7 @@ async fn toggle_page_security_popover(
     anchor: SecurityPopoverAnchor,
     info: PageSecurityInfo,
 ) -> Result<bool, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Security popovers are only available to the trusted browser UI".into());
     }
     #[cfg(target_os = "macos")]
@@ -897,7 +1004,7 @@ async fn update_page_security_popover(
     anchor: SecurityPopoverAnchor,
     info: PageSecurityInfo,
 ) -> Result<bool, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Security popovers are only available to the trusted browser UI".into());
     }
     #[cfg(target_os = "macos")]
@@ -933,7 +1040,7 @@ fn cycle_tab(
     state: tauri::State<'_, BrowserState>,
     backwards: bool,
 ) -> Result<BrowserSnapshot, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Tabs can only be cycled from the trusted browser UI".into());
     }
     let mut tabs = state
@@ -958,7 +1065,7 @@ fn reveal_download(
     state: tauri::State<'_, BrowserState>,
     download_id: String,
 ) -> Result<(), String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Downloads are only available to the trusted browser UI".into());
     }
     let path = state
@@ -1000,7 +1107,7 @@ fn create_tab(
     app: tauri::AppHandle,
     state: tauri::State<'_, BrowserState>,
 ) -> Result<BrowserSnapshot, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Tabs can only be created from the trusted browser UI".into());
     }
     let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
@@ -1038,7 +1145,7 @@ fn select_tab(
     state: tauri::State<'_, BrowserState>,
     tab_id: String,
 ) -> Result<BrowserSnapshot, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Tabs can only be selected from the trusted browser UI".into());
     }
     let mut tabs = state
@@ -1070,7 +1177,7 @@ fn reorder_tabs(
     state: tauri::State<'_, BrowserState>,
     tab_ids: Vec<String>,
 ) -> Result<BrowserSnapshot, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Tabs can only be reordered from the trusted browser UI".into());
     }
     let mut tabs = state
@@ -1104,7 +1211,7 @@ fn close_tab(
     state: tauri::State<'_, BrowserState>,
     tab_id: String,
 ) -> Result<BrowserSnapshot, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Tabs can only be closed from the trusted browser UI".into());
     }
     let closing_was_active;
@@ -1157,7 +1264,7 @@ fn reopen_closed_tab(
     app: tauri::AppHandle,
     state: tauri::State<'_, BrowserState>,
 ) -> Result<BrowserSnapshot, String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Tabs can only be reopened from the trusted browser UI".into());
     }
     let restored = state
@@ -1225,7 +1332,7 @@ fn navigate(
     tab_id: String,
     url: String,
 ) -> Result<(), String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Navigation is only available from the trusted browser UI".into());
     }
     let parsed = allowed_navigation_url(&url)?;
@@ -1255,7 +1362,7 @@ fn go_back(
     state: tauri::State<'_, BrowserState>,
     tab_id: String,
 ) -> Result<(), String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Navigation is only available from the trusted browser UI".into());
     }
     let page = get_page(&app, &tab_id)?;
@@ -1283,7 +1390,7 @@ fn go_forward(
     state: tauri::State<'_, BrowserState>,
     tab_id: String,
 ) -> Result<(), String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Navigation is only available from the trusted browser UI".into());
     }
     let page = get_page(&app, &tab_id)?;
@@ -1306,7 +1413,7 @@ fn go_forward(
 
 #[tauri::command]
 fn reload(webview: tauri::Webview, app: tauri::AppHandle, tab_id: String) -> Result<(), String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Navigation is only available from the trusted browser UI".into());
     }
     get_page(&app, &tab_id)?.reload().map_err(|e| e.to_string())
@@ -1319,7 +1426,7 @@ fn stop_loading(
     state: tauri::State<'_, BrowserState>,
     tab_id: String,
 ) -> Result<(), String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Navigation is only available from the trusted browser UI".into());
     }
     get_page(&app, &tab_id)?
@@ -1348,7 +1455,7 @@ fn set_view_bounds(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("View bounds are only available to the trusted browser UI".into());
     }
     if ![x, y, width, height].iter().all(|value| value.is_finite()) || width < 1.0 || height < 1.0 {
@@ -1385,7 +1492,7 @@ fn set_settings_open(
     state: tauri::State<'_, BrowserState>,
     open: bool,
 ) -> Result<(), String> {
-    if webview.label() != "main" {
+    if !is_trusted_browser_ui(webview.label()) {
         return Err("Settings are only available to the trusted browser UI".into());
     }
     *state
@@ -1562,199 +1669,229 @@ mod tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
-        .manage(BrowserState::default())
-        .setup(|app| {
-            let state = app.state::<BrowserState>();
-            let session_path = app.path().app_data_dir()?.join("session.json");
-            #[cfg(feature = "macos-session-test")]
-            let session_path = std::env::var_os("MY_BROWSER_SESSION_TEST_PATH")
-                .map(PathBuf::from)
-                .unwrap_or(session_path);
-            *state
-                .session_file
-                .lock()
-                .expect("session path lock poisoned") = Some(session_path.clone());
-            let history_path = session_path.with_file_name("history.json");
-            *state
-                .history_file
-                .lock()
-                .expect("history path lock poisoned") = Some(history_path.clone());
-            *state.history.lock().expect("history lock poisoned") = read_history(&history_path);
-            let saved_session = read_session(&session_path);
-            *state
-                .recently_closed
-                .lock()
-                .expect("recently closed lock poisoned") = saved_session
-                .recently_closed
+    let builder = tauri::Builder::default();
+    #[cfg(all(debug_assertions, feature = "desktop-test"))]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+    #[cfg(all(debug_assertions, feature = "desktop-test"))]
+    let builder = builder.plugin(tauri_plugin_wdio::init());
+    let builder = builder.manage(BrowserState::default()).setup(|app| {
+        #[cfg(all(debug_assertions, feature = "desktop-test"))]
+        tauri::WebviewWindowBuilder::new(app, "wdio-host", WebviewUrl::App("index.html".into()))
+            .title("My Browser WebDriver")
+            .inner_size(1200.0, 800.0)
+            .visible(false)
+            .build()?;
+        let state = app.state::<BrowserState>();
+        let session_path = app.path().app_data_dir()?.join("session.json");
+        #[cfg(debug_assertions)]
+        let session_path = std::env::var_os("MY_BROWSER_PROFILE_DIR")
+            .map(PathBuf::from)
+            .map(|path| path.join("session.json"))
+            .unwrap_or(session_path);
+        #[cfg(feature = "macos-session-test")]
+        let session_path = std::env::var_os("MY_BROWSER_SESSION_TEST_PATH")
+            .map(PathBuf::from)
+            .unwrap_or(session_path);
+        *state
+            .session_file
+            .lock()
+            .expect("session path lock poisoned") = Some(session_path.clone());
+        let history_path = session_path.with_file_name("history.json");
+        *state
+            .history_file
+            .lock()
+            .expect("history path lock poisoned") = Some(history_path.clone());
+        *state.history.lock().expect("history lock poisoned") = read_history(&history_path);
+        let saved_session = read_session(&session_path);
+        *state
+            .recently_closed
+            .lock()
+            .expect("recently closed lock poisoned") = saved_session
+            .recently_closed
+            .into_iter()
+            .filter_map(validated_session_tab)
+            .take(20)
+            .collect();
+        let bounds = *state.bounds.lock().expect("browser bounds lock poisoned");
+        #[cfg(target_os = "macos")]
+        {
+            use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+            let settings = MenuItemBuilder::with_id("open-settings", "Settings…")
+                .accelerator("CmdOrCtrl+,")
+                .build(app)?;
+            let app_menu = SubmenuBuilder::new(app, "My Browser")
+                .item(&settings)
+                .separator()
+                .hide()
+                .hide_others()
+                .separator()
+                .quit()
+                .build()?;
+            let new_tab = MenuItemBuilder::with_id("shortcut-new-tab", "New Tab")
+                .accelerator("CmdOrCtrl+T")
+                .build(app)?;
+            let close_tab = MenuItemBuilder::with_id("shortcut-close-tab", "Close Tab")
+                .accelerator("CmdOrCtrl+W")
+                .build(app)?;
+            let reopen_closed_tab =
+                MenuItemBuilder::with_id("shortcut-reopen-closed-tab", "Reopen Closed Tab")
+                    .accelerator("CmdOrCtrl+Shift+T")
+                    .build(app)?;
+            let next_tab = MenuItemBuilder::with_id("shortcut-next-tab", "Next Tab")
+                .accelerator("Ctrl+Tab")
+                .build(app)?;
+            let previous_tab = MenuItemBuilder::with_id("shortcut-previous-tab", "Previous Tab")
+                .accelerator("Ctrl+Shift+Tab")
+                .build(app)?;
+            let file_menu = SubmenuBuilder::new(app, "File")
+                .item(&new_tab)
+                .item(&close_tab)
+                .item(&reopen_closed_tab)
+                .item(&next_tab)
+                .item(&previous_tab)
+                .build()?;
+            let edit_menu = SubmenuBuilder::new(app, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .separator()
+                .select_all()
+                .build()?;
+            let zoom_in = MenuItemBuilder::with_id("zoom-in", "Zoom In")
+                .accelerator("CmdOrCtrl+Shift+=")
+                .build(app)?;
+            let zoom_out = MenuItemBuilder::with_id("zoom-out", "Zoom Out")
+                .accelerator("CmdOrCtrl+-")
+                .build(app)?;
+            let actual_size = MenuItemBuilder::with_id("zoom-reset", "Actual Size")
+                .accelerator("CmdOrCtrl+0")
+                .build(app)?;
+            let focus_address =
+                MenuItemBuilder::with_id("shortcut-focus-address", "Focus Address Bar")
+                    .accelerator("CmdOrCtrl+L")
+                    .build(app)?;
+            let find = MenuItemBuilder::with_id("shortcut-find", "Find in Page")
+                .accelerator("CmdOrCtrl+F")
+                .build(app)?;
+            let reload = MenuItemBuilder::with_id("shortcut-reload", "Reload Page")
+                .accelerator("CmdOrCtrl+R")
+                .build(app)?;
+            let go_back = MenuItemBuilder::with_id("shortcut-go-back", "Back")
+                .accelerator("CmdOrCtrl+Alt+Left")
+                .build(app)?;
+            let go_forward = MenuItemBuilder::with_id("shortcut-go-forward", "Forward")
+                .accelerator("CmdOrCtrl+Alt+Right")
+                .build(app)?;
+            let view_menu = SubmenuBuilder::new(app, "View")
+                .item(&focus_address)
+                .item(&find)
+                .item(&reload)
+                .item(&go_back)
+                .item(&go_forward)
+                .separator()
+                .item(&zoom_in)
+                .item(&zoom_out)
+                .separator()
+                .item(&actual_size)
+                .build()?;
+            let menu = MenuBuilder::new(app)
+                .item(&app_menu)
+                .item(&file_menu)
+                .item(&edit_menu)
+                .item(&view_menu)
+                .build()?;
+            app.set_menu(menu)?;
+        }
+        #[cfg(all(target_os = "macos", feature = "macos-interception-test"))]
+        {
+            let window = app.get_window("main").expect("main window configured");
+            let start = url::Url::parse("about:blank").unwrap();
+            window.add_child(
+                tauri::webview::WebviewBuilder::new("page", WebviewUrl::External(start)),
+                tauri::LogicalPosition::new(bounds.x, bounds.y),
+                tauri::LogicalSize::new(bounds.width, bounds.height),
+            )?;
+            platforms::macos::install_interception_test(app.handle().clone())?;
+        }
+        #[cfg(not(all(target_os = "macos", feature = "macos-interception-test")))]
+        {
+            let mut restored_tabs = Vec::new();
+            let mut seen_ids = std::collections::HashSet::new();
+            for saved in saved_session
+                .tabs
                 .into_iter()
                 .filter_map(validated_session_tab)
-                .take(20)
-                .collect();
-            let bounds = *state.bounds.lock().expect("browser bounds lock poisoned");
-            #[cfg(target_os = "macos")]
             {
-                use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-                let settings = MenuItemBuilder::with_id("open-settings", "Settings…")
-                    .accelerator("CmdOrCtrl+,")
-                    .build(app)?;
-                let app_menu = SubmenuBuilder::new(app, "My Browser")
-                    .item(&settings)
-                    .separator()
-                    .hide()
-                    .hide_others()
-                    .separator()
-                    .quit()
-                    .build()?;
-                let new_tab = MenuItemBuilder::with_id("shortcut-new-tab", "New Tab")
-                    .accelerator("CmdOrCtrl+T")
-                    .build(app)?;
-                let close_tab = MenuItemBuilder::with_id("shortcut-close-tab", "Close Tab")
-                    .accelerator("CmdOrCtrl+W")
-                    .build(app)?;
-                let reopen_closed_tab =
-                    MenuItemBuilder::with_id("shortcut-reopen-closed-tab", "Reopen Closed Tab")
-                        .accelerator("CmdOrCtrl+Shift+T")
-                        .build(app)?;
-                let next_tab = MenuItemBuilder::with_id("shortcut-next-tab", "Next Tab")
-                    .accelerator("Ctrl+Tab")
-                    .build(app)?;
-                let previous_tab =
-                    MenuItemBuilder::with_id("shortcut-previous-tab", "Previous Tab")
-                        .accelerator("Ctrl+Shift+Tab")
-                        .build(app)?;
-                let file_menu = SubmenuBuilder::new(app, "File")
-                    .item(&new_tab)
-                    .item(&close_tab)
-                    .item(&reopen_closed_tab)
-                    .item(&next_tab)
-                    .item(&previous_tab)
-                    .build()?;
-                let edit_menu = SubmenuBuilder::new(app, "Edit")
-                    .undo()
-                    .redo()
-                    .separator()
-                    .cut()
-                    .copy()
-                    .paste()
-                    .separator()
-                    .select_all()
-                    .build()?;
-                let zoom_in = MenuItemBuilder::with_id("zoom-in", "Zoom In")
-                    .accelerator("CmdOrCtrl+Shift+=")
-                    .build(app)?;
-                let zoom_out = MenuItemBuilder::with_id("zoom-out", "Zoom Out")
-                    .accelerator("CmdOrCtrl+-")
-                    .build(app)?;
-                let actual_size = MenuItemBuilder::with_id("zoom-reset", "Actual Size")
-                    .accelerator("CmdOrCtrl+0")
-                    .build(app)?;
-                let focus_address =
-                    MenuItemBuilder::with_id("shortcut-focus-address", "Focus Address Bar")
-                        .accelerator("CmdOrCtrl+L")
-                        .build(app)?;
-                let find = MenuItemBuilder::with_id("shortcut-find", "Find in Page")
-                    .accelerator("CmdOrCtrl+F")
-                    .build(app)?;
-                let reload = MenuItemBuilder::with_id("shortcut-reload", "Reload Page")
-                    .accelerator("CmdOrCtrl+R")
-                    .build(app)?;
-                let go_back = MenuItemBuilder::with_id("shortcut-go-back", "Back")
-                    .accelerator("CmdOrCtrl+Alt+Left")
-                    .build(app)?;
-                let go_forward = MenuItemBuilder::with_id("shortcut-go-forward", "Forward")
-                    .accelerator("CmdOrCtrl+Alt+Right")
-                    .build(app)?;
-                let view_menu = SubmenuBuilder::new(app, "View")
-                    .item(&focus_address)
-                    .item(&find)
-                    .item(&reload)
-                    .item(&go_back)
-                    .item(&go_forward)
-                    .separator()
-                    .item(&zoom_in)
-                    .item(&zoom_out)
-                    .separator()
-                    .item(&actual_size)
-                    .build()?;
-                let menu = MenuBuilder::new(app)
-                    .item(&app_menu)
-                    .item(&file_menu)
-                    .item(&edit_menu)
-                    .item(&view_menu)
-                    .build()?;
-                app.set_menu(menu)?;
-            }
-            #[cfg(all(target_os = "macos", feature = "macos-interception-test"))]
-            {
-                let window = app.get_window("main").expect("main window configured");
-                let start = url::Url::parse("about:blank").unwrap();
-                window.add_child(
-                    tauri::webview::WebviewBuilder::new("page", WebviewUrl::External(start)),
-                    tauri::LogicalPosition::new(bounds.x, bounds.y),
-                    tauri::LogicalSize::new(bounds.width, bounds.height),
-                )?;
-                platforms::macos::install_interception_test(app.handle().clone())?;
-            }
-            #[cfg(not(all(target_os = "macos", feature = "macos-interception-test")))]
-            {
-                let mut restored_tabs = Vec::new();
-                let mut seen_ids = std::collections::HashSet::new();
-                for saved in saved_session
-                    .tabs
-                    .into_iter()
-                    .filter_map(validated_session_tab)
-                {
-                    if !seen_ids.insert(saved.id.clone()) {
-                        continue;
-                    }
-                    let parsed = if saved.url.is_empty() {
-                        url::Url::parse("about:blank").unwrap()
-                    } else {
-                        allowed_navigation_url(&saved.url).unwrap()
-                    };
-                    create_page_webview(app.handle(), &state, &saved.id, parsed, bounds)
-                        .map_err(std::io::Error::other)?;
-                    if let Some(page) = app.get_webview(&page_label(&saved.id)) {
-                        page.set_zoom(saved.zoom).map_err(std::io::Error::other)?;
-                    }
-                    let mut tab = TabState::new(
-                        saved.id.clone(),
-                        saved.url,
-                        saved.id == saved_session.active_tab_id,
-                    );
-                    tab.title = saved.title;
-                    tab.zoom = saved.zoom;
-                    restored_tabs.push(tab);
-                    if let Some(number) = saved
-                        .id
-                        .strip_prefix("tab-")
-                        .and_then(|value| value.parse::<u64>().ok())
-                    {
-                        state.next_id.fetch_max(number, Ordering::Relaxed);
-                    }
+                if !seen_ids.insert(saved.id.clone()) {
+                    continue;
                 }
-                if restored_tabs.is_empty() {
-                    let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
-                    let id = format!("tab-{number}");
-                    create_page_webview(
-                        app.handle(),
-                        &state,
-                        &id,
-                        url::Url::parse("about:blank").unwrap(),
-                        bounds,
-                    )
+                let parsed = if saved.url.is_empty() {
+                    url::Url::parse("about:blank").unwrap()
+                } else {
+                    allowed_navigation_url(&saved.url).unwrap()
+                };
+                create_page_webview(app.handle(), &state, &saved.id, parsed, bounds)
                     .map_err(std::io::Error::other)?;
-                    restored_tabs.push(TabState::new(id, String::new(), true));
-                } else if !restored_tabs.iter().any(|tab| tab.active) {
-                    restored_tabs[0].active = true;
+                if let Some(page) = app.get_webview(&page_label(&saved.id)) {
+                    page.set_zoom(saved.zoom).map_err(std::io::Error::other)?;
                 }
-                *state.data.lock().expect("browser state lock poisoned") = restored_tabs;
-                position_tabs(app.handle(), &state).map_err(std::io::Error::other)?;
-                persist_session(&state).map_err(std::io::Error::other)?;
+                let mut tab = TabState::new(
+                    saved.id.clone(),
+                    saved.url,
+                    saved.id == saved_session.active_tab_id,
+                );
+                tab.title = saved.title;
+                tab.zoom = saved.zoom;
+                restored_tabs.push(tab);
+                if let Some(number) = saved
+                    .id
+                    .strip_prefix("tab-")
+                    .and_then(|value| value.parse::<u64>().ok())
+                {
+                    state.next_id.fetch_max(number, Ordering::Relaxed);
+                }
             }
-            Ok(())
-        });
+            if restored_tabs.is_empty() {
+                let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+                let id = format!("tab-{number}");
+                create_page_webview(
+                    app.handle(),
+                    &state,
+                    &id,
+                    url::Url::parse("about:blank").unwrap(),
+                    bounds,
+                )
+                .map_err(std::io::Error::other)?;
+                restored_tabs.push(TabState::new(id, String::new(), true));
+            } else if !restored_tabs.iter().any(|tab| tab.active) {
+                restored_tabs[0].active = true;
+            }
+            *state.data.lock().expect("browser state lock poisoned") = restored_tabs;
+            position_tabs(app.handle(), &state).map_err(std::io::Error::other)?;
+            persist_session(&state).map_err(std::io::Error::other)?;
+        }
+        #[cfg(all(debug_assertions, feature = "desktop-test"))]
+        if let Some(profile) = std::env::var_os("MY_BROWSER_PROFILE_DIR").map(PathBuf::from) {
+            let inventory = serde_json::json!({
+                "windows": app.handle().windows().keys().collect::<Vec<_>>(),
+                "webviews": app.handle().webviews().keys().collect::<Vec<_>>(),
+                "webviewWindows": app.handle().webview_windows().keys().collect::<Vec<_>>(),
+            });
+            let _ = fs::write(
+                profile.join("wdio-window-inventory.json"),
+                serde_json::to_vec_pretty(&inventory).unwrap_or_default(),
+            );
+        }
+        #[cfg(all(debug_assertions, feature = "desktop-test"))]
+        if let Some(window) = app.get_window("main") {
+            window.show()?;
+            window.set_focus()?;
+        }
+        Ok(())
+    });
     #[cfg(feature = "macos-session-test")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
@@ -1786,7 +1923,35 @@ pub fn run() {
         session_test_open_new_tab,
         session_test_start_download
     ]);
-    #[cfg(not(feature = "macos-session-test"))]
+    #[cfg(all(not(feature = "macos-session-test"), feature = "desktop-test"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        get_browser_state,
+        get_history,
+        get_downloads,
+        find_in_page,
+        get_tab_favicon,
+        get_page_security_info,
+        toggle_page_security_popover,
+        update_page_security_popover,
+        cycle_tab,
+        reveal_download,
+        open_link_in_new_tab,
+        sync_page_url,
+        create_tab,
+        select_tab,
+        reorder_tabs,
+        close_tab,
+        navigate,
+        go_back,
+        go_forward,
+        reload,
+        stop_loading,
+        set_settings_open,
+        set_view_bounds,
+        reopen_closed_tab,
+        desktop_test_inspect_page
+    ]);
+    #[cfg(all(not(feature = "macos-session-test"), not(feature = "desktop-test")))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
         get_history,

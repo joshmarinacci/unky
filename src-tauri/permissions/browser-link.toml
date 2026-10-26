@@ -9,6 +9,11 @@ description = "Allows a browser page to report same-origin client-side URL chang
 commands.allow = ["sync_page_url"]
 
 [[permission]]
+identifier = "allow-desktop-test-inspect-page"
+description = "Allows the debug-only WebDriver host to inspect a website child WebView."
+commands.allow = ["desktop_test_inspect_page"]
+
+[[permission]]
 identifier = "allow-main-browser-commands"
 description = "Enables browser commands for the trusted local browser interface."
 commands.allow = [

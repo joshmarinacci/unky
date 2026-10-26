@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "check": "npm run build && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:desktop": "node tests/desktop/run.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.3",
@@ -21,6 +22,13 @@
     "@types/react": "19.1.10",
     "@types/react-dom": "19.1.7",
     "@vitejs/plugin-react": "5.0.2",
+    "@wdio/cli": "^9.32.0",
+    "@wdio/local-runner": "^9.32.0",
+    "@wdio/mocha-framework": "^9.32.0",
+    "@wdio/spec-reporter": "^9.32.0",
+    "@wdio/tauri-plugin": "^1.5.1",
+    "@wdio/tauri-service": "^1.5.1",
+    "tsx": "^4.23.15",
     "typescript": "5.9.2",
     "vite": "7.1.4"
   }
