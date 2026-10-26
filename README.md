@@ -22,6 +22,10 @@ npm run tauri -- dev
 
 The local fixture is served on `127.0.0.1:4179`, with its image resources on `127.0.0.1:4180`. The normal app run loads the fixture without enabling filtering; the macOS test command enables the filter compiler and native rule list.
 
+## Release download page
+
+`site/index.html` is a standalone, dependency-free download page. To publish it at `/my-browser/`, upload it as that path's `index.html` and place the macOS disk image beside it with the filename `My-Browser.dmg`; the page's relative download link expects that exact name. Build the disk image on macOS with `npm run tauri -- build --bundles dmg`, then copy and rename the `.dmg` from `src-tauri/target/release/bundle/dmg/`. Update the version and architecture text in the page when publishing a different build. The page includes first-launch guidance for this unnotarized build.
+
 ## macOS filtering smoke test
 
 After installing dependencies, run `python3 tests/macos_interception_test.py` on macOS. The test enables the `macos-interception-test` Cargo feature, compiles an ABP-style domain rule through `blocker-core` and adblock-rust into a WKContentRuleList, then loads the fixture from `http://127.0.0.1:4179/`. It passes only when the server records `/allowed.png` and does not record `/blocked.png`.

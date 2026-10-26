@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f7f7f5">
+    <meta name="description" content="My Browser is a macOS browser prototype with native website tabs, bookmarks, and browsing history.">
+    <title>My Browser for macOS</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+        --background: #f7f7f5;
+        --foreground: #242422;
+        --muted: #6d6d68;
+        --border: #deded9;
+        --button: #242422;
+        --button-text: #fff;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --background: #171716;
+          --foreground: #f1f1ed;
+          --muted: #aaa9a2;
+          --border: #393936;
+          --button: #f1f1ed;
+          --button-text: #171716;
+        }
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        display: grid;
+        min-width: 320px;
+        min-height: 100vh;
+        margin: 0;
+        padding: 32px 20px;
+        place-items: center;
+        color: var(--foreground);
+        background: var(--background);
+      }
+      main { width: min(100%, 560px); }
+      .eyebrow {
+        margin: 0 0 18px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(42px, 9vw, 68px);
+        font-weight: 650;
+        letter-spacing: -.065em;
+        line-height: 1;
+      }
+      .description {
+        max-width: 470px;
+        margin: 22px 0 30px;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.6;
+      }
+      .download {
+        display: inline-flex;
+        min-height: 52px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 22px;
+        border: 2px solid var(--button);
+        border-radius: 8px;
+        color: var(--button-text);
+        background: var(--button);
+        font-size: 15px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: transform 120ms ease, opacity 120ms ease;
+      }
+      .download:hover { opacity: .88; transform: translateY(-1px); }
+      .download:focus-visible { outline: 3px solid Highlight; outline-offset: 4px; }
+      .build-info, .notice {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+      .build-info { margin: 12px 0 0; }
+      .notice { margin: 34px 0 0; padding-top: 18px; border-top: 1px solid var(--border); }
+      .notice h2 { margin: 0 0 8px; color: var(--foreground); font-size: 14px; font-weight: 600; }
+      .notice p { margin: 0 0 10px; }
+      .notice details { margin-top: 12px; }
+      .notice summary { width: fit-content; color: var(--foreground); cursor: pointer; font-weight: 600; }
+      .notice ol { display: grid; gap: 8px; padding-left: 20px; }
+      .notice a { color: inherit; text-underline-offset: 2px; }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">A small macOS browser</p>
+      <h1>My Browser</h1>
+      <p class="description">
+        A browser prototype built with Tauri and Rust, with native website tabs,
+        bookmarks, and browsing history.
+      </p>
+      <a class="download" href="./My-Browser.dmg" download>
+        Download for macOS
+      </a>
+      <p class="build-info">Version 0.1.0 · Apple Silicon</p>
+      <section class="notice" aria-labelledby="macos-first-launch">
+        <h2 id="macos-first-launch">First launch on macOS</h2>
+        <p>This early build is not notarized, so macOS may ask you to approve it before opening.</p>
+        <details>
+          <summary>How to open the app</summary>
+          <ol>
+            <li>Try opening My Browser once. If macOS says it cannot verify the developer, choose <strong>Done</strong>.</li>
+            <li>Open <strong>System Settings → Privacy &amp; Security</strong>, scroll to Security, then choose <strong>Open Anyway</strong> for My Browser.</li>
+            <li>Review the prompt and choose <strong>Open</strong> to confirm.</li>
+          </ol>
+          <p>Only approve the app if you trust this download. If macOS says it will damage your computer, do not override that warning. See <a href="https://support.apple.com/en-us/102445">Apple’s instructions</a>.</p>
+        </details>
+      </section>
+    </main>
+  </body>
+</html>
