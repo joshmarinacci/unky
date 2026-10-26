@@ -5,5 +5,5 @@
   "identifier": "dev.example.my-browser",
   "build": { "beforeDevCommand": "npm run dev", "devUrl": "http://localhost:1420", "beforeBuildCommand": "npm run build", "frontendDist": "../dist" },
   "app": { "windows": [{ "label": "main", "title": "My Browser", "width": 1200, "height": 800, "minWidth": 800, "minHeight": 600, "dragDropEnabled": false }], "security": { "capabilities": ["main-capability", "browser-pages-capability"], "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'" } },
-  "bundle": { "active": true, "targets": "all", "icon": [] }
+  "bundle": { "active": true, "targets": "all", "icon": [], "macOS": { "signingIdentity": "-" } }
 }
