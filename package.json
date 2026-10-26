@@ -9,7 +9,10 @@
     "check": "npm run build && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test:desktop": "node tests/desktop/run.mjs"
+    "tauri-release":"npm run tauri -- build --bundles dmg",
+    "test:desktop": "node tests/desktop/run.mjs",
+    "publish-dmg":"scp -i ../deployman_private.key target/release/bundle/dmg/*.dmg deployman@josh.earth:/sites/apps.josh.earth/my-browser/",
+    "publish-site":"scp -i ../deployman_private.key -r site/* deployman@josh.earth:/sites/apps.josh.earth/my-browser/"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.3",
