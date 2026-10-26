@@ -5,7 +5,7 @@ use browser::tabs::{
     cycle_active_tab, download_filename, find_script, next_download_path, record_history_entry,
     remember_closed_tab, snapshot, take_recently_closed, update_history_title, BrowserSnapshot,
     BrowserState, DownloadEntry, DownloadStatus, HistoryEntry, PersistedHistory, PersistedSession,
-    SessionTab, TabState, ViewBounds,
+    SessionTab, SplitLayout, SplitOrientation, TabState, ViewBounds,
 };
 use std::sync::{atomic::Ordering, MutexGuard};
 use std::{
@@ -18,6 +18,7 @@ use tauri::{Emitter, Manager, WebviewUrl};
 mod platforms;
 
 const TAB_EVENT: &str = "browser://tabs-changed";
+const SPLIT_EVENT: &str = "browser://split-changed";
 const OPEN_SETTINGS_EVENT: &str = "browser://open-settings";
 const SHORTCUT_EVENT: &str = "browser://shortcut";
 const HISTORY_EVENT: &str = "browser://history-changed";
@@ -66,11 +67,92 @@ fn page_label(id: &str) -> String {
 
 fn is_trusted_browser_ui(label: &str) -> bool {
     label == "main"
+        || label.starts_with("browser-window-")
         || (cfg!(all(debug_assertions, feature = "desktop-test")) && label == "wdio-host")
 }
 
+fn focused_browser_window_label(app: &tauri::AppHandle) -> Option<String> {
+    app.windows().into_iter().find_map(|(label, window)| {
+        let is_browser_window = label == "main" || label.starts_with("browser-window-");
+        (is_browser_window && window.is_focused().unwrap_or(false)).then_some(label)
+    })
+}
+
+fn browser_window_for_ui(label: &str) -> &str {
+    if label == "wdio-host" {
+        "main"
+    } else {
+        label
+    }
+}
+
 fn emit_snapshot(app: &tauri::AppHandle, data: &MutexGuard<'_, Vec<TabState>>) {
-    let _ = app.emit_to("main", TAB_EVENT, snapshot(data));
+    for label in app
+        .windows()
+        .keys()
+        .filter(|label| label.as_str() == "main" || label.starts_with("browser-window-"))
+    {
+        let tabs: Vec<_> = data
+            .iter()
+            .filter(|tab| &tab.window_label == label)
+            .cloned()
+            .collect();
+        let _ = app.emit_to(label, TAB_EVENT, snapshot(&tabs));
+    }
+}
+
+fn snapshot_for_window(tabs: &[TabState], window_label: &str) -> BrowserSnapshot {
+    let window_label = browser_window_for_ui(window_label);
+    let local: Vec<_> = tabs
+        .iter()
+        .filter(|tab| tab.window_label == window_label)
+        .cloned()
+        .collect();
+    snapshot(&local)
+}
+
+fn window_bounds(state: &BrowserState, window_label: &str) -> Result<ViewBounds, String> {
+    let window_label = browser_window_for_ui(window_label);
+    let bounds = state
+        .window_bounds
+        .lock()
+        .map_err(|_| "Browser bounds are unavailable")?;
+    Ok(bounds
+        .get(window_label)
+        .copied()
+        .unwrap_or_else(ViewBounds::default))
+}
+
+fn close_browser_window_tabs(app: &tauri::AppHandle, state: &BrowserState, window_label: &str) {
+    if let Ok(mut tabs) = state.data.lock() {
+        let closing: Vec<_> = tabs
+            .iter()
+            .filter(|tab| tab.window_label == window_label)
+            .cloned()
+            .collect();
+        if let Ok(mut recently_closed) = state.recently_closed.lock() {
+            for tab in closing.iter().rev().filter(|tab| !tab.private) {
+                remember_closed_tab(&mut recently_closed, SessionTab::from(tab));
+            }
+        }
+        tabs.retain(|tab| tab.window_label != window_label);
+        emit_snapshot(app, &tabs);
+    }
+    let split_changed = state
+        .split_tabs
+        .lock()
+        .map(|mut split| split.take().is_some())
+        .unwrap_or(false);
+    if split_changed {
+        for label in app.windows().keys() {
+            if label.as_str() != window_label
+                && (label.as_str() == "main" || label.starts_with("browser-window-"))
+            {
+                let _ = app.emit_to(label, SPLIT_EVENT, Option::<SplitLayout>::None);
+            }
+        }
+    }
+    let _ = persist_session(state);
 }
 
 fn persist_session(state: &BrowserState) -> Result<(), String> {
@@ -262,33 +344,49 @@ fn open_url_in_new_tab(
     state: &BrowserState,
     input: &str,
     private: bool,
+    owner_window: &str,
 ) -> Result<(), String> {
     let parsed = allowed_navigation_url(input)?;
     let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let id = format!("tab-{number}");
-    let bounds = *state
-        .bounds
-        .lock()
-        .map_err(|_| "Browser bounds are unavailable")?;
-    create_page_webview(app, state, &id, parsed.clone(), bounds, private)?;
+    let bounds = window_bounds(state, owner_window)?;
+    create_page_webview(
+        app,
+        state,
+        &id,
+        parsed.clone(),
+        bounds,
+        private,
+        owner_window,
+    )?;
     let mut tabs = state
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
-    for tab in tabs.iter_mut() {
+    for tab in tabs
+        .iter_mut()
+        .filter(|tab| tab.window_label == owner_window)
+    {
         tab.active = false;
     }
-    let mut tab = if private {
-        TabState::new_private(id, true)
-    } else {
-        TabState::new(id, parsed.to_string(), true)
-    };
+    let mut tab = TabState::new_in_window(
+        id,
+        parsed.to_string(),
+        true,
+        private,
+        owner_window.to_string(),
+    );
     if private {
         tab.record_navigation(parsed.to_string());
     }
     tabs.push(tab);
     emit_snapshot(app, &tabs);
     drop(tabs);
+    *state
+        .split_tabs
+        .lock()
+        .map_err(|_| "Browser state is unavailable")? = None;
+    let _ = app.emit_to(owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
     persist_session(state)?;
     position_tabs(app, state)
 }
@@ -436,13 +534,67 @@ fn open_link_in_new_tab(
     if !webview.label().starts_with("page-") {
         return Err("Links can only be opened from a browser page".into());
     }
-    let private = state
+    let (private, owner_window) = state
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?
         .iter()
-        .any(|tab| page_label(&tab.id) == webview.label() && tab.private);
-    open_url_in_new_tab(&app, &state, &url, private)
+        .find(|tab| page_label(&tab.id) == webview.label())
+        .map(|tab| (tab.private, tab.window_label.clone()))
+        .ok_or("That tab no longer exists")?;
+    open_url_in_new_tab(&app, &state, &url, private, &owner_window)
+}
+
+#[tauri::command]
+fn focus_browser_tab(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<(), String> {
+    let tab_id = webview
+        .label()
+        .strip_prefix("page-")
+        .ok_or("Only browser pages can request focus")?
+        .to_string();
+    let owner_window = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .iter()
+        .find(|tab| tab.id == tab_id)
+        .map(|tab| tab.window_label.clone())
+        .ok_or("That tab no longer exists")?;
+    let mut split_cleared = false;
+    {
+        let mut split = state
+            .split_tabs
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?;
+        if split
+            .as_ref()
+            .is_some_and(|layout| !layout.contains(&tab_id))
+        {
+            *split = None;
+            split_cleared = true;
+        }
+    }
+    if split_cleared {
+        let _ = app.emit_to(&owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
+    }
+    let mut tabs = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?;
+    for tab in tabs
+        .iter_mut()
+        .filter(|tab| tab.window_label == owner_window)
+    {
+        tab.active = tab.id == tab_id;
+    }
+    emit_snapshot(&app, &tabs);
+    drop(tabs);
+    persist_session(&state)?;
+    position_tabs(&app, &state)
 }
 
 #[tauri::command]
@@ -492,6 +644,7 @@ fn sync_page_url(
 #[serde(rename_all = "camelCase")]
 struct DesktopPageDiagnostics {
     browser: BrowserSnapshot,
+    window_labels: Vec<String>,
     tab_id: String,
     loading: bool,
     url: String,
@@ -527,6 +680,7 @@ async fn desktop_test_inspect_page(
         .ok_or("The requested browser tab does not exist")?;
         (tab.id.clone(), tab.loading, snapshot(&tabs))
     };
+    let window_labels = app.windows().keys().cloned().collect();
 
     let page = get_page(&app, &id)?;
     let script = r#"JSON.stringify((() => ({
@@ -556,6 +710,7 @@ async fn desktop_test_inspect_page(
     }
     Ok(DesktopPageDiagnostics {
         browser,
+        window_labels,
         tab_id: id,
         loading,
         url: page["url"].as_str().unwrap_or_default().to_string(),
@@ -589,9 +744,10 @@ fn create_page_webview(
     url: url::Url,
     bounds: ViewBounds,
     private: bool,
+    owner_window: &str,
 ) -> Result<(), String> {
     let window = app
-        .get_window("main")
+        .get_window(owner_window)
         .ok_or("Browser window is unavailable")?;
     let state_data = state.data.clone();
     let navigation_tab_id = id.to_string();
@@ -608,6 +764,20 @@ fn create_page_webview(
             r#"window.__MY_BROWSER_TEST_ERRORS__ = [];
               window.addEventListener('error', event => window.__MY_BROWSER_TEST_ERRORS__.push(String(event.message)));
               window.addEventListener('unhandledrejection', event => window.__MY_BROWSER_TEST_ERRORS__.push(String(event.reason)));"#,
+        )
+        .initialization_script(
+            r#"(() => {
+              let pending = false;
+              const focusBrowserTab = () => {
+                if (pending) return;
+                pending = true;
+                window.__TAURI_INTERNALS__?.invoke('focus_browser_tab')
+                  .catch(() => {})
+                  .finally(() => { pending = false; });
+              };
+              window.addEventListener('focus', focusBrowserTab);
+              document.addEventListener('pointerdown', focusBrowserTab, true);
+            })();"#,
         )
         .initialization_script(
             r#"document.addEventListener('click', event => {
@@ -801,7 +971,7 @@ fn get_browser_state(
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
-    Ok(snapshot(&tabs))
+    Ok(snapshot_for_window(&tabs, webview.label()))
 }
 
 #[tauri::command]
@@ -863,6 +1033,7 @@ fn get_downloads(
 async fn find_in_page(
     webview: tauri::Webview,
     app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
     tab_id: String,
     query: String,
     backwards: bool,
@@ -870,7 +1041,7 @@ async fn find_in_page(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Find is only available to the trusted browser UI".into());
     }
-    let page = get_page(&app, &tab_id)?;
+    let page = get_page_for_window(&app, &state, webview.label(), &tab_id)?;
     let (sender, receiver) = std::sync::mpsc::channel();
     page.eval_with_callback(find_script(&query, backwards), move |result| {
         let _ = sender.send(result);
@@ -888,12 +1059,13 @@ async fn find_in_page(
 async fn get_tab_favicon(
     webview: tauri::Webview,
     app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
     tab_id: String,
 ) -> Result<String, String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Favicons are only available to the trusted browser UI".into());
     }
-    let page = get_page(&app, &tab_id)?;
+    let page = get_page_for_window(&app, &state, webview.label(), &tab_id)?;
     let script = r#"(() => {
       const icon = document.querySelector('link[rel~="icon" i], link[rel~="shortcut" i]');
       if (icon && icon.href) return icon.href;
@@ -927,12 +1099,13 @@ struct PageSecurityInfo {
 async fn get_page_security_info(
     webview: tauri::Webview,
     app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
     tab_id: String,
 ) -> Result<PageSecurityInfo, String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Security information is only available to the trusted browser UI".into());
     }
-    let page = get_page(&app, &tab_id)?;
+    let page = get_page_for_window(&app, &state, webview.label(), &tab_id)?;
     // Permissions.query() is asynchronous in WebKit, while eval_with_callback returns
     // immediately. Cache its result in the page and read that cache on subsequent polls.
     let script = r#"(() => {
@@ -1093,11 +1266,27 @@ fn cycle_tab(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Tabs can only be cycled from the trusted browser UI".into());
     }
+    let owner_window = browser_window_for_ui(webview.label()).to_string();
     let mut tabs = state
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
-    cycle_active_tab(&mut tabs, if backwards { -1 } else { 1 });
+    let mut local: Vec<_> = tabs
+        .iter()
+        .filter(|tab| tab.window_label == owner_window)
+        .cloned()
+        .collect();
+    cycle_active_tab(&mut local, if backwards { -1 } else { 1 });
+    let active_id = local
+        .iter()
+        .find(|tab| tab.active)
+        .map(|tab| tab.id.clone());
+    for tab in tabs
+        .iter_mut()
+        .filter(|tab| tab.window_label == owner_window)
+    {
+        tab.active = Some(tab.id.clone()) == active_id;
+    }
     emit_snapshot(&app, &tabs);
     drop(tabs);
     persist_session(&state)?;
@@ -1106,7 +1295,7 @@ fn cycle_tab(
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
-    Ok(snapshot(&tabs))
+    Ok(snapshot_for_window(&tabs, &owner_window))
 }
 
 #[tauri::command]
@@ -1161,36 +1350,45 @@ fn create_tab(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Tabs can only be created from the trusted browser UI".into());
     }
+    let owner_window = browser_window_for_ui(webview.label()).to_string();
     let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let id = format!("tab-{number}");
-    let bounds = *state
-        .bounds
-        .lock()
-        .map_err(|_| "Browser bounds are unavailable")?;
+    let bounds = window_bounds(&state, &owner_window)?;
     let blank = url::Url::parse("about:blank").unwrap();
     let private = private.unwrap_or(false);
-    create_page_webview(&app, &state, &id, blank, bounds, private)?;
+    create_page_webview(&app, &state, &id, blank, bounds, private, &owner_window)?;
     let mut tabs = state
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
-    for tab in tabs.iter_mut() {
+    for tab in tabs
+        .iter_mut()
+        .filter(|tab| tab.window_label == owner_window)
+    {
         tab.active = false;
     }
-    tabs.push(if private {
-        TabState::new_private(id, true)
-    } else {
-        TabState::new(id, String::new(), true)
-    });
+    tabs.push(TabState::new_in_window(
+        id,
+        String::new(),
+        true,
+        private,
+        owner_window.clone(),
+    ));
     emit_snapshot(&app, &tabs);
     drop(tabs);
+    *state
+        .split_tabs
+        .lock()
+        .map_err(|_| "Browser state is unavailable")? = None;
+    let _ = app.emit_to(&owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
     persist_session(&state)?;
     position_tabs(&app, &state)?;
-    Ok(snapshot(
+    Ok(snapshot_for_window(
         &state
             .data
             .lock()
             .map_err(|_| "Browser state is unavailable")?,
+        &owner_window,
     ))
 }
 
@@ -1204,25 +1402,54 @@ fn select_tab(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Tabs can only be selected from the trusted browser UI".into());
     }
+    let owner_window = browser_window_for_ui(webview.label()).to_string();
+    if !state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .iter()
+        .any(|tab| tab.id == tab_id && tab.window_label == owner_window)
+    {
+        return Err("That tab no longer exists".into());
+    }
+    let split_cleared = {
+        let mut split = state
+            .split_tabs
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?;
+        if split
+            .as_ref()
+            .is_some_and(|layout| !layout.contains(&tab_id))
+        {
+            *split = None;
+            true
+        } else {
+            false
+        }
+    };
+    if split_cleared {
+        let _ = app.emit_to(&owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
+    }
     let mut tabs = state
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
-    if !tabs.iter().any(|tab| tab.id == tab_id) {
-        return Err("That tab no longer exists".into());
-    }
-    for tab in tabs.iter_mut() {
+    for tab in tabs
+        .iter_mut()
+        .filter(|tab| tab.window_label == owner_window)
+    {
         tab.active = tab.id == tab_id;
     }
     emit_snapshot(&app, &tabs);
     drop(tabs);
     persist_session(&state)?;
     position_tabs(&app, &state)?;
-    Ok(snapshot(
+    Ok(snapshot_for_window(
         &state
             .data
             .lock()
             .map_err(|_| "Browser state is unavailable")?,
+        &owner_window,
     ))
 }
 
@@ -1240,10 +1467,18 @@ fn reorder_tabs(
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
+    let owner_window = browser_window_for_ui(webview.label()).to_string();
     let requested: HashSet<&str> = tab_ids.iter().map(String::as_str).collect();
-    if tab_ids.len() != tabs.len()
-        || requested.len() != tabs.len()
-        || tabs.iter().any(|tab| !requested.contains(tab.id.as_str()))
+    let local_count = tabs
+        .iter()
+        .filter(|tab| tab.window_label == owner_window)
+        .count();
+    if tab_ids.len() != local_count
+        || requested.len() != local_count
+        || tabs
+            .iter()
+            .filter(|tab| tab.window_label == owner_window)
+            .any(|tab| !requested.contains(tab.id.as_str()))
     {
         return Err("The new tab order does not match the open tabs".into());
     }
@@ -1252,9 +1487,21 @@ fn reorder_tabs(
         .enumerate()
         .map(|(index, id)| (id.as_str(), index))
         .collect();
-    tabs.sort_by_key(|tab| positions[tab.id.as_str()]);
+    let mut reordered: Vec<_> = tabs
+        .iter()
+        .filter(|tab| tab.window_label == owner_window)
+        .cloned()
+        .collect();
+    reordered.sort_by_key(|tab| positions[tab.id.as_str()]);
+    let mut reordered = reordered.into_iter();
+    for tab in tabs
+        .iter_mut()
+        .filter(|tab| tab.window_label == owner_window)
+    {
+        *tab = reordered.next().expect("local tabs were counted");
+    }
     emit_snapshot(&app, &tabs);
-    let result = snapshot(&tabs);
+    let result = snapshot_for_window(&tabs, &owner_window);
     drop(tabs);
     persist_session(&state)?;
     Ok(result)
@@ -1271,6 +1518,7 @@ fn close_tab(
         return Err("Tabs can only be closed from the trusted browser UI".into());
     }
     let closing_was_active;
+    let owner_window = browser_window_for_ui(webview.label()).to_string();
     {
         let mut tabs = state
             .data
@@ -1278,8 +1526,12 @@ fn close_tab(
             .map_err(|_| "Browser state is unavailable")?;
         let index = tabs
             .iter()
-            .position(|tab| tab.id == tab_id)
+            .position(|tab| tab.id == tab_id && tab.window_label == owner_window)
             .ok_or("That tab no longer exists")?;
+        let local_index = tabs[..index]
+            .iter()
+            .filter(|tab| tab.window_label == owner_window)
+            .count();
         closing_was_active = tabs[index].active;
         let closed = (!tabs[index].private).then(|| SessionTab::from(&tabs[index]));
         let mut recently_closed = state
@@ -1290,10 +1542,39 @@ fn close_tab(
             remember_closed_tab(&mut recently_closed, closed);
         }
         tabs.remove(index);
-        if closing_was_active && !tabs.is_empty() {
-            let new_active_index = index.min(tabs.len() - 1);
-            tabs[new_active_index].active = true;
+        if closing_was_active {
+            if let Some(tab) = tabs
+                .iter_mut()
+                .filter(|tab| tab.window_label == owner_window)
+                .nth(local_index)
+            {
+                tab.active = true;
+            } else if let Some(tab) = tabs
+                .iter_mut()
+                .rev()
+                .find(|tab| tab.window_label == owner_window)
+            {
+                tab.active = true;
+            }
         }
+    }
+    let split_cleared = {
+        let mut split = state
+            .split_tabs
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?;
+        if split
+            .as_ref()
+            .is_some_and(|layout| layout.contains(&tab_id))
+        {
+            *split = None;
+            true
+        } else {
+            false
+        }
+    };
+    if split_cleared {
+        let _ = app.emit_to(&owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
     }
     if let Some(page) = app.get_webview(&page_label(&tab_id)) {
         let _ = page.close();
@@ -1302,7 +1583,8 @@ fn close_tab(
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?
-        .is_empty()
+        .iter()
+        .all(|tab| tab.window_label != owner_window)
     {
         return create_tab(webview, app, state, Some(false));
     }
@@ -1313,7 +1595,7 @@ fn close_tab(
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
     emit_snapshot(&app, &tabs);
-    Ok(snapshot(&tabs))
+    Ok(snapshot_for_window(&tabs, &owner_window))
 }
 
 #[tauri::command]
@@ -1337,22 +1619,23 @@ fn reopen_closed_tab(
     } else {
         allowed_navigation_url(&restored.url)?
     };
-    let bounds = *state
-        .bounds
-        .lock()
-        .map_err(|_| "Browser bounds are unavailable")?;
+    let owner_window = browser_window_for_ui(webview.label()).to_string();
+    let bounds = window_bounds(&state, &owner_window)?;
     let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let id = format!("tab-{number}");
-    create_page_webview(&app, &state, &id, url, bounds, false)?;
+    create_page_webview(&app, &state, &id, url, bounds, false, &owner_window)?;
     {
         let mut tabs = state
             .data
             .lock()
             .map_err(|_| "Browser state is unavailable")?;
-        for tab in tabs.iter_mut() {
+        for tab in tabs
+            .iter_mut()
+            .filter(|tab| tab.window_label == owner_window)
+        {
             tab.active = false;
         }
-        let mut tab = TabState::new(id, restored.url, true);
+        let mut tab = TabState::new_in_window(id, restored.url, true, false, owner_window.clone());
         tab.title = restored.title;
         tab.zoom = restored.zoom;
         tabs.push(tab);
@@ -1374,12 +1657,31 @@ fn reopen_closed_tab(
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
     emit_snapshot(&app, &tabs);
-    Ok(snapshot(&tabs))
+    Ok(snapshot_for_window(&tabs, &owner_window))
 }
 
 fn get_page(app: &tauri::AppHandle, tab_id: &str) -> Result<tauri::Webview, String> {
     app.get_webview(&page_label(tab_id))
         .ok_or_else(|| "Website view is unavailable".into())
+}
+
+fn get_page_for_window(
+    app: &tauri::AppHandle,
+    state: &BrowserState,
+    ui_label: &str,
+    tab_id: &str,
+) -> Result<tauri::Webview, String> {
+    let owner_window = browser_window_for_ui(ui_label);
+    let belongs_to_window = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .iter()
+        .any(|tab| tab.id == tab_id && tab.window_label == owner_window);
+    if !belongs_to_window {
+        return Err("That tab does not belong to this browser window".into());
+    }
+    get_page(app, tab_id)
 }
 
 #[tauri::command]
@@ -1394,7 +1696,8 @@ fn navigate(
         return Err("Navigation is only available from the trusted browser UI".into());
     }
     let parsed = allowed_navigation_url(&url)?;
-    let page = get_page(&app, &tab_id)?;
+    let owner_window = browser_window_for_ui(webview.label()).to_string();
+    let page = get_page_for_window(&app, &state, webview.label(), &tab_id)?;
     {
         let mut tabs = state
             .data
@@ -1402,7 +1705,7 @@ fn navigate(
             .map_err(|_| "Browser state is unavailable")?;
         let tab = tabs
             .iter_mut()
-            .find(|tab| tab.id == tab_id)
+            .find(|tab| tab.id == tab_id && tab.window_label == owner_window)
             .ok_or("That tab no longer exists")?;
         tab.url = parsed.to_string();
         tab.loading = true;
@@ -1423,14 +1726,14 @@ fn go_back(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Navigation is only available from the trusted browser UI".into());
     }
-    let page = get_page(&app, &tab_id)?;
+    let page = get_page_for_window(&app, &state, webview.label(), &tab_id)?;
     let mut tabs = state
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
     let tab = tabs
         .iter_mut()
-        .find(|tab| tab.id == tab_id)
+        .find(|tab| tab.id == tab_id && tab.window_label == browser_window_for_ui(webview.label()))
         .ok_or("That tab no longer exists")?;
     if tab.move_history(false).is_some() {
         page.eval("history.back()").map_err(|e| e.to_string())?;
@@ -1451,14 +1754,14 @@ fn go_forward(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Navigation is only available from the trusted browser UI".into());
     }
-    let page = get_page(&app, &tab_id)?;
+    let page = get_page_for_window(&app, &state, webview.label(), &tab_id)?;
     let mut tabs = state
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
     let tab = tabs
         .iter_mut()
-        .find(|tab| tab.id == tab_id)
+        .find(|tab| tab.id == tab_id && tab.window_label == browser_window_for_ui(webview.label()))
         .ok_or("That tab no longer exists")?;
     if tab.move_history(true).is_some() {
         page.eval("history.forward()").map_err(|e| e.to_string())?;
@@ -1470,11 +1773,18 @@ fn go_forward(
 }
 
 #[tauri::command]
-fn reload(webview: tauri::Webview, app: tauri::AppHandle, tab_id: String) -> Result<(), String> {
+fn reload(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    tab_id: String,
+) -> Result<(), String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Navigation is only available from the trusted browser UI".into());
     }
-    get_page(&app, &tab_id)?.reload().map_err(|e| e.to_string())
+    get_page_for_window(&app, &state, webview.label(), &tab_id)?
+        .reload()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1487,14 +1797,17 @@ fn stop_loading(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Navigation is only available from the trusted browser UI".into());
     }
-    get_page(&app, &tab_id)?
+    get_page_for_window(&app, &state, webview.label(), &tab_id)?
         .eval("window.stop()")
         .map_err(|e| e.to_string())?;
     let mut tabs = state
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
-    if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+    if let Some(tab) = tabs
+        .iter_mut()
+        .find(|tab| tab.id == tab_id && tab.window_label == browser_window_for_ui(webview.label()))
+    {
         tab.loading = false;
     }
     emit_snapshot(&app, &tabs);
@@ -1536,10 +1849,11 @@ fn set_view_bounds(
         width,
         height,
     };
-    *state
-        .bounds
+    state
+        .window_bounds
         .lock()
-        .map_err(|_| "Browser bounds are unavailable")? = bounds;
+        .map_err(|_| "Browser bounds are unavailable")?
+        .insert(browser_window_for_ui(webview.label()).to_string(), bounds);
     position_tabs(&app, &state)
 }
 
@@ -1553,22 +1867,297 @@ fn set_settings_open(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Settings are only available to the trusted browser UI".into());
     }
-    *state
+    let mut open_windows = state
         .settings_open
         .lock()
-        .map_err(|_| "Browser state unavailable")? = open;
+        .map_err(|_| "Browser state unavailable")?;
+    if open {
+        open_windows.insert(browser_window_for_ui(webview.label()).to_string());
+    } else {
+        open_windows.remove(browser_window_for_ui(webview.label()));
+    }
+    drop(open_windows);
     position_tabs(&app, &state)
+}
+
+#[tauri::command]
+fn set_tab_dragging(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    dragging: bool,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Tab drag layout is only available to browser windows".into());
+    }
+    *state
+        .tab_dragging
+        .lock()
+        .map_err(|_| "Browser state is unavailable")? =
+        dragging.then(|| browser_window_for_ui(webview.label()).to_string());
+    position_tabs(&app, &state)
+}
+
+#[tauri::command]
+fn get_split_tabs(
+    webview: tauri::Webview,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<Option<SplitLayout>, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Split layout is only available to browser windows".into());
+    }
+    let split = state
+        .split_tabs
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .clone();
+    let split = split.filter(|layout| {
+        state
+            .data
+            .lock()
+            .map(|tabs| {
+                tabs.iter().any(|tab| {
+                    tab.id == layout.first_tab_id
+                        && tab.window_label == browser_window_for_ui(webview.label())
+                }) && tabs.iter().any(|tab| {
+                    tab.id == layout.second_tab_id
+                        && tab.window_label == browser_window_for_ui(webview.label())
+                })
+            })
+            .unwrap_or(false)
+    });
+    Ok(split)
+}
+
+#[tauri::command]
+fn split_tab(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    tab_id: String,
+    side: String,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label())
+        || !matches!(side.as_str(), "left" | "right" | "top" | "bottom")
+    {
+        return Err("Invalid split target".into());
+    }
+    let owner_window = browser_window_for_ui(webview.label());
+    let tabs = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?;
+    let active_id = tabs
+        .iter()
+        .find(|tab| tab.active && tab.window_label == owner_window)
+        .map(|tab| (tab.id.clone(), tab.url.is_empty()))
+        .ok_or("There is no active tab to split beside")?;
+    let target = tabs
+        .iter()
+        .find(|tab| tab.id == tab_id && tab.window_label == owner_window)
+        .ok_or("Choose a different tab in this window")?;
+    if active_id.0 == tab_id || active_id.1 || target.url.is_empty() {
+        return Err("Choose two tabs that both have a loaded page".into());
+    }
+    let active_id = active_id.0;
+    let split = if matches!(side.as_str(), "left" | "top") {
+        SplitLayout {
+            first_tab_id: tab_id,
+            second_tab_id: active_id,
+            orientation: if matches!(side.as_str(), "left" | "right") {
+                SplitOrientation::Horizontal
+            } else {
+                SplitOrientation::Vertical
+            },
+        }
+    } else {
+        SplitLayout {
+            first_tab_id: active_id,
+            second_tab_id: tab_id,
+            orientation: if matches!(side.as_str(), "left" | "right") {
+                SplitOrientation::Horizontal
+            } else {
+                SplitOrientation::Vertical
+            },
+        }
+    };
+    drop(tabs);
+    *state
+        .split_tabs
+        .lock()
+        .map_err(|_| "Browser state is unavailable")? = Some(split.clone());
+    let _ = app.emit_to(owner_window, SPLIT_EVENT, Some(split));
+    position_tabs(&app, &state)
+}
+
+#[tauri::command]
+fn clear_tab_split(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Split layout is only available to browser windows".into());
+    }
+    *state
+        .split_tabs
+        .lock()
+        .map_err(|_| "Browser state is unavailable")? = None;
+    let _ = app.emit_to(
+        browser_window_for_ui(webview.label()),
+        SPLIT_EVENT,
+        Option::<SplitLayout>::None,
+    );
+    position_tabs(&app, &state)
+}
+
+#[tauri::command]
+fn move_tab_to_new_window(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    tab_id: String,
+) -> Result<String, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Tabs can only be moved from a browser window".into());
+    }
+    let source_window = browser_window_for_ui(webview.label()).to_string();
+    let mut tab = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .iter()
+        .find(|tab| tab.id == tab_id && tab.window_label == source_window)
+        .cloned()
+        .ok_or("That tab no longer exists in this window")?;
+    if tab.url.is_empty() {
+        return Err("Load a page in this tab before moving it to a new window".into());
+    }
+
+    let window_number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+    let destination = format!("browser-window-{window_number}");
+    let browser_window =
+        tauri::WebviewWindowBuilder::new(&app, &destination, WebviewUrl::App("index.html".into()))
+            .title(if tab.title.is_empty() {
+                "My Browser"
+            } else {
+                &tab.title
+            })
+            .inner_size(1200.0, 800.0)
+            .build()
+            .map_err(|error| format!("Could not open a new browser window: {error}"))?;
+    let close_app = app.clone();
+    let close_state = state.inner().clone();
+    let close_label = destination.clone();
+    browser_window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            close_browser_window_tabs(&close_app, &close_state, &close_label);
+        }
+    });
+
+    let previous_page = app.get_webview(&page_label(&tab_id));
+    if let Some(page) = previous_page {
+        page.close().map_err(|error| {
+            format!("Could not detach the tab from its current window: {error}")
+        })?;
+    }
+    tab.window_label = destination.clone();
+    tab.active = true;
+    {
+        let mut tabs = state
+            .data
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?;
+        for existing in tabs
+            .iter_mut()
+            .filter(|item| item.window_label == source_window)
+        {
+            existing.active = false;
+        }
+        if let Some(existing) = tabs.iter_mut().find(|item| item.id == tab_id) {
+            *existing = tab.clone();
+        } else {
+            return Err("The tab closed while it was being moved".into());
+        }
+        if let Some(source_active) = tabs
+            .iter_mut()
+            .find(|item| item.window_label == source_window)
+        {
+            source_active.active = true;
+        }
+    }
+
+    let bounds = window_bounds(&state, &destination)?;
+    let parsed = allowed_navigation_url(&tab.url)?;
+    if let Err(error) = create_page_webview(
+        &app,
+        &state,
+        &tab_id,
+        parsed,
+        bounds,
+        tab.private,
+        &destination,
+    ) {
+        if let Ok(mut tabs) = state.data.lock() {
+            if let Some(existing) = tabs.iter_mut().find(|item| item.id == tab_id) {
+                existing.window_label = source_window.clone();
+            }
+        }
+        if let Ok(source_bounds) = window_bounds(&state, &source_window) {
+            if let Ok(source_url) = allowed_navigation_url(&tab.url) {
+                let _ = create_page_webview(
+                    &app,
+                    &state,
+                    &tab_id,
+                    source_url,
+                    source_bounds,
+                    tab.private,
+                    &source_window,
+                );
+            }
+        }
+        return Err(format!(
+            "Could not attach the tab to the new window: {error}"
+        ));
+    }
+    if let Some(page) = app.get_webview(&page_label(&tab_id)) {
+        page.set_zoom(tab.zoom).map_err(|error| error.to_string())?;
+    }
+    {
+        let mut split = state
+            .split_tabs
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?;
+        if split
+            .as_ref()
+            .is_some_and(|layout| layout.contains(&tab_id))
+        {
+            *split = None;
+            let _ = app.emit_to(&source_window, SPLIT_EVENT, Option::<SplitLayout>::None);
+        }
+    }
+    emit_snapshot(
+        &app,
+        &state
+            .data
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?,
+    );
+    persist_session(&state)?;
+    position_tabs(&app, &state)?;
+    Ok(destination)
 }
 
 fn adjust_active_zoom(
     app: &tauri::AppHandle,
     state: &BrowserState,
     action: &str,
+    window_label: &str,
 ) -> Result<(), String> {
     let mut tabs = state.data.lock().map_err(|_| "Browser state unavailable")?;
     let tab = tabs
         .iter_mut()
-        .find(|tab| tab.active)
+        .find(|tab| tab.active && tab.window_label == window_label)
         .ok_or("No active tab")?;
     tab.zoom = match action {
         "zoom-in" => (tab.zoom + 0.1).min(3.0),
@@ -1584,31 +2173,81 @@ fn adjust_active_zoom(
 }
 
 fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), String> {
-    let bounds = *state
-        .bounds
+    let split_tabs = state
+        .split_tabs
         .lock()
-        .map_err(|_| "Browser bounds are unavailable")?;
+        .map_err(|_| "Browser state is unavailable")?
+        .clone();
+    let dragging = state
+        .tab_dragging
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .clone();
+    let settings_open = state
+        .settings_open
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?;
     let tabs = state
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
     for tab in tabs.iter() {
         if let Some(page) = app.get_webview(&page_label(&tab.id)) {
-            let settings_open = *state
-                .settings_open
-                .lock()
-                .map_err(|_| "Browser state unavailable")?;
-            let is_visible = !settings_open && tab.active && !tab.url.is_empty();
-            let position = if is_visible {
-                tauri::LogicalPosition::new(bounds.x, bounds.y)
+            let bounds = window_bounds(state, &tab.window_label)?;
+            let split_position = split_tabs.as_ref().and_then(|layout| {
+                if tab.id == layout.first_tab_id {
+                    Some((layout.orientation, false))
+                } else if tab.id == layout.second_tab_id {
+                    Some((layout.orientation, true))
+                } else {
+                    None
+                }
+            });
+            let is_visible = !settings_open.contains(&tab.window_label)
+                && dragging.as_deref() != Some(tab.window_label.as_str())
+                && (split_position.is_some() || tab.active)
+                && !tab.url.is_empty();
+            let (position, size) = if let Some((orientation, is_second)) = split_position {
+                let gutter = 6.0;
+                match orientation {
+                    SplitOrientation::Horizontal => {
+                        let pane_width = (bounds.width - gutter) / 2.0;
+                        let x = if is_second {
+                            bounds.x + pane_width + gutter
+                        } else {
+                            bounds.x
+                        };
+                        (
+                            tauri::LogicalPosition::new(x, bounds.y),
+                            tauri::LogicalSize::new(pane_width.max(1.0), bounds.height),
+                        )
+                    }
+                    SplitOrientation::Vertical => {
+                        let pane_height = (bounds.height - gutter) / 2.0;
+                        let y = if is_second {
+                            bounds.y + pane_height + gutter
+                        } else {
+                            bounds.y
+                        };
+                        (
+                            tauri::LogicalPosition::new(bounds.x, y),
+                            tauri::LogicalSize::new(bounds.width, pane_height.max(1.0)),
+                        )
+                    }
+                }
+            } else if is_visible {
+                (
+                    tauri::LogicalPosition::new(bounds.x, bounds.y),
+                    tauri::LogicalSize::new(bounds.width, bounds.height),
+                )
             } else {
-                tauri::LogicalPosition::new(20000.0, 20000.0)
+                (
+                    tauri::LogicalPosition::new(20000.0, 20000.0),
+                    tauri::LogicalSize::new(bounds.width.max(1.0), bounds.height.max(1.0)),
+                )
             };
             page.set_position(position).map_err(|e| e.to_string())?;
-            if is_visible {
-                page.set_size(tauri::LogicalSize::new(bounds.width, bounds.height))
-                    .map_err(|e| e.to_string())?;
-            }
+            page.set_size(size).map_err(|e| e.to_string())?;
         }
     }
     Ok(())
@@ -1770,7 +2409,7 @@ pub fn run() {
             .filter_map(validated_session_tab)
             .take(20)
             .collect();
-        let bounds = *state.bounds.lock().expect("browser bounds lock poisoned");
+        let bounds = window_bounds(&state, "main").expect("browser bounds available");
         #[cfg(target_os = "macos")]
         {
             use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -1891,8 +2530,16 @@ pub fn run() {
                 } else {
                     allowed_navigation_url(&saved.url).unwrap()
                 };
-                create_page_webview(app.handle(), &state, &saved.id, parsed, bounds, false)
-                    .map_err(std::io::Error::other)?;
+                create_page_webview(
+                    app.handle(),
+                    &state,
+                    &saved.id,
+                    parsed,
+                    bounds,
+                    false,
+                    "main",
+                )
+                .map_err(std::io::Error::other)?;
                 if let Some(page) = app.get_webview(&page_label(&saved.id)) {
                     page.set_zoom(saved.zoom).map_err(std::io::Error::other)?;
                 }
@@ -1922,6 +2569,7 @@ pub fn run() {
                     url::Url::parse("about:blank").unwrap(),
                     bounds,
                     false,
+                    "main",
                 )
                 .map_err(std::io::Error::other)?;
                 restored_tabs.push(TabState::new(id, String::new(), true));
@@ -1955,6 +2603,12 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
         clear_browsing_data,
+        set_tab_dragging,
+        get_split_tabs,
+        split_tab,
+        clear_tab_split,
+        move_tab_to_new_window,
+        focus_browser_tab,
         get_history,
         get_downloads,
         find_in_page,
@@ -1987,6 +2641,12 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
         clear_browsing_data,
+        set_tab_dragging,
+        get_split_tabs,
+        split_tab,
+        clear_tab_split,
+        move_tab_to_new_window,
+        focus_browser_tab,
         get_history,
         get_downloads,
         find_in_page,
@@ -2016,6 +2676,12 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
         clear_browsing_data,
+        set_tab_dragging,
+        get_split_tabs,
+        split_tab,
+        clear_tab_split,
+        move_tab_to_new_window,
+        focus_browser_tab,
         get_history,
         get_downloads,
         find_in_page,
@@ -2042,19 +2708,26 @@ pub fn run() {
     ]);
     builder
         .on_menu_event(|app, event| {
+            let Some(window_label) = focused_browser_window_label(app) else {
+                return;
+            };
             if event.id().as_ref() == "open-settings" {
-                let _ = app.emit_to("main", OPEN_SETTINGS_EVENT, ());
+                let _ = app.emit_to(&window_label, OPEN_SETTINGS_EVENT, ());
             }
             let id = event.id().as_ref();
             if id.starts_with("shortcut-") {
-                let _ = app.emit_to("main", SHORTCUT_EVENT, id.trim_start_matches("shortcut-"));
+                let _ = app.emit_to(
+                    &window_label,
+                    SHORTCUT_EVENT,
+                    id.trim_start_matches("shortcut-"),
+                );
             }
             if let Some(action) = ["zoom-in", "zoom-out", "zoom-reset"]
                 .iter()
                 .find(|id| event.id().as_ref() == **id)
             {
                 if let Some(state) = app.try_state::<BrowserState>() {
-                    let _ = adjust_active_zoom(app, &state, action);
+                    let _ = adjust_active_zoom(app, &state, action, &window_label);
                 }
             }
         })

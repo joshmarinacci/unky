@@ -7,6 +7,8 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct TabState {
     pub id: String,
+    #[serde(default = "default_window_label")]
+    pub window_label: String,
     pub url: String,
     pub title: String,
     pub loading: bool,
@@ -27,6 +29,10 @@ fn default_zoom() -> f64 {
     1.0
 }
 
+fn default_window_label() -> String {
+    "main".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserSnapshot {
@@ -34,12 +40,35 @@ pub struct BrowserSnapshot {
     pub active_tab_id: String,
 }
 
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitLayout {
+    pub first_tab_id: String,
+    pub second_tab_id: String,
+    pub orientation: SplitOrientation,
+}
+
+impl SplitLayout {
+    pub fn contains(&self, tab_id: &str) -> bool {
+        self.first_tab_id == tab_id || self.second_tab_id == tab_id
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SplitOrientation {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Clone, Default)]
 pub struct BrowserState {
     pub data: Arc<Mutex<Vec<TabState>>>,
     pub next_id: Arc<std::sync::atomic::AtomicU64>,
-    pub bounds: Arc<Mutex<ViewBounds>>,
-    pub settings_open: Arc<Mutex<bool>>,
+    pub settings_open: Arc<Mutex<std::collections::HashSet<String>>>,
+    pub window_bounds: Arc<Mutex<std::collections::HashMap<String, ViewBounds>>>,
+    pub split_tabs: Arc<Mutex<Option<SplitLayout>>>,
+    pub tab_dragging: Arc<Mutex<Option<String>>>,
     pub recently_closed: Arc<Mutex<Vec<SessionTab>>>,
     pub session_file: Arc<Mutex<Option<PathBuf>>>,
     pub history: Arc<Mutex<Vec<HistoryEntry>>>,
@@ -264,6 +293,7 @@ impl TabState {
     pub fn new(id: String, url: String, active: bool) -> Self {
         Self {
             id,
+            window_label: default_window_label(),
             url: url.clone(),
             title: "New Tab".into(),
             loading: false,
@@ -284,6 +314,22 @@ impl TabState {
     pub fn new_private(id: String, active: bool) -> Self {
         let mut tab = Self::new(id, String::new(), active);
         tab.private = true;
+        tab
+    }
+
+    pub fn new_in_window(
+        id: String,
+        url: String,
+        active: bool,
+        private: bool,
+        window_label: String,
+    ) -> Self {
+        let mut tab = if private {
+            Self::new_private(id, active)
+        } else {
+            Self::new(id, url, active)
+        };
+        tab.window_label = window_label;
         tab
     }
 

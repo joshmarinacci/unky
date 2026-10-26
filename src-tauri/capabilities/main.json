@@ -3,7 +3,8 @@
   "identifier": "main-capability",
   "description": "Privileges for the trusted browser UI only",
   "webviews": [
-    "main"
+    "main",
+    "browser-window-*"
   ],
   "permissions": [
     "core:default",

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button as AriaButton, ListBox, ListBoxItem, Popover, Select, SelectValue, Tab, TabList, TabPanel, TabPanels, Tabs, Tree, TreeItem, TreeItemContent, useDragAndDrop } from 'react-aria-components';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Download, ExternalLink, EyeOff, Folder, FolderPlus, Globe2, GripVertical, LoaderCircle, LockKeyhole, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, X } from 'lucide-react';
+import { Button as AriaButton, DropZone, ListBox, ListBoxItem, Popover, Select, SelectValue, Tab, TabList, TabPanel, TabPanels, Tabs, Tree, TreeItem, TreeItemContent, useDragAndDrop } from 'react-aria-components';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Columns2, Download, ExternalLink, EyeOff, Folder, FolderPlus, Globe2, GripVertical, LoaderCircle, LockKeyhole, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCw, Rows2, Search, Settings, Shield, Sparkles, Star, X } from 'lucide-react';
 import { AppButton, AppInput } from './components/ui';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -18,6 +18,7 @@ type Tab = {
 };
 
 type BrowserSnapshot = { tabs: Tab[]; activeTabId: string };
+type SplitLayout = { firstTabId: string; secondTabId: string; orientation: 'horizontal' | 'vertical' };
 type PageSecurityInfo = { secureHttps: boolean; location: string; camera: string; microphone: string; playingAudio: boolean };
 type TabReference = { id: string; type: 'tab' };
 type TabFolder = { id: string; type: 'folder'; title: string; collapsed: boolean; children: TabNode[] };
@@ -34,6 +35,7 @@ const settingsEvent = 'browser://open-settings';
 const shortcutEvent = 'browser://shortcut';
 const historyEvent = 'browser://history-changed';
 const downloadsEvent = 'browser://downloads-changed';
+const splitEvent = 'browser://split-changed';
 const sidebarDefaultWidth = 224;
 const sidebarMinWidth = 176;
 const sidebarMaxWidth = 360;
@@ -359,6 +361,8 @@ export default function App() {
   const [tabNodes, setTabNodes] = useState<TabNode[]>(initialTabNodes);
   const [tabNameOverrides, setTabNameOverrides] = useState<Record<string, string>>(initialTabNameOverrides);
   const [tabFavicons, setTabFavicons] = useState<Record<string, string>>({});
+  const [splitLayout, setSplitLayout] = useState<SplitLayout | null>(null);
+  const [draggingTabId, setDraggingTabId] = useState('');
   const [tabNameDraft, setTabNameDraft] = useState('');
   const [editingTabId, setEditingTabId] = useState('');
   const [editingTabFolderId, setEditingTabFolderId] = useState('');
@@ -400,6 +404,16 @@ export default function App() {
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
   const tabDragAndDrop = useDragAndDrop<TabNode>({
     getItems: keys => [...keys].map(key => ({ 'text/plain': String(key) })),
+    onDragStart: event => {
+      const key = [...event.keys].map(String).find(id => findTabNode(tabNodesRef.current, id)?.type === 'tab');
+      if (!key) return;
+      setDraggingTabId(key);
+      void invoke('set_tab_dragging', { dragging: true }).catch(error => setMessage(String(error)));
+    },
+    onDragEnd: () => {
+      setDraggingTabId('');
+      void invoke('set_tab_dragging', { dragging: false }).catch(error => setMessage(String(error)));
+    },
     shouldAcceptItemDrop: target => target.dropPosition !== 'on' || findTabNode(tabNodesRef.current, String(target.key))?.type === 'folder',
     onMove: event => {
       if (event.dropOperation !== 'move') return;
@@ -581,6 +595,8 @@ export default function App() {
       const unlistenSettings = await listen(settingsEvent, () => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); });
       const unlistenHistory = await listen<HistoryEntry[]>(historyEvent, event => setHistory(event.payload));
       const unlistenDownloads = await listen<Download[]>(downloadsEvent, event => setDownloads(event.payload));
+      const unlistenSplit = await listen<SplitLayout | null>(splitEvent, event => setSplitLayout(event.payload));
+      void invoke<SplitLayout | null>('get_split_tabs').then(setSplitLayout).catch(error => setMessage(String(error)));
       const unlistenShortcuts = await listen<string>(shortcutEvent, event => {
         switch (event.payload) {
           case 'new-tab': void createTab(); break;
@@ -602,10 +618,10 @@ export default function App() {
       }
       catch (error) { setMessage(String(error)); }
       if (!cancelled) void runSessionIntegrationTest();
-      if (cancelled) { unlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); }
+      if (cancelled) { unlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); }
       else {
         const originalUnlisten = unlisten;
-        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); };
+        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); };
       }
     })();
     return () => { cancelled = true; unlisten?.(); };
@@ -780,6 +796,43 @@ export default function App() {
     try {
       await invoke('clear_browsing_data');
       setMessage('Website data clearing started; it may take a moment. History was cleared.');
+    } catch (error) { setMessage(String(error)); }
+  }
+
+  async function dropTabIntoSplit(side: 'left' | 'right' | 'top' | 'bottom') {
+    const tabId = draggingTabId;
+    if (!tabId || !activeTabId || tabId === activeTabId) {
+      setMessage('Drag a different loaded tab to create a split view.');
+      return;
+    }
+    try {
+      await invoke('split_tab', { tabId, side });
+      const firstTabId = side === 'left' || side === 'top' ? tabId : activeTabId;
+      setSplitLayout({
+        firstTabId,
+        secondTabId: firstTabId === tabId ? activeTabId : tabId,
+        orientation: side === 'left' || side === 'right' ? 'horizontal' : 'vertical',
+      });
+    } catch (error) { setMessage(String(error)); }
+    setDraggingTabId('');
+    void invoke('set_tab_dragging', { dragging: false }).catch(error => setMessage(String(error)));
+  }
+
+  async function dropTabIntoNewWindow() {
+    const tabId = draggingTabId;
+    if (!tabId) return;
+    try {
+      await invoke<string>('move_tab_to_new_window', { tabId });
+      setMessage('Tab moved to a new window.');
+    } catch (error) { setMessage(String(error)); }
+    setDraggingTabId('');
+    void invoke('set_tab_dragging', { dragging: false }).catch(error => setMessage(String(error)));
+  }
+
+  async function closeSplitView() {
+    try {
+      await invoke('clear_tab_split');
+      setSplitLayout(null);
     } catch (error) { setMessage(String(error)); }
   }
 
@@ -1202,6 +1255,7 @@ export default function App() {
               if (!shown) setSecurityInfo(null);
             } catch (error) { setMessage(String(error)); }
           }}><Shield className="ui-icon" size={17} aria-hidden="true" /></AppButton>
+          {splitLayout && <AppButton className="toolbar-action" title="Close split view" aria-label="Close split view" onClick={() => void closeSplitView()}><Columns2 className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
           <AppButton className="toolbar-action" title="Settings" aria-label="Settings" onClick={() => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); }}><Settings className="ui-icon" size={17} aria-hidden="true" /></AppButton>
         </header>
 
@@ -1240,6 +1294,23 @@ export default function App() {
             <div className="quick-links"><AppButton onClick={() => void navigateTo('https://www.google.com')}>Google</AppButton><AppButton onClick={() => void navigateTo('https://wikipedia.org')}>Wikipedia</AppButton><AppButton onClick={() => void navigateTo('https://github.com')}>GitHub</AppButton></div>
           </div>}
           {message && activeTab?.url && <div className="toast" role="status">{message}</div>}
+          {draggingTabId && <div className="tab-layout-drop-overlay">
+            <DropZone className="split-drop-zone split-drop-left" aria-label="Drop here to split on the left" getDropOperation={() => 'move'} onDrop={() => void dropTabIntoSplit('left')}>
+              <Columns2 className="ui-icon" size={22} aria-hidden="true" /><strong>Split left</strong><span>Place this page on the left</span>
+            </DropZone>
+            <DropZone className="split-drop-zone split-drop-right" aria-label="Drop here to split on the right" getDropOperation={() => 'move'} onDrop={() => void dropTabIntoSplit('right')}>
+              <Columns2 className="ui-icon" size={22} aria-hidden="true" /><strong>Split right</strong><span>Place this page on the right</span>
+            </DropZone>
+            <DropZone className="split-drop-zone split-drop-top" aria-label="Drop here to split on the top" getDropOperation={() => 'move'} onDrop={() => void dropTabIntoSplit('top')}>
+              <Rows2 className="ui-icon" size={22} aria-hidden="true" /><strong>Split top</strong><span>Place this page above the current page</span>
+            </DropZone>
+            <DropZone className="split-drop-zone split-drop-bottom" aria-label="Drop here to split on the bottom" getDropOperation={() => 'move'} onDrop={() => void dropTabIntoSplit('bottom')}>
+              <Rows2 className="ui-icon" size={22} aria-hidden="true" /><strong>Split bottom</strong><span>Place this page below the current page</span>
+            </DropZone>
+            <DropZone className="new-window-drop-zone" aria-label="Drop here to move this tab to a new window" getDropOperation={() => 'move'} onDrop={() => void dropTabIntoNewWindow()}>
+              <ExternalLink className="ui-icon" size={17} aria-hidden="true" /><strong>New window</strong>
+            </DropZone>
+          </div>}
         </div>
       </section>
     </main>

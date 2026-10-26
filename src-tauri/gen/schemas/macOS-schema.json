@@ -183,6 +183,12 @@
           "markdownDescription": "Allows the debug-only WebDriver host to inspect a website child WebView."
         },
         {
+          "description": "Allows a website child WebView to report that it received native focus.",
+          "type": "string",
+          "const": "allow-focus-browser-tab",
+          "markdownDescription": "Allows a website child WebView to report that it received native focus."
+        },
+        {
           "description": "Enables browser commands for the trusted local browser interface.",
           "type": "string",
           "const": "allow-main-browser-commands",

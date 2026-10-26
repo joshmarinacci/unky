@@ -7,3 +7,11 @@
 - Review `test-results/child-webview-rendered.png`, `test-results/browser-state.json`, `test-results/frontend-errors.json`, `test-results/network-events.jsonl`, and `test-results/rust-logs.log` after a run. The suite also saves `failure-window.png` when a test fails.
 - The Rust DOM inspection command, WDIO plugins, `wdio:` capability, and `desktop-test` frontend plugin import are restricted to debug desktop-test builds. Keep `desktop-test` out of release builds and keep `desktop-test-capability` out of the production capability list.
 - The embedded WebDriver only exposes Tauri `WebviewWindow` handles; this browser’s website tabs are child WebViews inside its legacy `Window` and are not separate WebDriver contexts. The debug build adds a hidden `wdio-host` WebviewWindow in the same app process, then inspects real website children through the debug-only `desktop_test_inspect_page` Rust command, which returns their DOM and navigation state.
+
+## Tab splitting and multiple browser windows
+
+- Drag a loaded tab over the page area to show the split targets. Left/right targets split the content horizontally; top/bottom targets split it vertically. The targets use React Aria `DropZone` so the operation is available through accessible drag and drop interactions.
+- Native split layout is applied to the existing child WebViews. `SplitLayout` records the two ordered tab IDs and orientation; keep the frontend event payload and Rust command return type in sync when changing it.
+- Dropping a tab on “New window” creates a `browser-window-*` shell window and reattaches that tab’s child WebView to it. Keep tab snapshots, navigation commands, and window teardown scoped to each tab’s owning window.
+- Menu accelerators are app-wide on macOS. Route shortcut, settings, and zoom actions to the focused browser window; do not hard-code the `main` label for these actions.
+- For split or window-lifecycle changes, the desktop suite exercises horizontal and vertical split state and moving a child tab to another native browser window. Inspect `test-results/split-view.png` and `test-results/vertical-split.png` alongside the usual browser state and diagnostic artifacts.

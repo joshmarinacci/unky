@@ -36,6 +36,37 @@ describe('native Tauri browser', () => {
     assert.equal(afterSwitch.tabId, 'tab-1');
     assert.match(afterSwitch.text, /Fixture Page One/);
 
+    await invoke('split_tab', { tabId: secondTab.id, side: 'right' });
+    const splitTabs = await invoke('get_split_tabs') as { firstTabId: string; secondTabId: string; orientation: string } | null;
+    assert.deepEqual(splitTabs, {
+      firstTabId: 'tab-1',
+      secondTabId: secondTab.id,
+      orientation: 'horizontal',
+    }, 'right split should place the active page before the dragged page');
+    captureNativeWindow('split-view.png');
+
+    await invoke('split_tab', { tabId: secondTab.id, side: 'bottom' });
+    const verticalSplit = await invoke('get_split_tabs') as { firstTabId: string; secondTabId: string; orientation: string } | null;
+    assert.deepEqual(verticalSplit, {
+      firstTabId: 'tab-1',
+      secondTabId: secondTab.id,
+      orientation: 'vertical',
+    }, 'bottom split should place the active page above the dragged page');
+    captureNativeWindow('vertical-split.png');
+
+    const newWindowLabel = await invoke('move_tab_to_new_window', { tabId: secondTab.id }) as string;
+    await browser.waitUntil(async () => {
+      const page = await inspect(secondTab.id);
+      return page.readyState === 'complete'
+        && page.browser.tabs.find((tab: { id: string; windowLabel?: string }) => tab.id === secondTab.id)?.windowLabel === newWindowLabel
+        && page.windowLabels.includes(newWindowLabel);
+    }, {
+      timeout: 10000,
+      timeoutMsg: `The tab was not reattached to native browser window ${newWindowLabel}`,
+    });
+    const movedPage = await inspect(secondTab.id);
+    assert.match(movedPage.text, /Fixture Page Two/);
+
     const errors = [...initial.errors, ...second.errors, ...afterSwitch.errors];
     writeFileSync(join(results, 'frontend-errors.json'), JSON.stringify(errors, null, 2));
     writeFileSync(join(results, 'browser-state.json'), JSON.stringify(afterSwitch.browser, null, 2));
