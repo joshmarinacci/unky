@@ -13,6 +13,8 @@ pub struct TabState {
     pub can_go_back: bool,
     pub can_go_forward: bool,
     pub active: bool,
+    #[serde(default)]
+    pub private: bool,
     #[serde(default = "default_zoom")]
     pub zoom: f64,
     #[serde(skip)]
@@ -268,6 +270,7 @@ impl TabState {
             can_go_back: false,
             can_go_forward: false,
             active,
+            private: false,
             zoom: 1.0,
             history: if url.is_empty() {
                 Vec::new()
@@ -276,6 +279,12 @@ impl TabState {
             },
             history_index: 0,
         }
+    }
+
+    pub fn new_private(id: String, active: bool) -> Self {
+        let mut tab = Self::new(id, String::new(), active);
+        tab.private = true;
+        tab
     }
 
     pub fn record_navigation(&mut self, url: String) {

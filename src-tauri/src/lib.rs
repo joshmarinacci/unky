@@ -92,10 +92,15 @@ fn persist_session(state: &BrowserState) -> Result<(), String> {
         .map_err(|_| "Browser state is unavailable")?;
     let session = PersistedSession {
         version: 1,
-        tabs: tabs.iter().map(SessionTab::from).collect(),
+        tabs: tabs
+            .iter()
+            .filter(|tab| !tab.private)
+            .map(SessionTab::from)
+            .collect(),
         active_tab_id: tabs
             .iter()
-            .find(|tab| tab.active)
+            .find(|tab| tab.active && !tab.private)
+            .or_else(|| tabs.iter().find(|tab| !tab.private))
             .map(|tab| tab.id.clone())
             .unwrap_or_default(),
         recently_closed: recently_closed.clone(),
@@ -256,6 +261,7 @@ fn open_url_in_new_tab(
     app: &tauri::AppHandle,
     state: &BrowserState,
     input: &str,
+    private: bool,
 ) -> Result<(), String> {
     let parsed = allowed_navigation_url(input)?;
     let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
@@ -264,7 +270,7 @@ fn open_url_in_new_tab(
         .bounds
         .lock()
         .map_err(|_| "Browser bounds are unavailable")?;
-    create_page_webview(app, state, &id, parsed.clone(), bounds)?;
+    create_page_webview(app, state, &id, parsed.clone(), bounds, private)?;
     let mut tabs = state
         .data
         .lock()
@@ -272,7 +278,15 @@ fn open_url_in_new_tab(
     for tab in tabs.iter_mut() {
         tab.active = false;
     }
-    tabs.push(TabState::new(id, parsed.to_string(), true));
+    let mut tab = if private {
+        TabState::new_private(id, true)
+    } else {
+        TabState::new(id, parsed.to_string(), true)
+    };
+    if private {
+        tab.record_navigation(parsed.to_string());
+    }
+    tabs.push(tab);
     emit_snapshot(app, &tabs);
     drop(tabs);
     persist_session(state)?;
@@ -422,7 +436,13 @@ fn open_link_in_new_tab(
     if !webview.label().starts_with("page-") {
         return Err("Links can only be opened from a browser page".into());
     }
-    open_url_in_new_tab(&app, &state, &url)
+    let private = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .iter()
+        .any(|tab| page_label(&tab.id) == webview.label() && tab.private);
+    open_url_in_new_tab(&app, &state, &url, private)
 }
 
 #[tauri::command]
@@ -568,6 +588,7 @@ fn create_page_webview(
     id: &str,
     url: url::Url,
     bounds: ViewBounds,
+    private: bool,
 ) -> Result<(), String> {
     let window = app
         .get_window("main")
@@ -582,6 +603,7 @@ fn create_page_webview(
     let next_download_id = state.next_download_id.clone();
     let label = page_label(id);
     let builder = tauri::webview::WebviewBuilder::new(label, WebviewUrl::External(url))
+        .incognito(private)
         .initialization_script(
             r#"window.__MY_BROWSER_TEST_ERRORS__ = [];
               window.addEventListener('error', event => window.__MY_BROWSER_TEST_ERRORS__.push(String(event.message)));
@@ -655,6 +677,7 @@ fn create_page_webview(
                         }
                     }
                     let history_visit = if is_web_url
+                        && !tab.private
                         && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
                     {
                         Some((tab.url.clone(), tab.title.clone()))
@@ -686,16 +709,18 @@ fn create_page_webview(
                     } else {
                         title.clone()
                     };
-                    let history_url = tab.url.clone();
+                    let history_url = (!tab.private).then(|| tab.url.clone());
                     emit_snapshot(&title_app, &tabs);
                     drop(tabs);
                     let _ = persist_session(&title_app.state::<BrowserState>());
-                    update_history_entry_title(
-                        &title_app,
-                        &title_app.state::<BrowserState>(),
-                        &history_url,
-                        &title,
-                    );
+                    if let Some(history_url) = history_url {
+                        update_history_entry_title(
+                            &title_app,
+                            &title_app.state::<BrowserState>(),
+                            &history_url,
+                            &title,
+                        );
+                    }
                 }
             }
         })
@@ -777,6 +802,31 @@ fn get_browser_state(
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
     Ok(snapshot(&tabs))
+}
+
+#[tauri::command]
+fn clear_browsing_data(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Browsing data can only be cleared from the trusted browser UI".into());
+    }
+    for (label, page) in app.webviews() {
+        if label.starts_with("page-") {
+            page.clear_all_browsing_data()
+                .map_err(|error| format!("Could not clear website data: {error}"))?;
+        }
+    }
+    state
+        .history
+        .lock()
+        .map_err(|_| "History is unavailable")?
+        .clear();
+    persist_history(&state)?;
+    let _ = app.emit_to("main", HISTORY_EVENT, Vec::<HistoryEntry>::new());
+    Ok(())
 }
 
 #[tauri::command]
@@ -1106,6 +1156,7 @@ fn create_tab(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     state: tauri::State<'_, BrowserState>,
+    private: Option<bool>,
 ) -> Result<BrowserSnapshot, String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Tabs can only be created from the trusted browser UI".into());
@@ -1117,7 +1168,8 @@ fn create_tab(
         .lock()
         .map_err(|_| "Browser bounds are unavailable")?;
     let blank = url::Url::parse("about:blank").unwrap();
-    create_page_webview(&app, &state, &id, blank, bounds)?;
+    let private = private.unwrap_or(false);
+    create_page_webview(&app, &state, &id, blank, bounds, private)?;
     let mut tabs = state
         .data
         .lock()
@@ -1125,7 +1177,11 @@ fn create_tab(
     for tab in tabs.iter_mut() {
         tab.active = false;
     }
-    tabs.push(TabState::new(id, String::new(), true));
+    tabs.push(if private {
+        TabState::new_private(id, true)
+    } else {
+        TabState::new(id, String::new(), true)
+    });
     emit_snapshot(&app, &tabs);
     drop(tabs);
     persist_session(&state)?;
@@ -1225,12 +1281,14 @@ fn close_tab(
             .position(|tab| tab.id == tab_id)
             .ok_or("That tab no longer exists")?;
         closing_was_active = tabs[index].active;
-        let closed = SessionTab::from(&tabs[index]);
+        let closed = (!tabs[index].private).then(|| SessionTab::from(&tabs[index]));
         let mut recently_closed = state
             .recently_closed
             .lock()
             .map_err(|_| "Browser state is unavailable")?;
-        remember_closed_tab(&mut recently_closed, closed);
+        if let Some(closed) = closed {
+            remember_closed_tab(&mut recently_closed, closed);
+        }
         tabs.remove(index);
         if closing_was_active && !tabs.is_empty() {
             let new_active_index = index.min(tabs.len() - 1);
@@ -1246,7 +1304,7 @@ fn close_tab(
         .map_err(|_| "Browser state is unavailable")?
         .is_empty()
     {
-        return create_tab(webview, app, state);
+        return create_tab(webview, app, state, Some(false));
     }
     persist_session(&state)?;
     position_tabs(&app, &state)?;
@@ -1285,7 +1343,7 @@ fn reopen_closed_tab(
         .map_err(|_| "Browser bounds are unavailable")?;
     let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let id = format!("tab-{number}");
-    create_page_webview(&app, &state, &id, url, bounds)?;
+    create_page_webview(&app, &state, &id, url, bounds, false)?;
     {
         let mut tabs = state
             .data
@@ -1833,7 +1891,7 @@ pub fn run() {
                 } else {
                     allowed_navigation_url(&saved.url).unwrap()
                 };
-                create_page_webview(app.handle(), &state, &saved.id, parsed, bounds)
+                create_page_webview(app.handle(), &state, &saved.id, parsed, bounds, false)
                     .map_err(std::io::Error::other)?;
                 if let Some(page) = app.get_webview(&page_label(&saved.id)) {
                     page.set_zoom(saved.zoom).map_err(std::io::Error::other)?;
@@ -1863,6 +1921,7 @@ pub fn run() {
                     &id,
                     url::Url::parse("about:blank").unwrap(),
                     bounds,
+                    false,
                 )
                 .map_err(std::io::Error::other)?;
                 restored_tabs.push(TabState::new(id, String::new(), true));
@@ -1895,6 +1954,7 @@ pub fn run() {
     #[cfg(feature = "macos-session-test")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
+        clear_browsing_data,
         get_history,
         get_downloads,
         find_in_page,
@@ -1926,6 +1986,7 @@ pub fn run() {
     #[cfg(all(not(feature = "macos-session-test"), feature = "desktop-test"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
+        clear_browsing_data,
         get_history,
         get_downloads,
         find_in_page,
@@ -1954,6 +2015,7 @@ pub fn run() {
     #[cfg(all(not(feature = "macos-session-test"), not(feature = "desktop-test")))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
+        clear_browsing_data,
         get_history,
         get_downloads,
         find_in_page,

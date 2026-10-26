@@ -17,7 +17,7 @@ The compiler rejects unsupported syntax rather than passing it along optimistica
 ## Current limits
 
 - No EasyList/EasyPrivacy downloads, signatures, cache, or update path yet.
-- The rule compiler is currently exercised through the macOS test feature; normal browsing has no settings UI or persistent protection toggle yet.
+- The rule compiler is currently exercised through the macOS test feature; normal browsing has no settings UI or persistent protection toggle yet. Settings explicitly labels content filtering as unavailable.
 - No per-site allowlist or request diagnostics yet.
 - WKContentRuleList is declarative and does not provide a per-request callback for accurate live block counters.
 - Windows and Linux interception remain deferred; the current pipeline is macOS-tested only.

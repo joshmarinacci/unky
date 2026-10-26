@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button as AriaButton, ListBox, ListBoxItem, Popover, Select, SelectValue, Tab, TabList, TabPanel, TabPanels, Tabs, Tree, TreeItem, TreeItemContent, useDragAndDrop } from 'react-aria-components';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Download, ExternalLink, Folder, FolderPlus, Globe2, GripVertical, LoaderCircle, LockKeyhole, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Download, ExternalLink, EyeOff, Folder, FolderPlus, Globe2, GripVertical, LoaderCircle, LockKeyhole, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, X } from 'lucide-react';
 import { AppButton, AppInput } from './components/ui';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -14,6 +14,7 @@ type Tab = {
   canGoForward: boolean;
   active: boolean;
   zoom: number;
+  private?: boolean;
 };
 
 type BrowserSnapshot = { tabs: Tab[]; activeTabId: string };
@@ -770,9 +771,16 @@ export default function App() {
     setSidebarView('tabs');
   }
 
-  async function createTab() {
-    try { applySnapshot(await invoke<BrowserSnapshot>('create_tab')); addressRef.current?.focus(); }
+  async function createTab(privateMode = false) {
+    try { applySnapshot(await invoke<BrowserSnapshot>('create_tab', { private: privateMode })); addressRef.current?.focus(); }
     catch (error) { setMessage(String(error)); }
+  }
+
+  async function clearBrowsingData() {
+    try {
+      await invoke('clear_browsing_data');
+      setMessage('Website data clearing started; it may take a moment. History was cleared.');
+    } catch (error) { setMessage(String(error)); }
   }
 
   async function selectTab(id: string) {
@@ -997,6 +1005,7 @@ export default function App() {
           {editingTabId === tab.id
             ? <AppInput className="tab-rename-input" aria-label="Tab name" value={tabNameDraft} autoFocus onChange={event => setTabNameDraft(event.target.value)} onBlur={() => saveTabName(tab.id)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); saveTabName(tab.id); } if (event.key === 'Escape') { event.stopPropagation(); setEditingTabId(''); } }} />
             : <span className="tab-title">{title}</span>}
+          {tab.private && <span className="private-tab-indicator" title="Private tab" aria-label="Private tab"><EyeOff className="ui-icon" size={13} aria-hidden="true" /></span>}
           <span className="tree-drag-slot"><AriaButton slot="drag" className="tree-drag-handle" aria-label={`Move ${title}`}><GripVertical className="ui-icon" size={14} aria-hidden="true" /></AriaButton></span>
           <AppButton className="tab-close" aria-label={`Close ${title}`} onClick={() => void closeTab(tab.id)}><X className="ui-icon" size={14} aria-hidden="true" /></AppButton>
         </div></TreeItemContent>
@@ -1215,7 +1224,9 @@ export default function App() {
               </div>
               <div className="settings-card"><div><strong>Sidebar width</strong><small>Resize the sidebar by dragging its right edge.</small></div><span>{Math.round(sidebarWidth)} px</span></div>
               <h2>Privacy</h2>
-              <div className="settings-card"><div><strong>Content filtering</strong><small>Filtering is not enabled for normal browsing yet.</small></div><span className="settings-badge">Not enabled</span></div>
+              <div className="settings-card"><div><strong>Private tab</strong><small>Open a tab with ephemeral website storage. Private tabs are excluded from history and session recovery.</small></div><AppButton onClick={() => void createTab(true)}>New private tab</AppButton></div>
+              <div className="settings-card"><div><strong>Clear browsing data</strong><small>Clear website storage for this browser profile and remove browsing history.</small></div><AppButton onClick={() => void clearBrowsingData()}>Clear data</AppButton></div>
+              <div className="settings-card"><div><strong>Content filtering</strong><small>Ad and tracker filtering is still under development.</small></div><span className="settings-badge">Unavailable</span></div>
               <h2>About</h2>
               <div className="settings-card"><div><strong>My Browser</strong><small>macOS development build</small></div><span>0.1.0</span></div>
             </div>

@@ -140,12 +140,12 @@ Order considers daily value, recovery from data loss, technical dependencies, im
 
 | Order | Priority | Feature / first useful scope | Inspiration | Effort |
 | --- | --- | --- | --- | --- |
-| 1 | P0 | Session persistence and recovery: restore tabs, order, selected tab, and URLs after restart; reopen closed tabs with Cmd-Shift-T | Protect work before building more organization | Medium |
-| 2 | P0 | Finish daily browsing basics: find in page, downloads with progress/reveal, link opening in new tabs, history, and tab cycling | Baseline expected before switching browsers | Medium–large |
-| 3 | P0 | Real ad/tracker blocking in normal browsing: curated list, safe updates, last-known-good compiled rules, global toggle and saved per-site exceptions | Brave | Large |
-| 4 | P0 | Site controls: show origin/connection state, manage supported permissions, clear site data, and offer private browsing with separate ephemeral storage; provide an obvious way to retry a broken site with filtering disabled | Brave, DuckDuckGo, Orion; privacy expectations | Large |
-| 5 | P0 research | Authentication compatibility: check passkeys, OS autofill/password-manager options, and the limits of extension APIs before promising daily-driver compatibility | Firefox's extension model; Orion's explicit compatibility work | Medium research; implementation may be large |
-| 6 | P1 | Tab organization: drag to reorder, pin/unpin, rename pins, mute tabs; preserve state across restarts | Arc, Zen, Vivaldi | Medium |
+| 1 | P0 | **Implemented:** session persistence and recovery restores tabs, order, selected tab, URLs, and zoom after restart; reopen up to 20 closed tabs with Cmd-Shift-T | Protect work before building more organization | Medium |
+| 2 | P0 | **Implemented:** daily browsing basics include find in page, downloads with progress/reveal, link opening in new tabs, history, and tab cycling | Baseline expected before switching browsers | Medium–large |
+| 3 | P0 | **Not implemented:** real ad/tracker blocking in normal browsing still needs a curated updateable list, last-known-good compiled rules, global toggle, and saved per-site exceptions | Brave | Large |
+| 4 | P0 | **Partially implemented:** private tabs use ephemeral storage and stay out of history/session restore; Settings clears profile website data and history. Per-site data clearing, permission management, and a filtering retry control remain | Brave, DuckDuckGo, Orion; privacy expectations | Large |
+| 5 | P0 research | **Research complete:** see [authentication compatibility](authentication-compatibility.md). Validate real AutoFill and passkey flows before claiming compatibility | Firefox's extension model; Orion's explicit compatibility work | Medium research; implementation may be large |
+| 6 | P1 | **Partially implemented:** drag to reorder, nested folders, custom tab names, and saved organization; remaining work is pin/unpin and mute controls | Arc, Zen, Vivaldi | Medium |
 | 7 | P1 | Command palette: search/switch open tabs, bookmarks and history; run browser actions | Arc, Vivaldi, Floorp | Medium |
 | 8 | P1 | Import/export: bookmark HTML first, then optional session/workspace backups | Reduce switching effort and protect organization | Medium |
 | 9 | P1 | Workspaces: named project groups, move tabs, switch via shortcuts, save organization; reserve an explicit profile/identity field for later account isolation | Arc, Zen, Vivaldi, Opera, Floorp | Medium–large |
@@ -177,7 +177,7 @@ Compared with the five-browser proposal, import/export moves earlier; resource m
 - A clear-data action and private browsing are not Tor's New Identity. Local data deletion must not be described as anonymous network routing or removal of server-side records. Full Tor routing and coordinated anti-fingerprinting remain outside the initial product scope.
 - On-device translation and consent handling require their own engines/rules and compatibility work. They do not follow automatically from using WKWebView.
 - Brave-style fingerprint defenses and complete blocking diagnostics may require capabilities beyond our current content-rule adapter. Report only protection and measurements we can actually provide.
-- Store recoverable browser state through a versioned persistence layer before relying on it for workspaces and pins. Current UI localStorage is useful for preferences, but is not yet a complete session/backup design.
+- Versioned session persistence now covers open tabs and recently closed tabs. Extend it with explicit compatibility handling for new pin, split-view, and workspace state; UI localStorage remains appropriate for preferences but should not be the only durable source of browser state.
 - Windows and Linux feasibility stays deferred as already agreed.
 
-Recommended next implementation: session persistence, startup restore, and recently closed tabs. It prevents lost work and supplies the state foundation needed by pins and workspaces. Continue with everyday browser basics and production macOS filtering before layering on advanced organization.
+Recommended next implementation: production macOS filtering and the remaining site controls are the highest-priority unfinished P0 work. For the tab-work stream, finish pin/unpin and mute on top of the existing drag-and-folder model, then implement split view as a separate P1 feature with coordinated native WebView visibility and focus. Session recovery and daily browsing basics are already implemented.
