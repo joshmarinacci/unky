@@ -4,6 +4,57 @@ import { join } from 'node:path';
 import { captureNativeWindow, inspect, invoke, results } from '../wdio.conf.js';
 
 describe('native Tauri browser', () => {
+  it('isolates private website storage and excludes private tabs from saved browsing state', async () => {
+    type Snapshot = { tabs: Array<{ id: string; private: boolean }>; activeTabId: string };
+    const key = `privacy_${Date.now()}`;
+    const base = `http://127.0.0.1:4179/privacy?key=${key}`;
+    const visit = async (tabId: string, url: string) => {
+      await invoke('navigate', { tabId, url });
+      await browser.waitUntil(async () => {
+        const page = await inspect(tabId);
+        return page.url === url && page.readyState === 'complete' && page.text.startsWith('{');
+      }, { timeout: 15000 });
+      const page = await inspect(tabId);
+      assert.deepEqual(page.errors, []);
+      return JSON.parse(page.text);
+    };
+    const normal = await invoke('create_tab') as Snapshot;
+    const normalId = normal.activeTabId;
+    assert.equal(normal.tabs.find(tab => tab.id === normalId)?.private, false);
+    assert.deepEqual((await visit(normalId, `${base}&write=normal`)).after, { local: 'normal', cookie: 'normal' });
+
+    const privateState = await invoke('create_tab', { private: true }) as Snapshot;
+    const privateId = privateState.activeTabId;
+    assert.equal(privateState.tabs.find(tab => tab.id === privateId)?.private, true);
+    const privateUrl = `${base}&write=private`;
+    const privateStorage = await visit(privateId, privateUrl);
+    assert.deepEqual(privateStorage.before, { local: null, cookie: null });
+    assert.deepEqual(privateStorage.after, { local: 'private', cookie: 'private' });
+    assert.deepEqual((await visit(privateId, `${base}&mode=private-read`)).before, { local: 'private', cookie: 'private' });
+    captureNativeWindow('private-tab.png');
+
+    const sessionPath = join(results, 'disposable-profile', 'session.json');
+    const saved = JSON.parse(readFileSync(sessionPath, 'utf8'));
+    assert.ok(saved.tabs.some((tab: { id: string }) => tab.id === normalId));
+    assert.ok(!saved.tabs.some((tab: { id: string }) => tab.id === privateId));
+    const history = await invoke('get_history') as Array<{ url: string }>;
+    assert.ok(history.some(entry => entry.url === `${base}&write=normal`));
+    assert.ok(!history.some(entry => entry.url === privateUrl || entry.url === `${base}&mode=private-read`));
+    const savedHistory = JSON.parse(readFileSync(join(results, 'disposable-profile', 'history.json'), 'utf8'));
+    assert.ok(!savedHistory.entries.some((entry: { url: string }) => entry.url === privateUrl || entry.url === `${base}&mode=private-read`));
+
+    await invoke('close_tab', { tabId: privateId });
+    const closed = JSON.parse(readFileSync(sessionPath, 'utf8'));
+    assert.ok(!closed.recentlyClosed.some((tab: { id: string }) => tab.id === privateId));
+    const fresh = await invoke('create_tab', { private: true }) as Snapshot;
+    assert.deepEqual((await visit(fresh.activeTabId, `${base}&mode=fresh`)).before, { local: null, cookie: null });
+    await invoke('close_tab', { tabId: fresh.activeTabId });
+    assert.deepEqual((await visit(normalId, base)).before, { local: 'normal', cookie: 'normal' });
+    await invoke('close_tab', { tabId: normalId });
+    await invoke('select_tab', { tabId: 'tab-1' });
+    writeFileSync(join(results, 'private-storage.json'), JSON.stringify({ privateStorage, saved, history }, null, 2));
+  });
+
   it('loads a child WebView, navigates, switches tabs, and captures the native window', async () => {
     await browser.waitUntil(async () => {
       const page = await inspect('tab-1');

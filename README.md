@@ -42,6 +42,14 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib
 
 After installing dependencies, run `python3 tests/macos_session_test.py` on macOS to launch the browser with real native WKWebViews. It checks find-in-page matches and misses, waits for a fixture page to finish loading and verifies its favicon appears in the sidebar, opens a `target="_blank"` fixture link in a new native tab, cycles between tabs, downloads and reveals a fixture file, checks history, closes and reopens a tab, then restarts the app and checks session and history recovery. It uses a test-only Cargo feature and temporary session, download, and report paths, not the normal browser profile. The test starts the fixture server on ports `4179` and `4180` itself.
 
+## macOS desktop tests
+
+Run `npm run test:desktop` on macOS after installing dependencies. It builds the debug app with the `desktop-test` feature, starts its localhost fixture on port `4179`, and exercises real child WebViews through the embedded WebDriver with disposable session and history files.
+
+The suite checks navigation, tab switching, horizontal and vertical splits, and moving a tab to another native window. Its private-tab test verifies that normal and private cookies and local storage are isolated, storage survives navigation within a private tab, a fresh private tab starts empty after closing the previous one, and private pages are excluded from in-memory and saved history, saved sessions, and recently closed tabs.
+
+Review the screenshots and diagnostics in `test-results/`, including `private-tab.png`, `private-storage.json`, `child-webview-rendered.png`, `split-view.png`, `vertical-split.png`, `browser-state.json`, `frontend-errors.json`, `network-events.jsonl`, and `rust-logs.log`. The private-tab test calls the tab command directly; it does not automate the menu or keyboard shortcut. Keep the test feature and capability out of release builds.
+
 ## Browser interface
 
 The macOS development app has a native menu bar and a React browser interface. It supports multiple website tabs, an address/search bar, back and forward navigation, reload/stop, find-in-page, new-tab links, downloads with progress and reveal, browsing history, tab cycling, a collapsible and resizable sidebar, bookmarks, and a settings page. The address bar tracks client-side URL changes made through the History API and hash navigation. Open tabs, their order and selection, URLs, zoom levels, and up to 20 recently closed tabs are saved in a versioned session file in the app data directory. Browsing history is stored in the app data directory; bookmarks, tab folder structure and custom tab names, the sidebar width and collapsed state, and the appearance preference are stored in the local browser UI's `localStorage`.
@@ -58,11 +66,25 @@ The toolbar security button opens a macOS native popover for the active page. It
 
 The appearance setting supports System, Light, and Dark. Website zoom is controlled from the View menu and applies to the active tab (50% to 300%, in 10% steps).
 
+### Private tabs
+
+Open a private tab with **New private tab** below **New tab**, **File → New Private Tab**, or `⌘⇧N`. The existing **Settings → New private tab** action is also available. The tab has a crossed-eye indicator and uses ephemeral website storage separate from normal tabs. Private pages are excluded from browsing history, session recovery, and recently closed tabs; links opened in a new tab inherit the source tab's private mode. Normal tabs remain the default.
+
+The trusted browser UI can request either mode through the existing command:
+
+```ts
+await invoke('create_tab'); // Normal tab
+await invoke('create_tab', { private: true }); // Private tab
+```
+
+The Rust command passes the private flag to Tauri's `WebviewBuilder::incognito`. On macOS this uses a nonpersistent WebKit website data store. Downloaded files and explicitly saved bookmarks remain after a private tab closes. Private mode does not hide network activity from websites or network operators. Native storage isolation is covered by the macOS desktop test; Windows and Linux behavior has not been validated.
+
 ### macOS shortcuts
 
 | Shortcut | Action |
 | --- | --- |
 | `⌘T` | New tab |
+| `⌘⇧N` | New private tab |
 | `⌘W` | Close the active tab |
 | `⌘⇧T` | Reopen the most recently closed tab |
 | `⌘,` | Open Settings |

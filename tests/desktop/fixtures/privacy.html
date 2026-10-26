@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Private storage fixture</title></head>
+<body><pre id="probe"></pre><script>
+  const params = new URLSearchParams(location.search);
+  const key = params.get('key');
+  const read = () => ({
+    local: localStorage.getItem(key),
+    cookie: document.cookie.split('; ').find(item => item.startsWith(`${key}=`))?.slice(key.length + 1) ?? null,
+  });
+  const before = read();
+  if (params.has('write')) {
+    localStorage.setItem(key, params.get('write'));
+    document.cookie = `${key}=${params.get('write')}; Path=/; SameSite=Lax`;
+  }
+  document.getElementById('probe').textContent = JSON.stringify({ before, after: read() });
+</script></body>
+</html>

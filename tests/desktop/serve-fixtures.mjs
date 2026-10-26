@@ -19,7 +19,7 @@ const server = createServer((request, response) => {
     response.end(JSON.stringify({ ok: true, fixture: 'desktop-testing' }));
     return;
   }
-  const file = pathname === '/two' ? 'two.html' : pathname === '/slow' ? 'slow.html' : 'one.html';
+  const file = pathname === '/privacy' ? 'privacy.html' : pathname === '/two' ? 'two.html' : pathname === '/slow' ? 'slow.html' : 'one.html';
   const delay = pathname === '/slow' ? 300 : 0;
   const contentType = extname(file) === '.html' ? 'text/html; charset=utf-8' : 'application/octet-stream';
   response.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' });

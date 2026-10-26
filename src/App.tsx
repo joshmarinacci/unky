@@ -600,6 +600,7 @@ export default function App() {
       const unlistenShortcuts = await listen<string>(shortcutEvent, event => {
         switch (event.payload) {
           case 'new-tab': void createTab(); break;
+          case 'new-private-tab': void createTab(true); break;
           case 'close-tab': if (activeTabIdRef.current) void closeTab(activeTabIdRef.current); break;
           case 'reopen-closed-tab': void reopenClosedTab(); break;
           case 'focus-address': addressRef.current?.focus(); addressRef.current?.select(); break;
@@ -771,6 +772,7 @@ export default function App() {
       if (key === 'f') { event.preventDefault(); openFindPanel(); }
       if (key === 'l') { event.preventDefault(); addressRef.current?.focus(); addressRef.current?.select(); }
       if (key === 't') { event.preventDefault(); if (event.shiftKey) void reopenClosedTab(); else void createTab(); }
+      if (key === 'n' && event.shiftKey) { event.preventDefault(); void createTab(true); }
       if (key === 'w' && activeTabId) { event.preventDefault(); void closeTab(activeTabId); }
       if (key === 'r' && activeTabId) { event.preventDefault(); void runNavigationCommand('reload'); }
       if (event.ctrlKey && key === 'tab') { event.preventDefault(); void invoke<BrowserSnapshot>('cycle_tab', { backwards: event.shiftKey }).then(applySnapshot).catch(error => setMessage(String(error))); }
@@ -1159,6 +1161,9 @@ export default function App() {
         <div className="tab-actions">
           <AppButton className="new-tab" onClick={() => void createTab()}><Plus className="ui-icon" size={16} aria-hidden="true" /> New tab <kbd>⌘ T</kbd></AppButton>
           <AppButton className="new-tab-folder" title="Create tab folder" aria-label="Create tab folder" onClick={createTabFolder}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
+        </div>
+        <div className="tab-actions">
+          <AppButton className="new-tab" title="New private tab (⌘⇧N)" onClick={() => void createTab(true)}><EyeOff className="ui-icon" size={16} aria-hidden="true" /> New private tab</AppButton>
         </div>
         </> : sidebarView === 'bookmarks' ? <div className="bookmark-manager">
           <div className="bookmark-toolbar"><AppInput className="bookmark-search" aria-label="Search bookmarks" placeholder="Find a bookmark" value={bookmarkSearch} onChange={event => setBookmarkSearch(event.target.value)} /><AppButton className="new-folder-button" onClick={() => createBookmarkFolder()}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton></div>

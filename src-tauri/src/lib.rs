@@ -2427,6 +2427,10 @@ pub fn run() {
             let new_tab = MenuItemBuilder::with_id("shortcut-new-tab", "New Tab")
                 .accelerator("CmdOrCtrl+T")
                 .build(app)?;
+            let new_private_tab =
+                MenuItemBuilder::with_id("shortcut-new-private-tab", "New Private Tab")
+                    .accelerator("CmdOrCtrl+Shift+N")
+                    .build(app)?;
             let close_tab = MenuItemBuilder::with_id("shortcut-close-tab", "Close Tab")
                 .accelerator("CmdOrCtrl+W")
                 .build(app)?;
@@ -2442,6 +2446,7 @@ pub fn run() {
                 .build(app)?;
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&new_tab)
+                .item(&new_private_tab)
                 .item(&close_tab)
                 .item(&reopen_closed_tab)
                 .item(&next_tab)
