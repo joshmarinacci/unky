@@ -148,6 +148,10 @@ function findTabNode(nodes: TabNode[], id: string): TabNode | undefined {
   return undefined;
 }
 
+function tabFolders(nodes: TabNode[]): TabFolder[] {
+  return nodes.flatMap(node => node.type === 'folder' ? [node, ...tabFolders(node.children)] : []);
+}
+
 function updateTabNode(nodes: TabNode[], id: string, update: (node: TabNode) => TabNode): TabNode[] {
   return nodes.map(node => node.id === id ? update(node) : node.type === 'folder' ? { ...node, children: updateTabNode(node.children, id, update) } : node);
 }
@@ -371,6 +375,7 @@ export default function App() {
   const [editingTabFolderId, setEditingTabFolderId] = useState('');
   const [tabFolderTitle, setTabFolderTitle] = useState('');
   const [tabContextMenu, setTabContextMenu] = useState<{ id: string; type: 'tab' | 'folder'; x: number; y: number } | null>(null);
+  const [tabGroupPickerOpen, setTabGroupPickerOpen] = useState(false);
   const [address, setAddress] = useState('');
   const [message, setMessage] = useState('');
   const [isTauri, setIsTauri] = useState(false);
@@ -1065,7 +1070,7 @@ export default function App() {
           textValue={`Folder ${node.title}`}
           hasChildItems
           className="tab-tree-item"
-          onContextMenu={event => { event.preventDefault(); setTabContextMenu({ id: node.id, type: 'folder', x: Math.min(event.clientX, window.innerWidth - 165), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
+          onContextMenu={event => { event.preventDefault(); setTabGroupPickerOpen(false); setTabContextMenu({ id: node.id, type: 'folder', x: Math.min(event.clientX, window.innerWidth - 165), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
         >
           <TreeItemContent>{({ isExpanded }) => <div className="tab-folder-row" style={{ paddingLeft: depth * 14 }}>
             <AriaButton slot="chevron" className="tab-folder-toggle" aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.title}`}>{isExpanded ? <ChevronDown className="ui-icon" size={14} aria-hidden="true" /> : <ChevronRight className="ui-icon" size={14} aria-hidden="true" />}</AriaButton>
@@ -1090,7 +1095,7 @@ export default function App() {
         className="tab-tree-item"
         aria-current={tab.id === activeTabId ? 'page' : undefined}
         onAction={() => void selectTab(tab.id)}
-        onContextMenu={event => { event.preventDefault(); setTabContextMenu({ id: tab.id, type: 'tab', x: Math.max(8, Math.min(event.clientX, sidebarWidth - tabContextMenuWidth - 8)), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
+        onContextMenu={event => { event.preventDefault(); setTabGroupPickerOpen(false); setTabContextMenu({ id: tab.id, type: 'tab', x: Math.max(8, Math.min(event.clientX, sidebarWidth - tabContextMenuWidth - 8)), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
       >
         <TreeItemContent><div className={`tab-row ${tab.id === activeTabId ? 'selected' : ''}`} style={{ paddingLeft: depth * 14 }} data-tab-id={tab.id}>
           <span className={`tab-favicon ${tab.loading ? 'is-loading' : ''}`}>{tab.loading ? <LoaderCircle className="ui-icon" size={14} aria-hidden="true" /> : icon ? <img src={icon} alt="" onError={() => setTabFavicons(current => { const next = { ...current }; delete next[tab.id]; return next; })} /> : tab.url ? <Globe2 className="ui-icon" size={14} aria-hidden="true" /> : <Sparkles className="ui-icon" size={14} aria-hidden="true" />}</span>
@@ -1261,6 +1266,29 @@ export default function App() {
               setTabContextMenu(null);
               void showExternalBrowsers(id, { x, y });
             }}>Open in another browser…</AppButton>}
+            {tabContextMenu.type === 'tab' && <>
+              <AppButton role="menuitem" disabled={!tabs.find(tab => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)} onClick={() => {
+                const tab = tabs.find(item => item.id === tabContextMenu.id);
+                if (tab) void invoke('reload', { tabId: tab.id }).catch(error => setMessage(String(error)));
+                setTabContextMenu(null);
+              }}>Reload page</AppButton>
+              <AppButton role="menuitem" disabled={!tabs.find(tab => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)} onClick={async () => {
+                const tab = tabs.find(item => item.id === tabContextMenu.id);
+                setTabContextMenu(null);
+                if (!tab) return;
+                try {
+                  const snapshot = await invoke<BrowserSnapshot>('create_tab', { private: true });
+                  applySnapshot(snapshot);
+                  await invoke('navigate', { tabId: snapshot.activeTabId, url: tab.url });
+                } catch (error) { setMessage(String(error)); }
+              }}>Reload in private tab</AppButton>
+              <AppButton role="menuitem" aria-haspopup="menu" aria-expanded={tabGroupPickerOpen} disabled={tabFolders(tabNodes).length === 0} onClick={() => setTabGroupPickerOpen(open => !open)}>Move tab to group…</AppButton>
+              {tabGroupPickerOpen && tabFolders(tabNodes).map(folder => <AppButton key={folder.id} role="menuitem" className="context-submenu-item" onClick={() => {
+                moveTabNode(tabContextMenu.id, undefined, folder.id);
+                setTabGroupPickerOpen(false);
+                setTabContextMenu(null);
+              }}>{folder.title}</AppButton>)}
+            </>}
             {tabContextMenu.type === 'folder' && <AppButton role="menuitem" onClick={() => { deleteTabFolder(tabContextMenu.id); setTabContextMenu(null); }}>Delete folder</AppButton>}
           </div>
         </>}
