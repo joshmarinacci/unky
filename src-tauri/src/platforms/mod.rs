@@ -1,4 +1,4 @@
-#[cfg(all(target_os = "macos", feature = "macos-interception-test"))]
+#[cfg(target_os = "macos")]
 pub mod macos;
 #[cfg(target_os = "macos")]
 pub mod security_popover;

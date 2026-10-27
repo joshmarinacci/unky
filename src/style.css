@@ -184,6 +184,8 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .settings-card > div { display: flex; flex-direction: column; gap: 5px; }
 .settings-card strong { color: var(--text); font-size: 12px; font-weight: 500; }
 .settings-card small, .settings-card > span { color: var(--muted); font-size: 10px; }
+.filter-update-progress { display: flex; width: min(320px, 60vw); flex-direction: column; gap: 4px; color: var(--muted); font-size: 10px; }
+.filter-update-progress progress { width: 100%; height: 4px; accent-color: var(--accent); }
 .settings-card button, .theme-select-trigger { padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--surface-raised); font-size: 10px; }
 .settings-badge { color: var(--muted) !important; }
 .theme-select { position: relative; }

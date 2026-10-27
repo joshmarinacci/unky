@@ -73,6 +73,8 @@ pub struct BrowserState {
     pub session_file: Arc<Mutex<Option<PathBuf>>>,
     pub history: Arc<Mutex<Vec<HistoryEntry>>>,
     pub history_file: Arc<Mutex<Option<PathBuf>>>,
+    pub filtering: Arc<Mutex<Option<super::filtering::FilterSettings>>>,
+    pub filtering_file: Arc<Mutex<Option<PathBuf>>>,
     pub downloads: Arc<Mutex<Vec<DownloadEntry>>>,
     pub next_download_id: Arc<std::sync::atomic::AtomicU64>,
 }

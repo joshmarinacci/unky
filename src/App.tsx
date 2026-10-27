@@ -32,12 +32,15 @@ type BookmarkNode = BookmarkLink | BookmarkFolder;
 type HistoryEntry = { url: string; title: string; visitedAt: number };
 type Download = { id: string; url: string; filename: string; path: string; status: 'downloading' | 'completed' | 'failed'; bytesReceived: number };
 type Theme = 'system' | 'light' | 'dark';
+type FilterSettingsView = { enabled: boolean; sourceUrl: string; updatedAt: number | null; acceptedRules: number; exceptions: string[] };
+type FilterUpdateProgress = { phase: 'downloading' | 'compiling' | 'complete'; receivedBytes: number; totalBytes: number | null };
 type SessionTestPhase = 'exercise' | 'restore';
 const tabEvent = 'browser://tabs-changed';
 const settingsEvent = 'browser://open-settings';
 const shortcutEvent = 'browser://shortcut';
 const historyEvent = 'browser://history-changed';
 const downloadsEvent = 'browser://downloads-changed';
+const filterUpdateProgressEvent = 'browser://filter-update-progress';
 const splitEvent = 'browser://split-changed';
 const sidebarDefaultWidth = 224;
 const sidebarMinWidth = 176;
@@ -399,6 +402,9 @@ export default function App() {
   const [editingFolderId, setEditingFolderId] = useState('');
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [filterSettings, setFilterSettings] = useState<FilterSettingsView | null>(null);
+  const [filterBusy, setFilterBusy] = useState(false);
+  const [filterProgress, setFilterProgress] = useState<FilterUpdateProgress | null>(null);
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const addressRef = useRef<HTMLInputElement>(null);
   const securityButtonRef = useRef<HTMLButtonElement>(null);
@@ -412,6 +418,10 @@ export default function App() {
   const faviconRequests = useRef(new Set<string>());
   const sessionTestStarted = useRef(false);
   const activeTab = tabs.find(tab => tab.id === activeTabId);
+  const activeSiteDomain = (() => {
+    try { return activeTab?.url ? new URL(activeTab.url).hostname : ''; }
+    catch { return ''; }
+  })();
   const tabContextMenuWidth = Math.min(200, sidebarWidth - 16);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
   useEffect(() => () => { void externalBrowserMenuRef.current?.close(); }, []);
@@ -608,8 +618,16 @@ export default function App() {
       const unlistenSettings = await listen(settingsEvent, () => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); });
       const unlistenHistory = await listen<HistoryEntry[]>(historyEvent, event => setHistory(event.payload));
       const unlistenDownloads = await listen<Download[]>(downloadsEvent, event => setDownloads(event.payload));
+      const unlistenFilterProgress = await listen<FilterUpdateProgress>(filterUpdateProgressEvent, event => {
+        if (event.payload.phase === 'complete') {
+          setFilterProgress(null);
+          return;
+        }
+        setFilterProgress(event.payload);
+      });
       const unlistenSplit = await listen<SplitLayout | null>(splitEvent, event => setSplitLayout(event.payload));
       void invoke<SplitLayout | null>('get_split_tabs').then(setSplitLayout).catch(error => setMessage(String(error)));
+      void invoke<FilterSettingsView>('get_filter_settings').then(setFilterSettings).catch(error => setMessage(String(error)));
       const unlistenShortcuts = await listen<string>(shortcutEvent, event => {
         switch (event.payload) {
           case 'new-tab': void createTab(); break;
@@ -633,10 +651,10 @@ export default function App() {
       }
       catch (error) { setMessage(String(error)); }
       if (!cancelled) void runSessionIntegrationTest();
-      if (cancelled) { unlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); }
+      if (cancelled) { unlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenFilterProgress(); }
       else {
         const originalUnlisten = unlisten;
-        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); };
+        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenFilterProgress(); };
       }
     })();
     return () => { cancelled = true; unlisten?.(); };
@@ -813,6 +831,29 @@ export default function App() {
       await invoke('clear_browsing_data');
       setMessage('Website data clearing started; it may take a moment. History was cleared.');
     } catch (error) { setMessage(String(error)); }
+  }
+
+  async function changeFilteringEnabled(enabled: boolean) {
+    setFilterBusy(true);
+    try { setFilterSettings(await invoke<FilterSettingsView>('set_filtering_enabled', { enabled })); }
+    catch (error) { setMessage(String(error)); }
+    finally { setFilterBusy(false); }
+  }
+
+  async function updateFilterList() {
+    setFilterBusy(true);
+    setFilterProgress({ phase: 'downloading', receivedBytes: 0, totalBytes: null });
+    try { setFilterSettings(await invoke<FilterSettingsView>('update_filter_list')); }
+    catch (error) { setMessage(String(error)); }
+    finally { setFilterBusy(false); setFilterProgress(null); }
+  }
+
+  async function changeSiteFilterException(enabled: boolean) {
+    if (!activeSiteDomain) return;
+    setFilterBusy(true);
+    try { setFilterSettings(await invoke<FilterSettingsView>('set_filter_site_exception', { domain: activeSiteDomain, enabled })); }
+    catch (error) { setMessage(String(error)); }
+    finally { setFilterBusy(false); }
   }
 
   async function dropTabIntoSplit(side: 'left' | 'right' | 'top' | 'bottom') {
@@ -1356,7 +1397,14 @@ export default function App() {
               <h2>Privacy</h2>
               <div className="settings-card"><div><strong>Private tab</strong><small>Open a tab with ephemeral website storage. Private tabs are excluded from history and session recovery.</small></div><AppButton onClick={() => void createTab(true)}>New private tab</AppButton></div>
               <div className="settings-card"><div><strong>Clear browsing data</strong><small>Clear website storage for this browser profile and remove browsing history.</small></div><AppButton onClick={() => void clearBrowsingData()}>Clear data</AppButton></div>
-              <div className="settings-card"><div><strong>Content filtering</strong><small>Ad and tracker filtering is still under development.</small></div><span className="settings-badge">Unavailable</span></div>
+              <div className="settings-card"><div><strong>Content filtering</strong><small>{filterSettings?.enabled ? filterSettings.updatedAt ? 'EasyList based blocking is active for new and reloaded pages.' : 'The built-in starter rules are active until EasyList is updated.' : 'Ad and tracker blocking is disabled.'} Changes reload open website tabs.</small></div><AppButton disabled={filterBusy || !filterSettings} onClick={() => void changeFilteringEnabled(!filterSettings?.enabled)}>{filterSettings?.enabled ? 'Turn off' : 'Turn on'}</AppButton></div>
+              <div className="settings-card"><div><strong>Filter list</strong><small>{filterSettings ? `${filterSettings.acceptedRules.toLocaleString()} supported rules · ${filterSettings.updatedAt ? `Updated ${new Date(filterSettings.updatedAt * 1000).toLocaleString()}` : 'Using the built-in starter set'}` : 'Loading filter status…'} The compiler skips unsupported EasyList syntax.</small>{filterBusy && <div className="filter-update-progress" role="status" aria-live="polite">
+                <span>{filterProgress?.phase === 'compiling' ? 'Compiling rules…' : filterProgress?.totalBytes ? `Downloading EasyList… ${Math.min(100, Math.floor(filterProgress.receivedBytes * 100 / filterProgress.totalBytes))}%` : 'Connecting to EasyList…'}</span>
+                {filterProgress?.phase === 'downloading' && filterProgress.totalBytes && <progress aria-label="EasyList download progress" max={100} value={Math.min(100, Math.floor(filterProgress.receivedBytes * 100 / filterProgress.totalBytes))} />}
+                {filterProgress?.phase === 'downloading' && !filterProgress.totalBytes && <progress aria-label="EasyList download progress" />}
+              </div>}</div><AppButton disabled={filterBusy} onClick={() => void updateFilterList()}>{filterBusy ? 'Updating…' : 'Update EasyList'}</AppButton></div>
+              <div className="settings-card"><div><strong>Current site</strong><small>{activeSiteDomain ? `Allow requests on ${activeSiteDomain} by disabling filtering for this site.` : 'Open a website to manage its filter exception.'}</small></div><AppButton disabled={filterBusy || !activeSiteDomain} onClick={() => void changeSiteFilterException(!filterSettings?.exceptions.includes(activeSiteDomain))}>{filterSettings?.exceptions.includes(activeSiteDomain) ? 'Enable for site' : 'Disable for site'}</AppButton></div>
+              {message && <p className="message" role="status">{message}</p>}
               <h2>About</h2>
               <div className="settings-card"><div><strong>My Browser</strong><small>macOS development build</small></div><span>0.1.0</span></div>
             </div>

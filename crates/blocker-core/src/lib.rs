@@ -4,8 +4,9 @@ use adblock::lists::{FilterSet, ParseOptions};
 use serde_json::Value;
 use std::collections::HashSet;
 
-const MAX_LIST_BYTES: usize = 2 * 1024 * 1024;
-const MAX_RULES: usize = 20_000;
+const MAX_LIST_BYTES: usize = 8 * 1024 * 1024;
+const MAX_RULES: usize = 80_000;
+const MAX_CONTENT_RULES: usize = 50_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RejectedRule {
@@ -89,6 +90,50 @@ pub fn compile_filter_list(input: &str) -> Result<CompileReport, String> {
     })
 }
 
+/// Compile the supported list subset and exempt requests initiated by listed site domains.
+/// WKContentRuleList's `unless-domain` matches the main document domain, which lets site
+/// exceptions bypass all converted block rules without pretending to be an ABP `document`
+/// exception (which would only exempt the top-level document request).
+pub fn compile_filter_list_with_site_exceptions(
+    input: &str,
+    exception_domains: &[String],
+) -> Result<CompileReport, String> {
+    let mut report = compile_filter_list(input)?;
+    if exception_domains.is_empty() {
+        return Ok(report);
+    }
+    let mut value: Value = serde_json::from_str(&report.json).map_err(|error| error.to_string())?;
+    let rules = value
+        .as_array_mut()
+        .ok_or("content rule output must be a JSON array")?;
+    let domains: Vec<String> = exception_domains
+        .iter()
+        .flat_map(|domain| [domain.clone(), format!("*{domain}")])
+        .collect();
+    for rule in rules {
+        if rule["action"]["type"] != "block" {
+            continue;
+        }
+        let trigger = rule
+            .get_mut("trigger")
+            .and_then(Value::as_object_mut)
+            .ok_or("compiled content rule has no trigger object")?;
+        let unless_domains = trigger
+            .entry("unless-domain")
+            .or_insert_with(|| Value::Array(Vec::new()))
+            .as_array_mut()
+            .ok_or("compiled unless-domain must be an array")?;
+        for domain in &domains {
+            if !unless_domains.iter().any(|existing| existing == domain) {
+                unless_domains.push(Value::String(domain.clone()));
+            }
+        }
+    }
+    report.json = serde_json::to_string(&value).map_err(|error| error.to_string())?;
+    validate_content_rules_json(&report.json)?;
+    Ok(report)
+}
+
 fn supported_rule(line: &str) -> Result<(), &'static str> {
     let body = line.strip_prefix("@@").unwrap_or(line);
     let (pattern, options) = match body.split_once('$') {
@@ -125,8 +170,8 @@ fn supported_rule(line: &str) -> Result<(), &'static str> {
     let mut party_option = None;
     for option in options.split(',') {
         match option {
-            "image" | "script" | "stylesheet" | "xmlhttprequest" | "subdocument" | "font"
-            | "media" | "other" => {}
+            "document" | "image" | "script" | "stylesheet" | "xmlhttprequest" | "subdocument"
+            | "font" | "media" | "other" => {}
             "third-party" | "~third-party" => {
                 if party_option.replace(option).is_some() {
                     return Err("only one party constraint is supported");
@@ -141,15 +186,23 @@ fn supported_rule(line: &str) -> Result<(), &'static str> {
 /// Check the serialized output's basic shape before handing it to WebKit.
 pub fn validate_content_rules_json(json: &str) -> Result<(), String> {
     let value: Value = serde_json::from_str(json).map_err(|error| error.to_string())?;
-    if !value.is_array() {
-        return Err("content rule output must be a JSON array".into());
+    let rules = value
+        .as_array()
+        .ok_or("content rule output must be a JSON array")?;
+    if rules.len() > MAX_CONTENT_RULES {
+        return Err(format!(
+            "compiled content rules exceed the {MAX_CONTENT_RULES} rule safety limit"
+        ));
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{compile_filter_list, validate_content_rules_json};
+    use super::{
+        compile_filter_list, compile_filter_list_with_site_exceptions,
+        validate_content_rules_json,
+    };
     use serde_json::Value;
 
     #[test]
@@ -178,7 +231,27 @@ mod tests {
 
     #[test]
     fn rejects_oversized_input_and_non_array_json() {
-        assert!(compile_filter_list(&"x".repeat(2 * 1024 * 1024 + 1)).is_err());
+        assert!(compile_filter_list(&"x".repeat(8 * 1024 * 1024 + 1)).is_err());
         assert!(validate_content_rules_json("{}").is_err());
+    }
+
+    #[test]
+    fn site_exceptions_exempt_main_document_domains_from_each_block_rule() {
+        let report = compile_filter_list_with_site_exceptions(
+            "||tracker.example^\n",
+            &["news.example".into()],
+        )
+        .unwrap();
+        let rules: Value = serde_json::from_str(&report.json).unwrap();
+        let block = rules
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rule| rule["action"]["type"] == "block")
+            .unwrap();
+        assert_eq!(
+            block["trigger"]["unless-domain"],
+            serde_json::json!(["news.example", "*news.example"])
+        );
     }
 }

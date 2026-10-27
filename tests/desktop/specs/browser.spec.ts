@@ -6,6 +6,17 @@ import { captureNativeWindow, inspect, invoke, results } from '../wdio.conf.js';
 describe('native Tauri browser', () => {
   it('isolates private website storage and excludes private tabs from saved browsing state', async () => {
     type Snapshot = { tabs: Array<{ id: string; private: boolean }>; activeTabId: string };
+    type Filters = { enabled: boolean; acceptedRules: number; exceptions: string[] };
+    const initialFilters = await invoke('get_filter_settings') as Filters;
+    assert.equal(initialFilters.enabled, true);
+    assert.ok(initialFilters.acceptedRules > 0);
+    const exceptionDomain = 'fixture.example';
+    const excepted = await invoke('set_filter_site_exception', { domain: exceptionDomain, enabled: true }) as Filters;
+    assert.ok(excepted.exceptions.includes(exceptionDomain));
+    const restoredFilters = await invoke('set_filter_site_exception', { domain: exceptionDomain, enabled: false }) as Filters;
+    assert.ok(!restoredFilters.exceptions.includes(exceptionDomain));
+    const persistedFilters = JSON.parse(readFileSync(join(results, 'disposable-profile', 'filtering.json'), 'utf8')) as Filters;
+    assert.ok(!persistedFilters.exceptions.includes(exceptionDomain));
     const key = `privacy_${Date.now()}`;
     const base = `http://127.0.0.1:4179/privacy?key=${key}`;
     const visit = async (tabId: string, url: string) => {

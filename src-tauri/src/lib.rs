@@ -1,13 +1,14 @@
 mod browser;
 #[cfg(all(feature = "desktop-test", not(debug_assertions)))]
 compile_error!("desktop-test is only supported in debug builds");
+use browser::filtering::{FilterSettings, FilterSettingsView};
 use browser::tabs::{
     cycle_active_tab, download_filename, find_script, next_download_path, record_history_entry,
     remember_closed_tab, snapshot, take_recently_closed, update_history_title, BrowserSnapshot,
     BrowserState, DownloadEntry, DownloadStatus, HistoryEntry, PersistedHistory, PersistedSession,
     SessionTab, SplitLayout, SplitOrientation, TabState, ViewBounds,
 };
-use std::sync::{atomic::Ordering, MutexGuard};
+use std::sync::{atomic::Ordering, Arc, Mutex, MutexGuard};
 use std::{
     collections::HashSet, fs, path::PathBuf, process::Command, thread, time::Duration,
     time::SystemTime,
@@ -23,6 +24,19 @@ const OPEN_SETTINGS_EVENT: &str = "browser://open-settings";
 const SHORTCUT_EVENT: &str = "browser://shortcut";
 const HISTORY_EVENT: &str = "browser://history-changed";
 const DOWNLOADS_EVENT: &str = "browser://downloads-changed";
+const FILTER_UPDATE_PROGRESS_EVENT: &str = "browser://filter-update-progress";
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FilterUpdateProgress {
+    phase: &'static str,
+    received_bytes: u64,
+    total_bytes: Option<u64>,
+}
+
+fn emit_filter_update_progress(app: &tauri::AppHandle, progress: FilterUpdateProgress) {
+    let _ = app.emit(FILTER_UPDATE_PROGRESS_EVENT, progress);
+}
 
 #[tauri::command]
 fn get_external_browsers(
@@ -818,7 +832,33 @@ fn create_page_webview(
     let download_items = state.downloads.clone();
     let next_download_id = state.next_download_id.clone();
     let label = page_label(id);
-    let builder = tauri::webview::WebviewBuilder::new(label, WebviewUrl::External(url))
+    let filter_settings = state
+        .filtering
+        .lock()
+        .map_err(|_| "Filter settings are unavailable".to_string())?
+        .clone();
+    let filter_enabled = cfg!(target_os = "macos")
+        && filter_settings
+            .as_ref()
+            .is_some_and(|settings| settings.enabled);
+    let filter_json = filter_settings
+        .as_ref()
+        .map(|settings| settings.compiled_rules.clone())
+        .unwrap_or_default();
+    let filter_ready = Arc::new(std::sync::atomic::AtomicBool::new(!filter_enabled));
+    let pending_navigation = Arc::new(Mutex::new(
+        filter_enabled
+            .then_some(url.clone())
+            .filter(|url| matches!(url.scheme(), "http" | "https")),
+    ));
+    let initial_url = if filter_enabled {
+        url::Url::parse("about:blank").expect("valid blank URL")
+    } else {
+        url.clone()
+    };
+    let navigation_filter_ready = filter_ready.clone();
+    let navigation_pending = pending_navigation.clone();
+    let builder = tauri::webview::WebviewBuilder::new(label, WebviewUrl::External(initial_url))
         .incognito(private)
         .initialization_script(
             r#"window.__MY_BROWSER_TEST_ERRORS__ = [];
@@ -878,6 +918,12 @@ fn create_page_webview(
             let navigation_tab_id = navigation_tab_id.clone();
             move |target| {
                 if !matches!(target.scheme(), "http" | "https") {
+                    return false;
+                }
+                if !navigation_filter_ready.load(std::sync::atomic::Ordering::Acquire) {
+                    if let Ok(mut pending) = navigation_pending.lock() {
+                        *pending = Some(target.clone());
+                    }
                     return false;
                 }
                 if let Ok(mut tabs) = state_data.lock() {
@@ -1016,6 +1062,18 @@ fn create_page_webview(
             tauri::LogicalSize::new(bounds.width.max(1.0), bounds.height.max(1.0)),
         )
         .map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    if filter_enabled {
+        platforms::macos::install_filter_for_page(
+            app.clone(),
+            page_label(id),
+            filter_json,
+            pending_navigation,
+            filter_ready,
+        );
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (filter_json, pending_navigation, filter_ready);
     Ok(())
 }
 
@@ -1057,6 +1115,244 @@ fn clear_browsing_data(
     persist_history(&state)?;
     let _ = app.emit_to("main", HISTORY_EVENT, Vec::<HistoryEntry>::new());
     Ok(())
+}
+
+fn filter_settings_path(state: &BrowserState) -> Result<PathBuf, String> {
+    state
+        .filtering_file
+        .lock()
+        .map_err(|_| "Filter settings path is unavailable".to_string())?
+        .clone()
+        .ok_or_else(|| "Filter settings path is unavailable".to_string())
+}
+
+fn persist_filter_settings(state: &BrowserState, settings: &FilterSettings) -> Result<(), String> {
+    settings.persist(&filter_settings_path(state)?)
+}
+
+fn commit_filter_settings(
+    app: &tauri::AppHandle,
+    state: &BrowserState,
+    settings: FilterSettings,
+) -> Result<FilterSettingsView, String> {
+    persist_filter_settings(state, &settings)?;
+    let view = settings.view();
+    let enabled = settings.enabled;
+    let rules = settings.compiled_rules.clone();
+    *state
+        .filtering
+        .lock()
+        .map_err(|_| "Filter settings are unavailable".to_string())? = Some(settings);
+    #[cfg(target_os = "macos")]
+    platforms::macos::update_filter_on_all_pages(app.clone(), enabled, rules);
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, enabled, rules);
+    Ok(view)
+}
+
+#[tauri::command]
+fn get_filter_settings(
+    webview: tauri::Webview,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<FilterSettingsView, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Filter settings are only available to the trusted browser UI".into());
+    }
+    state
+        .filtering
+        .lock()
+        .map_err(|_| "Filter settings are unavailable".to_string())?
+        .as_ref()
+        .map(FilterSettings::view)
+        .ok_or_else(|| "Filter settings are not initialized".into())
+}
+
+#[tauri::command]
+async fn set_filtering_enabled(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    enabled: bool,
+) -> Result<FilterSettingsView, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Filter settings are only available to the trusted browser UI".into());
+    }
+    #[cfg(not(target_os = "macos"))]
+    if enabled {
+        return Err("Content filtering is currently available on macOS only".into());
+    }
+    let mut settings = state
+        .filtering
+        .lock()
+        .map_err(|_| "Filter settings are unavailable".to_string())?
+        .clone()
+        .ok_or("Filter settings are not initialized")?;
+    settings.set_enabled(enabled);
+    #[cfg(target_os = "macos")]
+    if enabled {
+        platforms::macos::validate_filter_rules(app.clone(), settings.compiled_rules.clone())
+            .await?;
+    }
+    commit_filter_settings(&app, &state, settings)
+}
+
+#[tauri::command]
+async fn set_filter_site_exception(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    domain: String,
+    enabled: bool,
+) -> Result<FilterSettingsView, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Filter settings are only available to the trusted browser UI".into());
+    }
+    #[cfg(not(target_os = "macos"))]
+    return Err("Content filtering is currently available on macOS only".into());
+    let mut settings = state
+        .filtering
+        .lock()
+        .map_err(|_| "Filter settings are unavailable".to_string())?
+        .clone()
+        .ok_or("Filter settings are not initialized")?;
+    settings.set_exception(&domain, enabled)?;
+    #[cfg(target_os = "macos")]
+    platforms::macos::validate_filter_rules(app.clone(), settings.compiled_rules.clone()).await?;
+    commit_filter_settings(&app, &state, settings)
+}
+
+#[tauri::command]
+async fn update_filter_list(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<FilterSettingsView, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Filter updates are only available to the trusted browser UI".into());
+    }
+    #[cfg(not(target_os = "macos"))]
+    return Err("Content filtering is currently available on macOS only".into());
+    const MAX_FILTER_DOWNLOAD_BYTES: usize = 8 * 1024 * 1024;
+    emit_filter_update_progress(
+        &app,
+        FilterUpdateProgress {
+            phase: "downloading",
+            received_bytes: 0,
+            total_bytes: None,
+        },
+    );
+    let app_for_download = app.clone();
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        use std::io::Read;
+        use std::process::Stdio;
+
+        let mut child = Command::new("/usr/bin/curl")
+            .args([
+                "--fail",
+                "--location",
+                "--silent",
+                "--show-error",
+                "--proto",
+                "=https",
+                "--proto-redir",
+                "=https",
+                "--max-redirs",
+                "5",
+                "--max-time",
+                "25",
+                "--max-filesize",
+                "8388608",
+                "--user-agent",
+                "MyBrowser/0.1 EasyList updater",
+                browser::filtering::EASYLIST_URL,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| std::io::Error::other("EasyList stdout unavailable"))?;
+        let mut bytes = Vec::new();
+        let mut chunk = [0u8; 16 * 1024];
+        let mut last_reported = 0;
+        loop {
+            let read = stdout.read(&mut chunk)?;
+            if read == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+            if bytes.len() > MAX_FILTER_DOWNLOAD_BYTES {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(std::io::Error::other(
+                    "EasyList update is too large; the current list was kept",
+                ));
+            }
+            if bytes.len() - last_reported >= 32 * 1024 {
+                last_reported = bytes.len();
+                emit_filter_update_progress(
+                    &app_for_download,
+                    FilterUpdateProgress {
+                        phase: "downloading",
+                        received_bytes: bytes.len() as u64,
+                        total_bytes: None,
+                    },
+                );
+            }
+        }
+        let status = child.wait()?;
+        let mut stderr = String::new();
+        if let Some(mut pipe) = child.stderr.take() {
+            let _ = pipe.read_to_string(&mut stderr);
+        }
+        if !status.success() {
+            return Err(std::io::Error::other(format!(
+                "EasyList update failed: {}",
+                stderr.trim()
+            )));
+        }
+        let received_bytes = bytes.len() as u64;
+        emit_filter_update_progress(
+            &app_for_download,
+            FilterUpdateProgress {
+                phase: "compiling",
+                received_bytes,
+                total_bytes: Some(received_bytes),
+            },
+        );
+        Ok::<Vec<u8>, std::io::Error>(bytes)
+    })
+    .await
+    .map_err(|error| format!("EasyList download task failed: {error}"))?
+    .map_err(|error| error.to_string())?;
+    let raw_list = String::from_utf8(output)
+        .map_err(|_| "EasyList update was not valid UTF-8; the current list was kept")?;
+    let updated_at = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+    let mut settings = state
+        .filtering
+        .lock()
+        .map_err(|_| "Filter settings are unavailable".to_string())?
+        .clone()
+        .ok_or("Filter settings are not initialized")?;
+    settings.replace_list(raw_list, updated_at)?;
+    #[cfg(target_os = "macos")]
+    platforms::macos::validate_filter_rules(app.clone(), settings.compiled_rules.clone()).await?;
+    let result = commit_filter_settings(&app, &state, settings);
+    if result.is_ok() {
+        emit_filter_update_progress(
+            &app,
+            FilterUpdateProgress {
+                phase: "complete",
+                received_bytes: 0,
+                total_bytes: Some(0),
+            },
+        );
+    }
+    result
 }
 
 #[tauri::command]
@@ -2459,6 +2755,21 @@ pub fn run() {
             .lock()
             .expect("history path lock poisoned") = Some(history_path.clone());
         *state.history.lock().expect("history lock poisoned") = read_history(&history_path);
+        let filter_path = session_path.with_file_name("filtering.json");
+        *state
+            .filtering_file
+            .lock()
+            .expect("filter settings path lock poisoned") = Some(filter_path.clone());
+        let filter_settings = FilterSettings::load(&filter_path).map_err(std::io::Error::other)?;
+        if !filter_path.exists() {
+            filter_settings
+                .persist(&filter_path)
+                .map_err(std::io::Error::other)?;
+        }
+        *state
+            .filtering
+            .lock()
+            .expect("filter settings lock poisoned") = Some(filter_settings);
         let saved_session = read_session(&session_path);
         *state
             .recently_closed
@@ -2674,6 +2985,10 @@ pub fn run() {
         get_external_browsers,
         open_in_external_browser,
         clear_browsing_data,
+        get_filter_settings,
+        set_filtering_enabled,
+        set_filter_site_exception,
+        update_filter_list,
         set_tab_dragging,
         get_split_tabs,
         split_tab,
@@ -2714,6 +3029,10 @@ pub fn run() {
         get_external_browsers,
         open_in_external_browser,
         clear_browsing_data,
+        get_filter_settings,
+        set_filtering_enabled,
+        set_filter_site_exception,
+        update_filter_list,
         set_tab_dragging,
         get_split_tabs,
         split_tab,
@@ -2751,6 +3070,10 @@ pub fn run() {
         get_external_browsers,
         open_in_external_browser,
         clear_browsing_data,
+        get_filter_settings,
+        set_filtering_enabled,
+        set_filter_site_exception,
+        update_filter_list,
         set_tab_dragging,
         get_split_tabs,
         split_tab,

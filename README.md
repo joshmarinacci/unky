@@ -91,6 +91,10 @@ await invoke('create_tab', { private: true }); // Private tab
 
 The Rust command passes the private flag to Tauri's `WebviewBuilder::incognito`. On macOS this uses a nonpersistent WebKit website data store. Downloaded files and explicitly saved bookmarks remain after a private tab closes. Private mode does not hide network activity from websites or network operators. Native storage isolation is covered by the macOS desktop test; Windows and Linux behavior has not been validated.
 
+### Content filtering (macOS)
+
+Ad and tracker filtering is enabled by default with a small built-in set. In **Settings → Privacy**, turn filtering off or on, update the EasyList source, or disable filtering for the current site. Updates are validated before activation; failed downloads or compilation keep the previous list. Private tabs use the same rules. Only the compiler's supported domain-rule subset is active, so EasyList cosmetic filters, path rules, scriptlets, and redirects are not applied. See [filtering details and limitations](docs/filtering.md).
+
 ### macOS shortcuts
 
 | Shortcut | Action |
@@ -114,4 +118,4 @@ The Edit menu also provides the standard Undo, Redo, Cut, Copy, Paste, and Selec
 
 ## Current status
 
-The browser interface and native website WebViews are implemented for macOS using Tauri's unstable child-WebView API. The adblock-rust to WKContentRuleList pipeline passes the macOS fixture test for a small domain-rule subset. Windows and Linux interception validation is deferred to a later cross-platform milestone; macOS is the active development platform for now. See [the roadmap](docs/roadmap.md), [filtering scope](docs/filtering.md), and [platform matrix](docs/platform-matrix.md). This prototype is not a general-purpose secure browser yet.
+The browser interface and native website WebViews are implemented for macOS using Tauri's unstable child-WebView API. Production filtering uses WKContentRuleList and the constrained adblock-rust compiler. Windows and Linux interception validation is deferred to a later cross-platform milestone; macOS is the active development platform for now. See [the roadmap](docs/roadmap.md), [filtering details](docs/filtering.md), and [platform matrix](docs/platform-matrix.md). This prototype is not a general-purpose secure browser yet.
