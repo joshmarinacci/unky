@@ -1,6 +1,6 @@
 # Command-line launcher (macOS)
 
-The `scripts/mybrowser` launcher starts the installed application at `/Applications/My Browser.app` and forwards its arguments. From this checkout it can also find the release bundle or debug executable. Install the command in a directory on your `PATH`:
+The `scripts/mybrowser` launcher uses this checkout's release bundle or debug executable when available, then falls back to `/Applications/My Browser.app`. This keeps the CLI and browser from the same checkout in sync. Set `MY_BROWSER_BIN` to select a different executable. Install the command in a directory on your `PATH`:
 
 ```sh
 mkdir -p "$HOME/.local/bin"
@@ -15,7 +15,7 @@ mybrowser --private https://example.com
 mybrowser https://example.com --private
 ```
 
-The command creates a new tab, optionally private, and focuses the browser window. If My Browser is already running, the request is forwarded to that process. For a different executable, set `MY_BROWSER_BIN` to its full path.
+The command creates a new tab, optionally private, and focuses the browser window. It launches the browser detached from the terminal, so the command returns while the page continues loading. If My Browser is already running, the request is forwarded to that process. For a different executable, set `MY_BROWSER_BIN` to its full path.
 
 ## Gatekeeper on first launch
 

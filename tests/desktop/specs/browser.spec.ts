@@ -8,7 +8,7 @@ describe('native Tauri browser', () => {
   it('forwards a command-line URL into a private tab in the running browser', async () => {
     type Snapshot = { tabs: Array<{ id: string; url: string; private: boolean }> };
     const url = 'http://127.0.0.1:4179/two';
-    const launch = spawnSync(resolve(process.cwd(), 'target/debug/my-browser'), [url, '--private'], {
+    const launch = spawnSync(resolve(process.cwd(), 'scripts/mybrowser'), [url, '--private'], {
       encoding: 'utf8',
       timeout: 10000,
     });

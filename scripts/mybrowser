@@ -17,12 +17,12 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 
 if [[ -n "${MY_BROWSER_BIN:-}" ]]; then
   browser_bin="$MY_BROWSER_BIN"
-elif [[ -x "/Applications/My Browser.app/Contents/MacOS/my-browser" ]]; then
-  browser_bin="/Applications/My Browser.app/Contents/MacOS/my-browser"
 elif [[ -x "$repo_root/target/release/bundle/macos/My Browser.app/Contents/MacOS/my-browser" ]]; then
   browser_bin="$repo_root/target/release/bundle/macos/My Browser.app/Contents/MacOS/my-browser"
 elif [[ -x "$repo_root/target/debug/my-browser" ]]; then
   browser_bin="$repo_root/target/debug/my-browser"
+elif [[ -x "/Applications/My Browser.app/Contents/MacOS/my-browser" ]]; then
+  browser_bin="/Applications/My Browser.app/Contents/MacOS/my-browser"
 else
   browser_bin="/Applications/My Browser.app/Contents/MacOS/my-browser"
 fi
@@ -33,4 +33,4 @@ if [[ ! -x "$browser_bin" ]]; then
   exit 1
 fi
 
-exec "$browser_bin" "$@"
+nohup "$browser_bin" "$@" </dev/null >/dev/null 2>&1 &
