@@ -24,6 +24,66 @@ const SHORTCUT_EVENT: &str = "browser://shortcut";
 const HISTORY_EVENT: &str = "browser://history-changed";
 const DOWNLOADS_EVENT: &str = "browser://downloads-changed";
 
+#[tauri::command]
+fn get_external_browsers(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<Vec<browser::external::ExternalBrowser>, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Browser discovery is only available to the trusted browser UI".into());
+    }
+    browser::external::installed_browsers(&app.config().identifier)
+}
+
+#[tauri::command]
+async fn open_in_external_browser(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    tab_id: String,
+    browser_id: String,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Only the trusted browser UI can open another browser".into());
+    }
+    {
+        let tabs = state
+            .data
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?;
+        if !tabs.iter().any(|tab| {
+            tab.id == tab_id && tab.window_label == browser_window_for_ui(webview.label())
+        }) {
+            return Err("The requested tab does not belong to this browser window".into());
+        }
+    }
+    // Read the actual WebView location, not editable address-bar text or a caller-supplied URL.
+    let url = browser::external::current_page_url(&get_page(&app, &tab_id)?).await?;
+    let browser = browser::external::installed_browsers(&app.config().identifier)?
+        .into_iter()
+        .find(|browser| browser.id == browser_id)
+        .ok_or("That browser is no longer available; reopen the browser picker")?;
+
+    // Automated tests exercise discovery and validation without opening tabs in the user's browsers.
+    #[cfg(all(debug_assertions, feature = "desktop-test"))]
+    if std::env::var("MY_BROWSER_TEST_EXTERNAL_OPEN").as_deref() == Ok("1") {
+        let profile =
+            std::env::var_os("MY_BROWSER_PROFILE_DIR").ok_or("Test profile is unavailable")?;
+        let request =
+            serde_json::json!({ "browserId": browser.id, "url": url.as_str(), "tabId": tab_id });
+        fs::write(
+            PathBuf::from(profile).join("external-open.json"),
+            request.to_string(),
+        )
+        .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    tauri::async_runtime::spawn_blocking(move || browser::external::open(&browser, &url))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 fn allowed_navigation_url(input: &str) -> Result<url::Url, String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
@@ -2431,6 +2491,9 @@ pub fn run() {
                 MenuItemBuilder::with_id("shortcut-new-private-tab", "New Private Tab")
                     .accelerator("CmdOrCtrl+Shift+N")
                     .build(app)?;
+            let open_in_browser =
+                MenuItemBuilder::with_id("shortcut-open-in-browser", "Open in Another Browser…")
+                    .build(app)?;
             let close_tab = MenuItemBuilder::with_id("shortcut-close-tab", "Close Tab")
                 .accelerator("CmdOrCtrl+W")
                 .build(app)?;
@@ -2447,6 +2510,7 @@ pub fn run() {
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&new_tab)
                 .item(&new_private_tab)
+                .item(&open_in_browser)
                 .item(&close_tab)
                 .item(&reopen_closed_tab)
                 .item(&next_tab)
@@ -2607,6 +2671,8 @@ pub fn run() {
     #[cfg(feature = "macos-session-test")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
+        get_external_browsers,
+        open_in_external_browser,
         clear_browsing_data,
         set_tab_dragging,
         get_split_tabs,
@@ -2645,6 +2711,8 @@ pub fn run() {
     #[cfg(all(not(feature = "macos-session-test"), feature = "desktop-test"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
+        get_external_browsers,
+        open_in_external_browser,
         clear_browsing_data,
         set_tab_dragging,
         get_split_tabs,
@@ -2680,6 +2748,8 @@ pub fn run() {
     #[cfg(all(not(feature = "macos-session-test"), not(feature = "desktop-test")))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         get_browser_state,
+        get_external_browsers,
+        open_in_external_browser,
         clear_browsing_data,
         set_tab_dragging,
         get_split_tabs,

@@ -23,6 +23,8 @@ identifier = "allow-main-browser-commands"
 description = "Enables browser commands for the trusted local browser interface."
 commands.allow = [
   "get_browser_state",
+  "get_external_browsers",
+  "open_in_external_browser",
   "clear_browsing_data",
   "get_history",
   "get_downloads",

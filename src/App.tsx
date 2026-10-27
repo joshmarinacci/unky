@@ -4,6 +4,8 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, C
 import { AppButton, AppInput } from './components/ui';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { Menu } from '@tauri-apps/api/menu';
+import { LogicalPosition } from '@tauri-apps/api/dpi';
 
 type Tab = {
   id: string;
@@ -18,6 +20,7 @@ type Tab = {
 };
 
 type BrowserSnapshot = { tabs: Tab[]; activeTabId: string };
+type ExternalBrowser = { id: string; name: string };
 type SplitLayout = { firstTabId: string; secondTabId: string; orientation: 'horizontal' | 'vertical' };
 type PageSecurityInfo = { secureHttps: boolean; location: string; camera: string; microphone: string; playingAudio: boolean };
 type TabReference = { id: string; type: 'tab' };
@@ -394,6 +397,9 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const addressRef = useRef<HTMLInputElement>(null);
   const securityButtonRef = useRef<HTMLButtonElement>(null);
+  const externalBrowserButtonRef = useRef<HTMLButtonElement>(null);
+  const externalBrowserMenuRef = useRef<Menu | null>(null);
+  const externalBrowserMenuLoading = useRef(false);
   const findRef = useRef<HTMLInputElement>(null);
   const viewRef = useRef<HTMLDivElement>(null);
   const activeTabIdRef = useRef(activeTabId);
@@ -401,7 +407,9 @@ export default function App() {
   const faviconRequests = useRef(new Set<string>());
   const sessionTestStarted = useRef(false);
   const activeTab = tabs.find(tab => tab.id === activeTabId);
+  const tabContextMenuWidth = Math.min(200, sidebarWidth - 16);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
+  useEffect(() => () => { void externalBrowserMenuRef.current?.close(); }, []);
   const tabDragAndDrop = useDragAndDrop<TabNode>({
     getItems: keys => [...keys].map(key => ({ 'text/plain': String(key) })),
     onDragStart: event => {
@@ -601,6 +609,7 @@ export default function App() {
         switch (event.payload) {
           case 'new-tab': void createTab(); break;
           case 'new-private-tab': void createTab(true); break;
+          case 'open-in-browser': externalBrowserButtonRef.current?.click(); break;
           case 'close-tab': if (activeTabIdRef.current) void closeTab(activeTabIdRef.current); break;
           case 'reopen-closed-tab': void reopenClosedTab(); break;
           case 'focus-address': addressRef.current?.focus(); addressRef.current?.select(); break;
@@ -877,6 +886,34 @@ export default function App() {
     catch (error) { setMessage(String(error)); }
   }
 
+  async function showExternalBrowsers(tabId = activeTabIdRef.current, position?: { x: number; y: number }) {
+    const rect = externalBrowserButtonRef.current?.getBoundingClientRect();
+    const targetTab = tabs.find(tab => tab.id === tabId);
+    const anchor = position ?? (rect ? { x: rect.left, y: rect.bottom } : undefined);
+    if (!targetTab?.url.match(/^https?:\/\//) || !anchor || externalBrowserMenuLoading.current) return;
+    externalBrowserMenuLoading.current = true;
+    try {
+      const browsers = await invoke<ExternalBrowser[]>('get_external_browsers');
+      await externalBrowserMenuRef.current?.close();
+      const menu = await Menu.new({
+        items: [
+          { text: targetTab.private ? 'Opens using the other browser’s session' : 'Open page in…', enabled: false },
+          ...browsers.map(browser => ({
+            text: browser.name,
+            action: () => {
+              void invoke('open_in_external_browser', { tabId, browserId: browser.id })
+                .catch(error => setMessage(String(error)));
+            },
+          })),
+          ...(browsers.length ? [] : [{ text: 'No other browsers found', enabled: false }]),
+        ],
+      });
+      externalBrowserMenuRef.current = menu;
+      await menu.popup(new LogicalPosition(anchor.x, anchor.y));
+    } catch (error) { setMessage(String(error)); }
+    finally { externalBrowserMenuLoading.current = false; }
+  }
+
   function saveBookmark(event: React.FormEvent) {
     event.preventDefault();
     const url = bookmarkUrl.trim();
@@ -1053,7 +1090,7 @@ export default function App() {
         className="tab-tree-item"
         aria-current={tab.id === activeTabId ? 'page' : undefined}
         onAction={() => void selectTab(tab.id)}
-        onContextMenu={event => { event.preventDefault(); setTabContextMenu({ id: tab.id, type: 'tab', x: Math.min(event.clientX, window.innerWidth - 165), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
+        onContextMenu={event => { event.preventDefault(); setTabContextMenu({ id: tab.id, type: 'tab', x: Math.max(8, Math.min(event.clientX, sidebarWidth - tabContextMenuWidth - 8)), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
       >
         <TreeItemContent><div className={`tab-row ${tab.id === activeTabId ? 'selected' : ''}`} style={{ paddingLeft: depth * 14 }} data-tab-id={tab.id}>
           <span className={`tab-favicon ${tab.loading ? 'is-loading' : ''}`}>{tab.loading ? <LoaderCircle className="ui-icon" size={14} aria-hidden="true" /> : icon ? <img src={icon} alt="" onError={() => setTabFavicons(current => { const next = { ...current }; delete next[tab.id]; return next; })} /> : tab.url ? <Globe2 className="ui-icon" size={14} aria-hidden="true" /> : <Sparkles className="ui-icon" size={14} aria-hidden="true" />}</span>
@@ -1207,7 +1244,7 @@ export default function App() {
         </Tabs>
         {tabContextMenu && <>
           <div className="sidebar-context-dismiss" onClick={() => setTabContextMenu(null)} />
-          <div className="sidebar-context-menu" style={{ left: tabContextMenu.x, top: tabContextMenu.y }} role="menu">
+          <div className="sidebar-context-menu" style={{ left: tabContextMenu.x, top: tabContextMenu.y, width: tabContextMenu.type === 'tab' ? tabContextMenuWidth : undefined }} role="menu">
             <AppButton role="menuitem" onClick={() => {
               if (tabContextMenu.type === 'tab') {
                 const tab = tabs.find(item => item.id === tabContextMenu.id);
@@ -1219,6 +1256,11 @@ export default function App() {
               }
               setTabContextMenu(null);
             }}>Rename</AppButton>
+            {tabContextMenu.type === 'tab' && <AppButton role="menuitem" aria-haspopup="menu" disabled={!isTauri || !tabs.find(tab => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)} onClick={() => {
+              const { id, x, y } = tabContextMenu;
+              setTabContextMenu(null);
+              void showExternalBrowsers(id, { x, y });
+            }}>Open in another browser…</AppButton>}
             {tabContextMenu.type === 'folder' && <AppButton role="menuitem" onClick={() => { deleteTabFolder(tabContextMenu.id); setTabContextMenu(null); }}>Delete folder</AppButton>}
           </div>
         </>}
@@ -1248,6 +1290,7 @@ export default function App() {
             <AppButton type="button" title="Close find" aria-label="Close find" onClick={() => { setFindOpen(false); setFindQuery(''); setFindMatches(null); }}><X className="ui-icon" size={13} aria-hidden="true" /></AppButton>
           </form> : <AppButton className="toolbar-action" title="Find in page (⌘F)" aria-label="Find in page" onClick={openFindPanel}><Search className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
           <AppButton className={`toolbar-action bookmark-toggle ${currentBookmark ? 'is-bookmarked' : ''}`} title={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-label={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-pressed={Boolean(currentBookmark)} disabled={!activeTab?.url} onClick={addCurrentPage}><Star className="ui-icon" size={17} aria-hidden="true" fill={currentBookmark ? 'currentColor' : 'none'} /></AppButton>
+          <AppButton ref={externalBrowserButtonRef} className="toolbar-action" title="Open in another browser" aria-label="Open in another browser" aria-haspopup="menu" disabled={!isTauri || !activeTab?.url.match(/^https?:\/\//)} onClick={() => void showExternalBrowsers()}><ExternalLink className="ui-icon" size={17} aria-hidden="true" /></AppButton>
           <AppButton ref={securityButtonRef} className={`toolbar-action ${securityOpen ? 'security-active' : ''}`} title="Page security and permissions" aria-label="Page security and permissions" aria-expanded={securityOpen} disabled={!activeTab?.url} onClick={async () => {
             const rect = securityButtonRef.current?.getBoundingClientRect();
             if (!rect || !activeTab?.url) return;

@@ -66,6 +66,18 @@ The toolbar security button opens a macOS native popover for the active page. It
 
 The appearance setting supports System, Light, and Dark. Website zoom is controlled from the View menu and applies to the active tab (50% to 300%, in 10% steps).
 
+### Open the current page in another browser
+
+On macOS, click **Open in another browser** in the toolbar (the arrow leaving a square), or choose **File → Open in Another Browser…**. A native menu lists installed applications registered for HTTPS links that also declare HTML document support, excluding My Browser. This can include browser launchers such as Choosy. Choose a browser to load the current page there; the original tab stays open. The action is disabled for blank tabs.
+
+You can also right-click any loaded tab and choose **Open in another browser…**. This opens the browser picker for that tab without switching to it. Blank tabs have the action disabled; folder menus do not include it.
+
+Only the target tab's current HTTP(S) URL is sent, including its query string and fragment. Cookies, logins, page state, and private mode are not transferred. The receiving browser uses its own session; the picker reminds you of this when opening from a private tab. Browser discovery and launch currently support macOS only.
+
+The trusted UI uses `get_external_browsers` and `open_in_external_browser({ tabId, browserId })`. Rust checks that the tab belongs to the calling window, reads its actual WebView URL, validates it, and resolves the selected browser again before launching it through `/usr/bin/open`. Website tabs cannot invoke these commands. No shell command or application path is accepted from the frontend.
+
+The desktop suite checks discovery, URL preservation, invalid selections, blank pages, window ownership, and opening a background tab without changing the active tab. It captures the validated handoff in `test-results/external-browser-handoff.json` instead of launching a user's browser. This interception requires a debug `desktop-test` build and `MY_BROWSER_TEST_EXTERNAL_OPEN=1`; ordinary app runs launch the selected browser. The suite calls the commands directly; manual UI validation covered the toolbar handoff to Chrome and the context-menu picker on a background tab.
+
 ### Private tabs
 
 Open a private tab with **New private tab** below **New tab**, **File → New Private Tab**, or `⌘⇧N`. The existing **Settings → New private tab** action is also available. The tab has a crossed-eye indicator and uses ephemeral website storage separate from normal tabs. Private pages are excluded from browsing history, session recovery, and recently closed tabs; links opened in a new tab inherit the source tab's private mode. Normal tabs remain the default.

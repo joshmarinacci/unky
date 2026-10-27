@@ -48,6 +48,7 @@ export const config: WebdriverIO.Config = {
       logDir: logs,
       env: {
         MY_BROWSER_PROFILE_DIR: resolve(results, 'disposable-profile'),
+        MY_BROWSER_TEST_EXTERNAL_OPEN: '1',
         RUST_LOG: 'info',
       },
     },
