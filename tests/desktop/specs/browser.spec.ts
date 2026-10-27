@@ -1,9 +1,33 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { captureNativeWindow, inspect, invoke, results } from '../wdio.conf.js';
 
 describe('native Tauri browser', () => {
+  it('forwards a command-line URL into a private tab in the running browser', async () => {
+    type Snapshot = { tabs: Array<{ id: string; url: string; private: boolean }> };
+    const url = 'http://127.0.0.1:4179/two';
+    const launch = spawnSync(resolve(process.cwd(), 'target/debug/my-browser'), [url, '--private'], {
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    assert.equal(launch.error, undefined, launch.error?.message);
+    assert.equal(launch.status, 0, launch.stderr);
+    await browser.waitUntil(async () => {
+      const snapshot = await invoke('get_browser_state') as Snapshot;
+      return snapshot.tabs.some(tab => tab.url === url && tab.private);
+    }, { timeout: 10000, timeoutMsg: 'The running browser did not open the forwarded private tab' });
+    const snapshot = await invoke('get_browser_state') as Snapshot;
+    const tab = snapshot.tabs.find(candidate => candidate.url === url && candidate.private);
+    assert.ok(tab);
+    await browser.waitUntil(async () => {
+      const page = await inspect(tab.id);
+      return page.url === url && page.readyState === 'complete' && page.text.includes('Fixture Page Two');
+    }, { timeout: 15000, timeoutMsg: 'The command-line private tab did not finish navigation' });
+    await invoke('close_tab', { tabId: tab.id });
+  });
+
   it('isolates private website storage and excludes private tabs from saved browsing state', async () => {
     type Snapshot = { tabs: Array<{ id: string; private: boolean }>; activeTabId: string };
     type Filters = { enabled: boolean; acceptedRules: number; exceptions: string[] };

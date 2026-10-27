@@ -77,6 +77,7 @@ pub struct BrowserState {
     pub filtering_file: Arc<Mutex<Option<PathBuf>>>,
     pub downloads: Arc<Mutex<Vec<DownloadEntry>>>,
     pub next_download_id: Arc<std::sync::atomic::AtomicU64>,
+    pub launch_request: Arc<Mutex<Option<super::launch::LaunchRequest>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

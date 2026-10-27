@@ -25,6 +25,7 @@ const SHORTCUT_EVENT: &str = "browser://shortcut";
 const HISTORY_EVENT: &str = "browser://history-changed";
 const DOWNLOADS_EVENT: &str = "browser://downloads-changed";
 const FILTER_UPDATE_PROGRESS_EVENT: &str = "browser://filter-update-progress";
+const LAUNCH_REQUEST_EVENT: &str = "browser://launch-request";
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +37,32 @@ struct FilterUpdateProgress {
 
 fn emit_filter_update_progress(app: &tauri::AppHandle, progress: FilterUpdateProgress) {
     let _ = app.emit(FILTER_UPDATE_PROGRESS_EVENT, progress);
+}
+
+fn parse_launch_args(
+    args: impl IntoIterator<Item = String>,
+) -> Result<Option<browser::launch::LaunchRequest>, String> {
+    browser::launch::parse_args(args)?
+        .map(|mut request| {
+            request.url = allowed_navigation_url(&request.url)?.to_string();
+            Ok(request)
+        })
+        .transpose()
+}
+
+#[tauri::command]
+fn take_launch_request(
+    webview: tauri::Webview,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<Option<browser::launch::LaunchRequest>, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Launch arguments are only available to the trusted browser UI".into());
+    }
+    state
+        .launch_request
+        .lock()
+        .map_err(|_| "Launch request is unavailable".to_string())
+        .map(|mut request| request.take())
 }
 
 #[tauri::command]
@@ -2611,7 +2638,10 @@ fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), Str
 
 #[cfg(test)]
 mod tests {
-    use super::{allowed_navigation_url, persist_session, read_session, validated_session_tab};
+    use super::{
+        allowed_navigation_url, parse_launch_args, persist_session, read_session,
+        validated_session_tab,
+    };
     use crate::browser::tabs::{BrowserState, SessionTab, TabState};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -2636,6 +2666,17 @@ mod tests {
     fn navigation_accepts_http_and_https() {
         assert!(allowed_navigation_url("http://example.com/").is_ok());
         assert!(allowed_navigation_url("https://example.com/path").is_ok());
+    }
+
+    #[test]
+    fn command_line_launch_uses_the_same_web_url_validation_as_navigation() {
+        let request =
+            parse_launch_args(["mybrowser", "example.com", "--private"].map(str::to_string))
+                .unwrap()
+                .unwrap();
+        assert_eq!(request.url, "https://example.com/");
+        assert!(request.private);
+        assert!(parse_launch_args(["mybrowser", "file:///tmp/item"].map(str::to_string)).is_err());
     }
 
     #[test]
@@ -2722,12 +2763,27 @@ mod tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let initial_launch_request = parse_launch_args(std::env::args());
+    let builder =
+        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            match parse_launch_args(args) {
+                Ok(Some(request)) => {
+                    let window_label =
+                        focused_browser_window_label(app).unwrap_or_else(|| "main".to_string());
+                    if let Some(window) = app.get_webview_window(&window_label) {
+                        let _ = window.set_focus();
+                    }
+                    let _ = app.emit_to(&window_label, LAUNCH_REQUEST_EVENT, request);
+                }
+                Ok(None) => {}
+                Err(error) => eprintln!("Could not handle mybrowser arguments: {error}"),
+            }
+        }));
     #[cfg(all(debug_assertions, feature = "desktop-test"))]
     let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
     #[cfg(all(debug_assertions, feature = "desktop-test"))]
     let builder = builder.plugin(tauri_plugin_wdio::init());
-    let builder = builder.manage(BrowserState::default()).setup(|app| {
+    let builder = builder.manage(BrowserState::default()).setup(move |app| {
         #[cfg(all(debug_assertions, feature = "desktop-test"))]
         tauri::WebviewWindowBuilder::new(app, "wdio-host", WebviewUrl::App("index.html".into()))
             .title("My Browser WebDriver")
@@ -2735,6 +2791,12 @@ pub fn run() {
             .visible(false)
             .build()?;
         let state = app.state::<BrowserState>();
+        if let Ok(Some(request)) = initial_launch_request.clone() {
+            *state
+                .launch_request
+                .lock()
+                .expect("launch request lock poisoned") = Some(request);
+        }
         let session_path = app.path().app_data_dir()?.join("session.json");
         #[cfg(debug_assertions)]
         let session_path = std::env::var_os("MY_BROWSER_PROFILE_DIR")
@@ -2981,6 +3043,7 @@ pub fn run() {
     });
     #[cfg(feature = "macos-session-test")]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        take_launch_request,
         get_browser_state,
         get_external_browsers,
         open_in_external_browser,
@@ -3025,6 +3088,7 @@ pub fn run() {
     ]);
     #[cfg(all(not(feature = "macos-session-test"), feature = "desktop-test"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        take_launch_request,
         get_browser_state,
         get_external_browsers,
         open_in_external_browser,
@@ -3066,6 +3130,7 @@ pub fn run() {
     ]);
     #[cfg(all(not(feature = "macos-session-test"), not(feature = "desktop-test")))]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        take_launch_request,
         get_browser_state,
         get_external_browsers,
         open_in_external_browser,

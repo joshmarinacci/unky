@@ -95,6 +95,10 @@ The Rust command passes the private flag to Tauri's `WebviewBuilder::incognito`.
 
 Ad and tracker filtering is enabled by default with a small built-in set. In **Settings → Privacy**, turn filtering off or on, update the EasyList source, or disable filtering for the current site. Updates are validated before activation; failed downloads or compilation keep the previous list. Private tabs use the same rules. Only the compiler's supported domain-rule subset is active, so EasyList cosmetic filters, path rules, scriptlets, and redirects are not applied. See [filtering details and limitations](docs/filtering.md).
 
+### Command-line launcher (macOS)
+
+Install the `scripts/mybrowser` launcher into `~/.local/bin` to open a URL in a new tab with `mybrowser https://example.com`; add `--private` to create a private tab. Requests are forwarded to the existing app process when it is already running. See [command-line setup](docs/command-line.md).
+
 ### macOS shortcuts
 
 | Shortcut | Action |

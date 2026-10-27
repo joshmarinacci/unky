@@ -34,6 +34,7 @@ type Download = { id: string; url: string; filename: string; path: string; statu
 type Theme = 'system' | 'light' | 'dark';
 type FilterSettingsView = { enabled: boolean; sourceUrl: string; updatedAt: number | null; acceptedRules: number; exceptions: string[] };
 type FilterUpdateProgress = { phase: 'downloading' | 'compiling' | 'complete'; receivedBytes: number; totalBytes: number | null };
+type LaunchRequest = { url: string; private: boolean };
 type SessionTestPhase = 'exercise' | 'restore';
 const tabEvent = 'browser://tabs-changed';
 const settingsEvent = 'browser://open-settings';
@@ -41,6 +42,7 @@ const shortcutEvent = 'browser://shortcut';
 const historyEvent = 'browser://history-changed';
 const downloadsEvent = 'browser://downloads-changed';
 const filterUpdateProgressEvent = 'browser://filter-update-progress';
+const launchRequestEvent = 'browser://launch-request';
 const splitEvent = 'browser://split-changed';
 const sidebarDefaultWidth = 224;
 const sidebarMinWidth = 176;
@@ -618,6 +620,7 @@ export default function App() {
       const unlistenSettings = await listen(settingsEvent, () => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); });
       const unlistenHistory = await listen<HistoryEntry[]>(historyEvent, event => setHistory(event.payload));
       const unlistenDownloads = await listen<Download[]>(downloadsEvent, event => setDownloads(event.payload));
+      const unlistenLaunchRequest = await listen<LaunchRequest>(launchRequestEvent, event => { void openLaunchRequest(event.payload); });
       const unlistenFilterProgress = await listen<FilterUpdateProgress>(filterUpdateProgressEvent, event => {
         if (event.payload.phase === 'complete') {
           setFilterProgress(null);
@@ -646,15 +649,17 @@ export default function App() {
       });
       try {
         applySnapshot(await invoke<BrowserSnapshot>('get_browser_state'));
+        const launchRequest = await invoke<LaunchRequest | null>('take_launch_request');
+        if (launchRequest) await openLaunchRequest(launchRequest);
         setHistory(await invoke<HistoryEntry[]>('get_history'));
         setDownloads(await invoke<Download[]>('get_downloads'));
       }
       catch (error) { setMessage(String(error)); }
       if (!cancelled) void runSessionIntegrationTest();
-      if (cancelled) { unlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenFilterProgress(); }
+      if (cancelled) { unlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenFilterProgress(); unlistenLaunchRequest(); }
       else {
         const originalUnlisten = unlisten;
-        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenFilterProgress(); };
+        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenFilterProgress(); unlistenLaunchRequest(); };
       }
     })();
     return () => { cancelled = true; unlisten?.(); };
@@ -824,6 +829,14 @@ export default function App() {
   async function createTab(privateMode = false) {
     try { applySnapshot(await invoke<BrowserSnapshot>('create_tab', { private: privateMode })); addressRef.current?.focus(); }
     catch (error) { setMessage(String(error)); }
+  }
+
+  async function openLaunchRequest(request: LaunchRequest) {
+    try {
+      const snapshot = await invoke<BrowserSnapshot>('create_tab', { private: request.private });
+      applySnapshot(snapshot);
+      await invoke('navigate', { tabId: snapshot.activeTabId, url: request.url });
+    } catch (error) { setMessage(String(error)); }
   }
 
   async function clearBrowsingData() {

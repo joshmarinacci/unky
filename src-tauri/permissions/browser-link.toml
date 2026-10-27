@@ -30,6 +30,7 @@ commands.allow = [
   "set_filtering_enabled",
   "set_filter_site_exception",
   "update_filter_list",
+  "take_launch_request",
   "get_history",
   "get_downloads",
   "find_in_page",
