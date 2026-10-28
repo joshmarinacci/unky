@@ -12,6 +12,9 @@ A Tauri 2, Rust, React, and TypeScript desktop browser prototype. The app uses o
 
 See the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for distribution-specific packages.
 
+See [Windows development](docs/windows.md) for native builds, keyboard shortcuts,
+validation, and remaining platform gaps.
+
 ## Run
 
 ```sh

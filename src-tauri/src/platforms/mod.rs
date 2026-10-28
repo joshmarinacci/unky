@@ -2,3 +2,5 @@
 pub mod macos;
 #[cfg(target_os = "macos")]
 pub mod security_popover;
+#[cfg(target_os = "windows")]
+pub mod windows;

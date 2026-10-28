@@ -47,6 +47,7 @@ const splitEvent = 'browser://split-changed';
 const sidebarDefaultWidth = 224;
 const sidebarMinWidth = 176;
 const sidebarMaxWidth = 360;
+const commandKey = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
 const sessionTestUrls = [
   'http://127.0.0.1:4179/index.html?session=first',
   'http://127.0.0.1:4179/index.html?session=second',
@@ -1255,11 +1256,11 @@ export default function App() {
           {renderTabNodes(tabNodes)}
         </Tree>
         <div className="tab-actions">
-          <AppButton className="new-tab" onClick={() => void createTab()}><Plus className="ui-icon" size={16} aria-hidden="true" /> New tab <kbd>⌘ T</kbd></AppButton>
+          <AppButton className="new-tab" onClick={() => void createTab()}><Plus className="ui-icon" size={16} aria-hidden="true" /> New tab <kbd>{commandKey} T</kbd></AppButton>
           <AppButton className="new-tab-folder" title="Create tab folder" aria-label="Create tab folder" onClick={createTabFolder}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
         </div>
         <div className="tab-actions">
-          <AppButton className="new-tab" title="New private tab (⌘⇧N)" onClick={() => void createTab(true)}><EyeOff className="ui-icon" size={16} aria-hidden="true" /> New private tab</AppButton>
+          <AppButton className="new-tab" title={`New private tab (${commandKey}+Shift+N)`} onClick={() => void createTab(true)}><EyeOff className="ui-icon" size={16} aria-hidden="true" /> New private tab</AppButton>
         </div>
         </> : sidebarView === 'bookmarks' ? <div className="bookmark-manager">
           <div className="bookmark-toolbar"><AppInput className="bookmark-search" aria-label="Search bookmarks" placeholder="Find a bookmark" value={bookmarkSearch} onChange={event => setBookmarkSearch(event.target.value)} /><AppButton className="new-folder-button" onClick={() => createBookmarkFolder()}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton></div>
@@ -1370,7 +1371,7 @@ export default function App() {
             {findMatches !== null && <span className="find-result" role="status" aria-live="polite">{findMatches} {findMatches === 1 ? 'match' : 'matches'}</span>}
             <AppButton type="submit" title="Find next" aria-label="Find next"><ArrowDown className="ui-icon" size={13} aria-hidden="true" /></AppButton><AppButton type="button" title="Find previous" aria-label="Find previous" onClick={() => void findInPage(findQuery, true)}><ArrowUp className="ui-icon" size={13} aria-hidden="true" /></AppButton>
             <AppButton type="button" title="Close find" aria-label="Close find" onClick={() => { setFindOpen(false); setFindQuery(''); setFindMatches(null); }}><X className="ui-icon" size={13} aria-hidden="true" /></AppButton>
-          </form> : <AppButton className="toolbar-action" title="Find in page (⌘F)" aria-label="Find in page" onClick={openFindPanel}><Search className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
+          </form> : <AppButton className="toolbar-action" title={`Find in page (${commandKey}+F)`} aria-label="Find in page" onClick={openFindPanel}><Search className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
           <AppButton className={`toolbar-action bookmark-toggle ${currentBookmark ? 'is-bookmarked' : ''}`} title={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-label={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-pressed={Boolean(currentBookmark)} disabled={!activeTab?.url} onClick={addCurrentPage}><Star className="ui-icon" size={17} aria-hidden="true" fill={currentBookmark ? 'currentColor' : 'none'} /></AppButton>
           <AppButton ref={externalBrowserButtonRef} className="toolbar-action" title="Open in another browser" aria-label="Open in another browser" aria-haspopup="menu" disabled={!isTauri || !activeTab?.url.match(/^https?:\/\//)} onClick={() => void showExternalBrowsers()}><ExternalLink className="ui-icon" size={17} aria-hidden="true" /></AppButton>
           <AppButton ref={securityButtonRef} className={`toolbar-action ${securityOpen ? 'security-active' : ''}`} title="Page security and permissions" aria-label="Page security and permissions" aria-expanded={securityOpen} disabled={!activeTab?.url} onClick={async () => {

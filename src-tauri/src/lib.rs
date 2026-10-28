@@ -15,7 +15,6 @@ use std::{
 };
 use tauri::{Emitter, Manager, WebviewUrl};
 
-#[cfg(target_os = "macos")]
 mod platforms;
 
 const TAB_EVENT: &str = "browser://tabs-changed";
@@ -625,7 +624,8 @@ async fn session_test_start_download(
     .map_err(|error| error.to_string())?
 }
 
-#[tauri::command]
+// WebView creation must leave the IPC callback on Windows so WebView2 can pump messages.
+#[tauri::command(async)]
 fn open_link_in_new_tab(
     webview: tauri::Webview,
     app: tauri::AppHandle,
@@ -1101,6 +1101,8 @@ fn create_page_webview(
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (filter_json, pending_navigation, filter_ready);
+    #[cfg(target_os = "windows")]
+    platforms::windows::install_shortcuts(app, &page_label(id), owner_window)?;
     Ok(())
 }
 
@@ -1723,7 +1725,7 @@ fn reveal_download(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn create_tab(
     webview: tauri::Webview,
     app: tauri::AppHandle,
@@ -1981,7 +1983,7 @@ fn close_tab(
     Ok(snapshot_for_window(&tabs, &owner_window))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn reopen_closed_tab(
     webview: tauri::Webview,
     app: tauri::AppHandle,
@@ -2394,7 +2396,7 @@ fn clear_tab_split(
     position_tabs(&app, &state)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn move_tab_to_new_window(
     webview: tauri::Webview,
     app: tauri::AppHandle,
@@ -2843,12 +2845,13 @@ pub fn run() {
             .take(20)
             .collect();
         let bounds = window_bounds(&state, "main").expect("browser bounds available");
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
             use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
             let settings = MenuItemBuilder::with_id("open-settings", "Settings…")
                 .accelerator("CmdOrCtrl+,")
                 .build(app)?;
+            #[cfg(target_os = "macos")]
             let app_menu = SubmenuBuilder::new(app, "My Browser")
                 .item(&settings)
                 .separator()
@@ -2864,6 +2867,7 @@ pub fn run() {
                 MenuItemBuilder::with_id("shortcut-new-private-tab", "New Private Tab")
                     .accelerator("CmdOrCtrl+Shift+N")
                     .build(app)?;
+            #[cfg(target_os = "macos")]
             let open_in_browser =
                 MenuItemBuilder::with_id("shortcut-open-in-browser", "Open in Another Browser…")
                     .build(app)?;
@@ -2882,13 +2886,17 @@ pub fn run() {
                 .build(app)?;
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&new_tab)
-                .item(&new_private_tab)
-                .item(&open_in_browser)
+                .item(&new_private_tab);
+            #[cfg(target_os = "macos")]
+            let file_menu = file_menu.item(&open_in_browser);
+            let file_menu = file_menu
                 .item(&close_tab)
                 .item(&reopen_closed_tab)
                 .item(&next_tab)
-                .item(&previous_tab)
-                .build()?;
+                .item(&previous_tab);
+            #[cfg(not(target_os = "macos"))]
+            let file_menu = file_menu.separator().item(&settings).separator().quit();
+            let file_menu = file_menu.build()?;
             let edit_menu = SubmenuBuilder::new(app, "Edit")
                 .undo()
                 .redo()
@@ -2919,10 +2927,18 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+R")
                 .build(app)?;
             let go_back = MenuItemBuilder::with_id("shortcut-go-back", "Back")
-                .accelerator("CmdOrCtrl+Alt+Left")
+                .accelerator(if cfg!(target_os = "macos") {
+                    "CmdOrCtrl+Alt+Left"
+                } else {
+                    "Alt+Left"
+                })
                 .build(app)?;
             let go_forward = MenuItemBuilder::with_id("shortcut-go-forward", "Forward")
-                .accelerator("CmdOrCtrl+Alt+Right")
+                .accelerator(if cfg!(target_os = "macos") {
+                    "CmdOrCtrl+Alt+Right"
+                } else {
+                    "Alt+Right"
+                })
                 .build(app)?;
             let view_menu = SubmenuBuilder::new(app, "View")
                 .item(&focus_address)
@@ -2936,8 +2952,10 @@ pub fn run() {
                 .separator()
                 .item(&actual_size)
                 .build()?;
-            let menu = MenuBuilder::new(app)
-                .item(&app_menu)
+            let menu = MenuBuilder::new(app);
+            #[cfg(target_os = "macos")]
+            let menu = menu.item(&app_menu);
+            let menu = menu
                 .item(&file_menu)
                 .item(&edit_menu)
                 .item(&view_menu)

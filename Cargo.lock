@@ -2279,6 +2279,8 @@ dependencies = [
  "tauri-plugin-wdio",
  "tauri-plugin-wdio-webdriver",
  "url",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]
