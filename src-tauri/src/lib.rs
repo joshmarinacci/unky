@@ -2769,15 +2769,18 @@ pub fn run() {
     let builder =
         tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             match parse_launch_args(args) {
-                Ok(Some(request)) => {
+                Ok(request) => {
                     let window_label =
                         focused_browser_window_label(app).unwrap_or_else(|| "main".to_string());
-                    if let Some(window) = app.get_webview_window(&window_label) {
+                    #[cfg(not(all(debug_assertions, feature = "desktop-test")))]
+                    if let Some(window) = app.get_window(&window_label) {
+                        let _ = window.show();
                         let _ = window.set_focus();
                     }
-                    let _ = app.emit_to(&window_label, LAUNCH_REQUEST_EVENT, request);
+                    if let Some(request) = request {
+                        let _ = app.emit_to(&window_label, LAUNCH_REQUEST_EVENT, request);
+                    }
                 }
-                Ok(None) => {}
                 Err(error) => eprintln!("Could not handle mybrowser arguments: {error}"),
             }
         }));

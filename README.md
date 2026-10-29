@@ -100,7 +100,7 @@ Ad and tracker filtering is enabled by default with a small built-in set. In **S
 
 ### Command-line launcher (macOS)
 
-Install the `scripts/mybrowser` launcher into `~/.local/bin` to open a URL in a new tab with `mybrowser https://example.com`; add `--private` to create a private tab. Requests are forwarded to the existing app process when it is already running. See [command-line setup](docs/command-line.md).
+Install the `scripts/mybrowser` launcher into `~/.local/bin` to open the browser with `mybrowser`, or open a URL in a new tab with `mybrowser https://example.com`; add `--private` to create a private tab. Requests are forwarded to the existing app process when it is already running. See [command-line setup](docs/command-line.md).
 
 ### macOS shortcuts
 

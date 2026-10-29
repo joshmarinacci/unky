@@ -57,4 +57,9 @@ mod tests {
         assert!(parse_args(["mybrowser", "--other", "one.test"].map(str::to_string)).is_err());
         assert!(parse_args(["mybrowser", "--private"].map(str::to_string)).is_err());
     }
+
+    #[test]
+    fn no_arguments_opens_the_browser_without_a_launch_request() {
+        assert_eq!(parse_args(["mybrowser"].map(str::to_string)).unwrap(), None);
+    }
 }

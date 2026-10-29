@@ -1,11 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-if [[ $# -eq 0 ]]; then
-  echo "Usage: mybrowser [--private] <url>" >&2
-  exit 2
-fi
-
 script_path="${BASH_SOURCE[0]}"
 while [[ -L "$script_path" ]]; do
   script_dir="$(cd -P -- "$(dirname -- "$script_path")" && pwd)"

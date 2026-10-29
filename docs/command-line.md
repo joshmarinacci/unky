@@ -13,9 +13,10 @@ Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc` if that directory is no
 mybrowser https://example.com
 mybrowser --private https://example.com
 mybrowser https://example.com --private
+mybrowser
 ```
 
-The command creates a new tab, optionally private, and focuses the browser window. It launches the browser detached from the terminal, so the command returns while the page continues loading. If My Browser is already running, the request is forwarded to that process. For a different executable, set `MY_BROWSER_BIN` to its full path.
+With no arguments, the command opens or focuses the browser without creating a tab. With a URL, it creates a new tab, optionally private, and focuses the browser window. It launches the browser detached from the terminal, so the command returns while the page continues loading. If My Browser is already running, the request is forwarded to that process. For a different executable, set `MY_BROWSER_BIN` to its full path.
 
 ## Gatekeeper on first launch
 
