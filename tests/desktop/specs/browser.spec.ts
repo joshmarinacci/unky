@@ -103,6 +103,29 @@ describe('native Tauri browser', () => {
     assert.equal(initial.loading, false);
     const initialScreenshot = captureNativeWindow('child-webview-rendered.png');
 
+    await invoke('set_tab_dragging', { dragging: true, tabId: null });
+    try {
+      const overlay = await invoke('desktop_test_inspect_tab_drag_overlay') as {
+        attached: boolean;
+        visible: boolean;
+        target: string | null;
+      };
+      assert.equal(overlay.attached, true, 'the preview should attach above the active website WebView');
+      assert.equal(overlay.visible, true, 'the native preview should be visible during a tab drag');
+      assert.ok(overlay.target, 'the preview should begin with a visible drop target');
+      const pageDuringDrag = await inspect('tab-1');
+      assert.match(pageDuringDrag.text, /Fixture Page One/, 'the page remains rendered beneath the preview');
+      captureNativeWindow('tab-drag-overlay.png');
+    } finally {
+      await invoke('set_tab_dragging', { dragging: false, tabId: null });
+    }
+    const removedOverlay = await invoke('desktop_test_inspect_tab_drag_overlay') as {
+      attached: boolean;
+      visible: boolean;
+      target: string | null;
+    };
+    assert.deepEqual(removedOverlay, { attached: false, visible: false, target: null });
+
     const state = await invoke('create_tab') as { tabs: Array<{ id: string }>; activeTabId: string };
     const secondTab = state.tabs.find((tab) => tab.id !== 'tab-1');
     assert.ok(secondTab, 'new tab command should create a second website child WebView');

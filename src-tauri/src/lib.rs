@@ -758,6 +758,15 @@ struct DesktopPageDiagnostics {
     errors: Vec<String>,
 }
 
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopTabDragOverlayDiagnostics {
+    attached: bool,
+    visible: bool,
+    target: Option<&'static str>,
+}
+
 /// WebDriver attaches to the trusted `main` webview. Website tabs are separate native
 /// WKWebViews, so this debug-only command inspects the selected child through Tauri's handle.
 #[cfg(all(debug_assertions, feature = "desktop-test"))]
@@ -838,6 +847,56 @@ async fn desktop_test_inspect_page(
             .filter_map(|error| error.as_str().map(str::to_string))
             .collect(),
     })
+}
+
+/// Inspect the macOS overlay attached to the active website child WebView.
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+#[tauri::command]
+fn desktop_test_inspect_tab_drag_overlay(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<DesktopTabDragOverlayDiagnostics, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Desktop diagnostics are only available to the trusted browser UI".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::MainThreadMarker;
+
+        let owner = browser_window_for_ui(webview.label());
+        let active_id = state
+            .data
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?
+            .iter()
+            .find(|tab| tab.window_label == owner && tab.active)
+            .map(|tab| tab.id.clone())
+            .ok_or("The browser window has no active tab")?;
+        let page = get_page(&app, &active_id)?;
+        let (sender, receiver) = std::sync::mpsc::channel();
+        page.with_webview(move |_| {
+            let diagnostics = MainThreadMarker::new()
+                .map(|_| unsafe { platforms::tab_drag_overlay::diagnostics() });
+            let result = diagnostics
+                .map(|native| DesktopTabDragOverlayDiagnostics {
+                    attached: native.attached,
+                    visible: native.visible,
+                    target: native.target,
+                })
+                .ok_or_else(|| {
+                    "Native overlay inspection requires the AppKit main thread".to_string()
+                });
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+        receiver.recv().map_err(|error| error.to_string())?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, state);
+        Err("The native tab drag overlay is only available on macOS".into())
+    }
 }
 
 fn create_page_webview(
@@ -2273,15 +2332,98 @@ fn set_tab_dragging(
     app: tauri::AppHandle,
     state: tauri::State<'_, BrowserState>,
     dragging: bool,
+    tab_id: Option<String>,
 ) -> Result<(), String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Tab drag layout is only available to browser windows".into());
     }
+    let owner_window = browser_window_for_ui(webview.label()).to_string();
     *state
         .tab_dragging
         .lock()
-        .map_err(|_| "Browser state is unavailable")? =
-        dragging.then(|| browser_window_for_ui(webview.label()).to_string());
+        .map_err(|_| "Browser state is unavailable")? = dragging.then(|| owner_window.clone());
+    if dragging {
+        *state
+            .tab_drag_source
+            .lock()
+            .map_err(|_| "Browser state is unavailable")? = tab_id;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::NSView;
+        if dragging {
+            let active_id = state
+                .data
+                .lock()
+                .map_err(|_| "Browser state is unavailable")?
+                .iter()
+                .find(|tab| tab.window_label == owner_window && tab.active)
+                .map(|tab| tab.id.clone());
+            if let Some(active_id) = active_id {
+                if let Some(page) = app.get_webview(&page_label(&active_id)) {
+                    let (sender, receiver) = std::sync::mpsc::channel();
+                    page.with_webview(move |platform| {
+                        let attached = MainThreadMarker::new().is_some_and(|mtm| unsafe {
+                            let native = &*(platform.inner() as *mut NSView);
+                            platforms::tab_drag_overlay::show(native, mtm)
+                        });
+                        let _ = sender.send(attached);
+                    })
+                    .map_err(|error| error.to_string())?;
+                    if !receiver.recv().map_err(|error| error.to_string())? {
+                        return Err("Could not attach the native tab drag overlay".into());
+                    }
+                }
+            }
+        } else {
+            let active_id = state
+                .data
+                .lock()
+                .map_err(|_| "Browser state is unavailable")?
+                .iter()
+                .find(|tab| tab.window_label == owner_window && tab.active)
+                .map(|tab| tab.id.clone());
+            let mut completed_target = None;
+            if let Some(active_id) = active_id {
+                if let Some(page) = app.get_webview(&page_label(&active_id)) {
+                    let (sender, receiver) = std::sync::mpsc::channel();
+                    page.with_webview(move |_| {
+                        let target = if MainThreadMarker::new().is_some() {
+                            unsafe { platforms::tab_drag_overlay::hide() }
+                        } else {
+                            None
+                        };
+                        let _ = sender.send(target);
+                    })
+                    .map_err(|error| error.to_string())?;
+                    completed_target = receiver.recv().map_err(|error| error.to_string())?;
+                }
+            }
+            if let Some(target) = completed_target {
+                let source_id = state
+                    .tab_drag_source
+                    .lock()
+                    .map_err(|_| "Browser state is unavailable")?
+                    .clone();
+                if let Some(tab_id) = source_id {
+                    let _ = app.emit_to(
+                        &owner_window,
+                        "browser://tab-drag-drop",
+                        serde_json::json!({
+                            "tabId": tab_id,
+                            "target": target.as_str(),
+                        }),
+                    );
+                }
+            }
+            *state
+                .tab_drag_source
+                .lock()
+                .map_err(|_| "Browser state is unavailable")? = None;
+        }
+    }
     position_tabs(&app, &state)
 }
 
@@ -2565,11 +2707,6 @@ fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), Str
         .lock()
         .map_err(|_| "Browser state is unavailable")?
         .clone();
-    let dragging = state
-        .tab_dragging
-        .lock()
-        .map_err(|_| "Browser state is unavailable")?
-        .clone();
     let settings_open = state
         .settings_open
         .lock()
@@ -2591,7 +2728,6 @@ fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), Str
                 }
             });
             let is_visible = !settings_open.contains(&tab.window_label)
-                && dragging.as_deref() != Some(tab.window_label.as_str())
                 && (split_position.is_some() || tab.active)
                 && !tab.url.is_empty();
             let (position, size) = if let Some((orientation, is_second)) = split_position {
@@ -3156,7 +3292,8 @@ pub fn run() {
         set_settings_open,
         set_view_bounds,
         reopen_closed_tab,
-        desktop_test_inspect_page
+        desktop_test_inspect_page,
+        desktop_test_inspect_tab_drag_overlay
     ]);
     #[cfg(all(not(feature = "macos-session-test"), not(feature = "desktop-test")))]
     let builder = builder.invoke_handler(tauri::generate_handler![

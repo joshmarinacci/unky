@@ -1,0 +1,262 @@
+//! Native AppKit overlay used while dragging a browser tab over a website view.
+
+use block2::{DynBlock, RcBlock};
+use objc2::{define_class, msg_send, rc::Retained, DefinedClass, MainThreadMarker, MainThreadOnly};
+use objc2_app_kit::{
+    NSBezierPath, NSColor, NSDragOperation, NSDraggingDestination, NSDraggingInfo, NSEvent,
+    NSPasteboardTypeString, NSView,
+};
+use objc2_foundation::{NSArray, NSObjectProtocol, NSPoint, NSRect, NSSize, NSTimer};
+use std::cell::{Cell, RefCell};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DropTarget {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    NewWindow,
+}
+
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlayDiagnostics {
+    pub attached: bool,
+    pub visible: bool,
+    pub target: Option<&'static str>,
+}
+
+impl DropTarget {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Top => "top",
+            Self::Bottom => "bottom",
+            Self::NewWindow => "new-window",
+        }
+    }
+}
+
+struct OverlayIvars {
+    target: Cell<Option<DropTarget>>,
+}
+
+impl Default for OverlayIvars {
+    fn default() -> Self {
+        Self {
+            target: Cell::new(Some(DropTarget::Left)),
+        }
+    }
+}
+
+define_class!(
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "MyBrowserTabDragOverlay"]
+    #[ivars = OverlayIvars]
+    struct TabDragOverlay;
+
+    impl TabDragOverlay {
+        #[unsafe(method(isFlipped))]
+        fn is_flipped(&self) -> bool { true }
+
+        #[unsafe(method(drawRect:))]
+        fn draw_rect(&self, _dirty: NSRect) {
+            let Some(target) = self.ivars().target.get() else { return; };
+            let bounds = self.bounds();
+            let (x, y, width, height) = target_rect(target, bounds.size.width, bounds.size.height);
+            let rect = NSRect::new(NSPoint::new(x, y), NSSize::new(width, height));
+            let glow = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, 18.0, 18.0);
+            NSColor::colorWithSRGBRed_green_blue_alpha(0.98, 0.49, 0.22, 0.22).setFill();
+            glow.fill();
+            let halo = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, 18.0, 18.0);
+            halo.setLineWidth(13.0);
+            NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 0.54, 0.24, 0.30).setStroke();
+            halo.stroke();
+            let outline = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, 18.0, 18.0);
+            outline.setLineWidth(3.0);
+            NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 0.62, 0.30, 0.96).setStroke();
+            outline.stroke();
+        }
+    }
+
+    unsafe impl NSObjectProtocol for TabDragOverlay {}
+    unsafe impl NSDraggingDestination for TabDragOverlay {
+        #[unsafe(method(draggingEntered:))]
+        fn dragging_entered(&self, info: &objc2::runtime::ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
+            update_target(self, info);
+            NSDragOperation::Move
+        }
+
+        #[unsafe(method(draggingUpdated:))]
+        fn dragging_updated(&self, info: &objc2::runtime::ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
+            update_target(self, info);
+            NSDragOperation::Move
+        }
+
+        #[unsafe(method(draggingExited:))]
+        fn dragging_exited(&self, _info: Option<&objc2::runtime::ProtocolObject<dyn NSDraggingInfo>>) {
+            self.ivars().target.set(None);
+            self.setNeedsDisplay(true);
+        }
+
+        #[unsafe(method(performDragOperation:))]
+        fn perform_drag_operation(&self, info: &objc2::runtime::ProtocolObject<dyn NSDraggingInfo>) -> bool {
+            update_target(self, info);
+            COMPLETED_TARGET.with(|target| target.set(self.ivars().target.get()));
+            true
+        }
+    }
+);
+
+thread_local! {
+    static OVERLAY: RefCell<Option<Retained<TabDragOverlay>>> = const { RefCell::new(None) };
+    static POINTER_TRACKER: RefCell<Option<Retained<NSTimer>>> = const { RefCell::new(None) };
+    static COMPLETED_TARGET: Cell<Option<DropTarget>> = const { Cell::new(None) };
+}
+
+fn target_rect(target: DropTarget, width: f64, height: f64) -> (f64, f64, f64, f64) {
+    let inset = 12.0;
+    match target {
+        DropTarget::Left => (
+            inset,
+            inset,
+            (width - inset * 2.0) / 2.0,
+            height - inset * 2.0,
+        ),
+        DropTarget::Right => (
+            width / 2.0,
+            inset,
+            (width - inset * 2.0) / 2.0,
+            height - inset * 2.0,
+        ),
+        DropTarget::Top => (
+            inset,
+            inset,
+            width - inset * 2.0,
+            (height - inset * 2.0) / 2.0,
+        ),
+        DropTarget::Bottom => (
+            inset,
+            height / 2.0,
+            width - inset * 2.0,
+            (height - inset * 2.0) / 2.0,
+        ),
+        DropTarget::NewWindow => (width * 0.36, inset, width * 0.28, 48.0),
+    }
+}
+
+fn target_at(point: NSPoint, width: f64, height: f64) -> DropTarget {
+    if point.y < 64.0 && point.x > width * 0.30 && point.x < width * 0.70 {
+        DropTarget::NewWindow
+    } else if point.x < width / 2.0 && point.y < height / 2.0 {
+        DropTarget::Left
+    } else if point.y < height / 2.0 {
+        DropTarget::Right
+    } else if point.x < width / 2.0 {
+        DropTarget::Top
+    } else {
+        DropTarget::Bottom
+    }
+}
+
+fn update_target(view: &TabDragOverlay, info: &objc2::runtime::ProtocolObject<dyn NSDraggingInfo>) {
+    let window_point = info.draggingLocation();
+    let point = view.convertPoint_fromView(window_point, None);
+    let bounds = view.bounds();
+    let target = target_at(point, bounds.size.width, bounds.size.height);
+    view.ivars().target.set(Some(target));
+    view.setNeedsDisplay(true);
+}
+
+fn update_target_from_pointer(view: &TabDragOverlay) {
+    let Some(window) = view.window() else {
+        return;
+    };
+    let screen_point = NSEvent::mouseLocation();
+    let window_point = window.convertPointFromScreen(screen_point);
+    let point = view.convertPoint_fromView(window_point, None);
+    let bounds = view.bounds();
+    let is_inside = point.x >= 0.0
+        && point.y >= 0.0
+        && point.x <= bounds.size.width
+        && point.y <= bounds.size.height;
+    if is_inside {
+        let target = Some(target_at(point, bounds.size.width, bounds.size.height));
+        if view.ivars().target.get() != target {
+            view.ivars().target.set(target);
+            view.setNeedsDisplay(true);
+        }
+    }
+}
+
+fn start_pointer_tracker(overlay: &Retained<TabDragOverlay>) {
+    let overlay_address = Retained::as_ptr(overlay) as usize;
+    let block = RcBlock::new(move |_timer: std::ptr::NonNull<NSTimer>| {
+        // The overlay remains retained in OVERLAY until hide() invalidates this timer.
+        let view = unsafe { &*(overlay_address as *const TabDragOverlay) };
+        update_target_from_pointer(view);
+    });
+    let block: &DynBlock<dyn Fn(std::ptr::NonNull<NSTimer>)> = &block;
+    let timer =
+        unsafe { NSTimer::scheduledTimerWithTimeInterval_repeats_block(0.025, true, block) };
+    POINTER_TRACKER.with(|slot| *slot.borrow_mut() = Some(timer));
+}
+
+/// Display and register an overlay over the native website view.
+pub unsafe fn show(view: &NSView, mtm: MainThreadMarker) -> bool {
+    COMPLETED_TARGET.with(|target| target.set(None));
+    let Some(parent) = view.superview() else {
+        return false;
+    };
+    let frame = view.frame();
+    let target = TabDragOverlay::alloc(mtm).set_ivars(OverlayIvars::default());
+    let overlay: Retained<TabDragOverlay> = msg_send![super(target), initWithFrame: frame];
+    overlay.setAutoresizingMask(view.autoresizingMask());
+    overlay.registerForDraggedTypes(&NSArray::from_slice(&[NSPasteboardTypeString]));
+    parent.addSubview(&overlay);
+    overlay.setNeedsDisplay(true);
+    OVERLAY.with(|slot| *slot.borrow_mut() = Some(overlay.clone()));
+    start_pointer_tracker(&overlay);
+    true
+}
+
+/// Remove the overlay and return the target selected by the completed drag.
+pub unsafe fn hide() -> Option<DropTarget> {
+    POINTER_TRACKER.with(|slot| {
+        if let Some(timer) = slot.borrow_mut().take() {
+            timer.invalidate();
+        }
+    });
+    let completed = COMPLETED_TARGET.with(|target| target.replace(None));
+    let mut current = None;
+    OVERLAY.with(|slot| {
+        if let Some(overlay) = slot.borrow_mut().take() {
+            current = overlay.ivars().target.get();
+            overlay.removeFromSuperview();
+        }
+    });
+    completed.or(current)
+}
+
+/// Return native overlay state for the debug desktop regression test.
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+pub unsafe fn diagnostics() -> OverlayDiagnostics {
+    OVERLAY.with(|slot| {
+        let overlay = slot.borrow();
+        let Some(overlay) = overlay.as_ref() else {
+            return OverlayDiagnostics {
+                attached: false,
+                visible: false,
+                target: None,
+            };
+        };
+        OverlayDiagnostics {
+            attached: overlay.superview().is_some(),
+            visible: !overlay.isHiddenOrHasHiddenAncestor(),
+            target: overlay.ivars().target.get().map(DropTarget::as_str),
+        }
+    })
+}

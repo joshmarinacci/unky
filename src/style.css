@@ -185,12 +185,6 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .download-reveal:hover:not(:disabled) { color: var(--text); background: var(--surface-raised); }
 .download-reveal:disabled { color: var(--subtle); cursor: default; opacity: .55; }
 .webview-slot { position: absolute; z-index: 1; top: 64px; right: 0; bottom: 0; left: 0; overflow: hidden; background: var(--canvas); }
-.tab-layout-drop-overlay { position: absolute; z-index: 8; inset: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 10px; padding: 76px 14px 14px; background: color-mix(in srgb, var(--canvas) 93%, transparent); }
-.split-drop-zone { display: flex; min-width: 0; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 2px dashed var(--border); border-radius: 14px; color: var(--muted); background: var(--surface); text-align: center; }
-.split-drop-zone strong { color: var(--text); font-size: 15px; }
-.split-drop-zone span { max-width: 230px; font-size: 12px; }
-.split-drop-zone:hover, .split-drop-zone:focus-within, .split-drop-zone[data-drop-target] { border-color: Highlight; background: var(--surface-raised); }
-.new-window-drop-zone { position: absolute; top: 16px; left: 50%; display: flex; min-width: 150px; align-items: center; justify-content: center; gap: 8px; padding: 11px 16px; transform: translateX(-50%); border: 1px solid var(--border); border-radius: 9px; color: var(--text); background: var(--surface-raised); box-shadow: 0 6px 22px #0004; }
 .start-page { display: flex; width: min(540px, calc(100% - 48px)); flex-direction: column; align-items: center; margin: max(82px, 14vh) auto 40px; text-align: center; }
 .settings-page { height: 100%; overflow: auto; padding: 34px clamp(24px, 8vw, 100px); background: var(--canvas); }
 .history-page { height: 100%; overflow: auto; padding: 34px clamp(24px, 8vw, 100px); background: var(--canvas); }

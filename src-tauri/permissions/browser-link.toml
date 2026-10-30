@@ -19,6 +19,11 @@ description = "Allows the debug-only WebDriver host to inspect a website child W
 commands.allow = ["desktop_test_inspect_page"]
 
 [[permission]]
+identifier = "allow-desktop-test-inspect-tab-drag-overlay"
+description = "Allows the debug-only WebDriver host to inspect the native tab drag overlay."
+commands.allow = ["desktop_test_inspect_tab_drag_overlay"]
+
+[[permission]]
 identifier = "allow-main-browser-commands"
 description = "Enables browser commands for the trusted local browser interface."
 commands.allow = [

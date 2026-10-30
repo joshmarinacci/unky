@@ -6,6 +6,7 @@
   "permissions": [
     "allow-main-browser-commands",
     "allow-desktop-test-inspect-page",
+    "allow-desktop-test-inspect-tab-drag-overlay",
     "wdio:default",
     "wdio-webdriver:default"
   ]

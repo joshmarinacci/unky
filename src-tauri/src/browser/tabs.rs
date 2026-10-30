@@ -69,6 +69,7 @@ pub struct BrowserState {
     pub window_bounds: Arc<Mutex<std::collections::HashMap<String, ViewBounds>>>,
     pub split_tabs: Arc<Mutex<Option<SplitLayout>>>,
     pub tab_dragging: Arc<Mutex<Option<String>>>,
+    pub tab_drag_source: Arc<Mutex<Option<String>>>,
     pub recently_closed: Arc<Mutex<Vec<SessionTab>>>,
     pub session_file: Arc<Mutex<Option<PathBuf>>>,
     pub history: Arc<Mutex<Vec<HistoryEntry>>>,
