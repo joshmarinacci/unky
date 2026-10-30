@@ -38,6 +38,8 @@ type LaunchRequest = { url: string; private: boolean };
 type SessionTestPhase = 'exercise' | 'restore';
 const tabEvent = 'browser://tabs-changed';
 const settingsEvent = 'browser://open-settings';
+const showHistoryEvent = 'browser://show-history';
+const showDownloadsEvent = 'browser://show-downloads';
 const shortcutEvent = 'browser://shortcut';
 const historyEvent = 'browser://history-changed';
 const downloadsEvent = 'browser://downloads-changed';
@@ -105,6 +107,13 @@ function initialTabNameOverrides(): Record<string, string> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
     return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
   } catch { return {}; }
+}
+
+function initialHistoryTabIds(): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem('browser.historyTabs') ?? '[]');
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+  } catch { return []; }
 }
 
 function reconcileTabNodes(nodes: TabNode[], tabs: Tab[]): TabNode[] {
@@ -388,10 +397,13 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialSidebarCollapsed);
   const [resizingSidebar, setResizingSidebar] = useState(false);
-  const [sidebarView, setSidebarView] = useState<'tabs' | 'bookmarks' | 'history' | 'downloads'>('tabs');
+  const [sidebarView, setSidebarView] = useState<'tabs' | 'bookmarks'>('tabs');
   const [bookmarks, setBookmarks] = useState<BookmarkNode[]>(initialBookmarks);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyTabIds, setHistoryTabIds] = useState<string[]>(initialHistoryTabIds);
   const [downloads, setDownloads] = useState<Download[]>([]);
+  const [downloadsPopoverOpen, setDownloadsPopoverOpen] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [findMatches, setFindMatches] = useState<number | null>(null);
@@ -425,6 +437,7 @@ export default function App() {
     try { return activeTab?.url ? new URL(activeTab.url).hostname : ''; }
     catch { return ''; }
   })();
+  const historyPageOpen = historyTabIds.includes(activeTabId);
   const tabContextMenuWidth = Math.min(200, sidebarWidth - 16);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
   useEffect(() => () => { void externalBrowserMenuRef.current?.close(); }, []);
@@ -530,6 +543,10 @@ export default function App() {
   }, [tabNameOverrides]);
 
   useEffect(() => {
+    localStorage.setItem('browser.historyTabs', JSON.stringify(historyTabIds));
+  }, [historyTabIds]);
+
+  useEffect(() => {
     if (!tabsLoaded) return;
     const reconciled = reconcileTabNodes(tabNodesRef.current, tabs);
     if (JSON.stringify(reconciled) !== JSON.stringify(tabNodesRef.current)) {
@@ -538,7 +555,14 @@ export default function App() {
     }
     const openIds = new Set(tabs.map(tab => tab.id));
     setTabNameOverrides(names => Object.fromEntries(Object.entries(names).filter(([id]) => openIds.has(id))));
+    setHistoryTabIds(ids => ids.filter(id => openIds.has(id)));
   }, [tabs, tabsLoaded]);
+
+  useEffect(() => {
+    if (!isTauri || !tabsLoaded) return;
+    void invoke('set_settings_open', { open: settingsOpen || historyPageOpen })
+      .catch(error => setMessage(String(error)));
+  }, [isTauri, tabsLoaded, settingsOpen, historyPageOpen]);
 
   useEffect(() => {
     for (const tab of tabs) {
@@ -619,6 +643,8 @@ export default function App() {
       if (!available) return;
       unlisten = await listen<BrowserSnapshot>(tabEvent, event => applySnapshot(event.payload));
       const unlistenSettings = await listen(settingsEvent, () => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); });
+      const unlistenShowHistory = await listen(showHistoryEvent, () => { void openHistoryPage(); });
+      const unlistenShowDownloads = await listen(showDownloadsEvent, () => setDownloadsPopoverOpen(true));
       const unlistenHistory = await listen<HistoryEntry[]>(historyEvent, event => setHistory(event.payload));
       const unlistenDownloads = await listen<Download[]>(downloadsEvent, event => setDownloads(event.payload));
       const unlistenLaunchRequest = await listen<LaunchRequest>(launchRequestEvent, event => { void openLaunchRequest(event.payload); });
@@ -657,14 +683,34 @@ export default function App() {
       }
       catch (error) { setMessage(String(error)); }
       if (!cancelled) void runSessionIntegrationTest();
-      if (cancelled) { unlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenFilterProgress(); unlistenLaunchRequest(); }
+      if (cancelled) { unlisten(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenFilterProgress(); unlistenLaunchRequest(); }
       else {
         const originalUnlisten = unlisten;
-        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenFilterProgress(); unlistenLaunchRequest(); };
+        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenFilterProgress(); unlistenLaunchRequest(); };
       }
     })();
     return () => { cancelled = true; unlisten?.(); };
   }, [applySnapshot]);
+
+  useEffect(() => {
+    if (!downloadsPopoverOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (document.querySelector('.downloads-trigger')?.contains(target)) return;
+      if (document.querySelector('.downloads-popover')?.contains(target)) return;
+      setDownloadsPopoverOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDownloadsPopoverOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [downloadsPopoverOpen]);
 
   async function runSessionIntegrationTest() {
     if (sessionTestStarted.current) return;
@@ -784,7 +830,17 @@ export default function App() {
     const view = viewRef.current;
     const updateBounds = () => {
       const rect = view.getBoundingClientRect();
-      void invoke('set_view_bounds', { x: rect.left, y: rect.top, width: rect.width, height: rect.height })
+      // Website tabs are native sibling WebViews above this shell WebView, so
+      // CSS z-index cannot put the toolbar popover above them. Reserve its
+      // right-side footprint until it closes, leaving the shell visible there.
+      const popoverWidth = Math.min(360, Math.max(0, window.innerWidth - 24));
+      const reservedWidth = downloadsPopoverOpen ? popoverWidth + 20 : 0;
+      void invoke('set_view_bounds', {
+        x: rect.left,
+        y: rect.top,
+        width: Math.max(1, rect.width - reservedWidth),
+        height: rect.height,
+      })
         .catch(error => setMessage(String(error)));
     };
     const observer = new ResizeObserver(updateBounds);
@@ -792,7 +848,7 @@ export default function App() {
     updateBounds();
     window.addEventListener('resize', updateBounds);
     return () => { observer.disconnect(); window.removeEventListener('resize', updateBounds); };
-  }, [isTauri]);
+  }, [isTauri, downloadsPopoverOpen]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -824,7 +880,40 @@ export default function App() {
       try { const snapshot = await invoke<BrowserSnapshot>('create_tab'); applySnapshot(snapshot); await invoke('navigate', { tabId: snapshot.activeTabId, url }); }
       catch (error) { setMessage(String(error)); }
     } else void navigateTo(url);
-    setSidebarView('tabs');
+  }
+
+  async function openHistoryPage() {
+    setSettingsOpen(false);
+    const existingHistoryTabId = [...historyTabIds].reverse().find(id => tabs.some(tab => tab.id === id));
+    if (existingHistoryTabId) {
+      await selectTab(existingHistoryTabId);
+    } else {
+      try {
+        await invoke('set_settings_open', { open: true });
+        const snapshot = await invoke<BrowserSnapshot>('create_tab');
+        applySnapshot(snapshot);
+        setHistoryTabIds(ids => [...ids, snapshot.activeTabId]);
+        setTabNameOverrides(names => ({ ...names, [snapshot.activeTabId]: 'history' }));
+      } catch (error) {
+        setMessage(String(error));
+        void invoke('set_settings_open', { open: false }).catch(() => {});
+        return;
+      }
+    }
+    try { setHistory(await invoke<HistoryEntry[]>('get_history')); }
+    catch (error) { setMessage(String(error)); }
+  }
+
+  async function leaveHistoryTab(tabId: string) {
+    if (!historyTabIds.includes(tabId)) return;
+    setHistoryTabIds(ids => ids.filter(id => id !== tabId));
+    setTabNameOverrides(names => {
+      const next = { ...names };
+      delete next[tabId];
+      return next;
+    });
+    try { await invoke('set_settings_open', { open: settingsOpen }); }
+    catch (error) { setMessage(String(error)); }
   }
 
   async function createTab(privateMode = false) {
@@ -926,6 +1015,7 @@ export default function App() {
     event.preventDefault();
     if (!activeTabId) return;
     try {
+      await leaveHistoryTab(activeTabId);
       setMessage('');
       await invoke('navigate', { tabId: activeTabId, url: address });
       addressRef.current?.blur();
@@ -935,7 +1025,7 @@ export default function App() {
   async function navigateTo(url: string) {
     setAddress(url);
     if (!activeTabId) return;
-    try { setMessage(''); await invoke('navigate', { tabId: activeTabId, url }); }
+    try { await leaveHistoryTab(activeTabId); setMessage(''); await invoke('navigate', { tabId: activeTabId, url }); }
     catch (error) { setMessage(String(error)); }
   }
 
@@ -1222,7 +1312,7 @@ export default function App() {
 
   function closeSettings() {
     setSettingsOpen(false);
-    void invoke('set_settings_open', { open: false }).catch(error => setMessage(String(error)));
+    void invoke('set_settings_open', { open: historyPageOpen }).catch(error => setMessage(String(error)));
   }
 
   return (
@@ -1238,8 +1328,6 @@ export default function App() {
           <TabList className="sidebar-switcher" aria-label="Sidebar views">
             <Tab id="tabs">Tabs</Tab>
             <Tab id="bookmarks">Bookmarks</Tab>
-            <Tab id="history">History</Tab>
-            <Tab id="downloads">Downloads</Tab>
           </TabList>
           <TabPanels className="sidebar-panels">
           <TabPanel id={sidebarView} className="sidebar-panel">
@@ -1282,23 +1370,7 @@ export default function App() {
           >
             {renderBookmarkNodes(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()))}
           </Tree>
-        </div> : sidebarView === 'history' ? <div className="bookmark-manager">
-          <div className="bookmark-list" aria-label="Browsing history">
-            {history.map((item, index) => <div className="bookmark-row" key={`${item.url}-${item.visitedAt}-${index}`}>
-              <AppButton className="bookmark-open" onClick={() => void openHistoryEntry(item.url)}><span className="bookmark-icon"><Clock3 className="ui-icon" size={14} aria-hidden="true" /></span><span><strong>{item.title || item.url}</strong><small>{item.url}</small></span></AppButton>
-            </div>)}
-            {history.length === 0 && <p className="bookmark-empty">Pages you visit will appear here.</p>}
-          </div>
-        </div> : <div className="bookmark-manager">
-          <div className="bookmark-list" aria-label="Downloads">
-            {downloads.map(item => <div className="bookmark-row download-row" key={item.id}>
-              <div className="bookmark-open"><span className="bookmark-icon"><Download className="ui-icon" size={14} aria-hidden="true" /></span><span><strong>{item.filename}</strong><small>{item.status === 'completed' ? 'Complete' : item.status === 'failed' ? 'Failed' : `Downloading · ${item.bytesReceived.toLocaleString()} bytes`}</small>
-                {item.status === 'downloading' && <progress className="download-progress" max={1} />}</span></div>
-              <AppButton className="bookmark-edit" disabled={item.status !== 'completed'} aria-label={`Reveal ${item.filename}`} onClick={() => void invoke('reveal_download', { downloadId: item.id }).catch(error => setMessage(String(error)))}><ExternalLink className="ui-icon" size={14} aria-hidden="true" /></AppButton>
-            </div>)}
-            {downloads.length === 0 && <p className="bookmark-empty">Downloaded files will appear here.</p>}
-          </div>
-        </div>}
+        </div> : null}
           </TabPanel>
           </TabPanels>
         </Tabs>
@@ -1388,6 +1460,17 @@ export default function App() {
           }}><Shield className="ui-icon" size={17} aria-hidden="true" /></AppButton>
           {splitLayout && <AppButton className="toolbar-action" title="Close split view" aria-label="Close split view" onClick={() => void closeSplitView()}><Columns2 className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
           <AppButton className="toolbar-action" title="Settings" aria-label="Settings" onClick={() => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); }}><Settings className="ui-icon" size={17} aria-hidden="true" /></AppButton>
+          <AppButton className="toolbar-action downloads-trigger" title="Recent downloads" aria-label={`Recent downloads${downloads.length ? `, ${downloads.length} items` : ''}`} aria-haspopup="dialog" aria-expanded={downloadsPopoverOpen} aria-controls="downloads-popover" onClick={() => setDownloadsPopoverOpen(open => !open)}><Download className="ui-icon" size={17} aria-hidden="true" />{downloads.length > 0 && <span className="download-count" aria-hidden="true">{downloads.length > 99 ? '99+' : downloads.length}</span>}</AppButton>
+          {downloadsPopoverOpen && <section id="downloads-popover" className="downloads-popover" role="dialog" aria-label="Recent downloads">
+                <header className="downloads-popover-heading"><div><h2>{downloads.length === 0 ? 'recent download history' : 'Downloads'}</h2>{downloads.length > 0 && <span>{downloads.length} {downloads.length === 1 ? 'item' : 'items'}</span>}</div></header>
+                <ul className="downloads-popover-list">
+                  {downloads.slice(0, 8).map(item => <li className="downloads-popover-row" key={item.id}>
+                    <span className="downloads-popover-icon" aria-hidden="true"><Download className="ui-icon" size={16} /></span>
+                    <div className="downloads-popover-copy"><strong title={item.filename}>{item.filename}</strong><small className={`download-status-${item.status}`}>{item.status === 'completed' ? 'Complete' : item.status === 'failed' ? 'Failed' : `Downloading · ${item.bytesReceived.toLocaleString()} bytes`}</small>{item.status === 'downloading' && <progress className="download-progress" aria-label={`Downloading ${item.filename}`} />}</div>
+                    <AppButton className="download-reveal" disabled={item.status !== 'completed'} aria-label={`Reveal ${item.filename}`} title="Show in Finder" onClick={() => void invoke('reveal_download', { downloadId: item.id }).catch(error => setMessage(String(error)))}><ExternalLink className="ui-icon" size={14} aria-hidden="true" /></AppButton>
+                  </li>)}
+                </ul>
+          </section>}
         </header>
 
         <div className="webview-slot" ref={viewRef}>
@@ -1421,6 +1504,20 @@ export default function App() {
               {message && <p className="message" role="status">{message}</p>}
               <h2>About</h2>
               <div className="settings-card"><div><strong>My Browser</strong><small>macOS development build</small></div><span>0.1.0</span></div>
+            </div>
+          </section> : historyPageOpen ? <section className="history-page" aria-label="Browsing history">
+            <header className="settings-heading"><div><p className="eyebrow">MY BROWSER</p><h1>History</h1></div><AppButton className="settings-close" onClick={() => void closeTab(activeTabId)} aria-label="Close history tab"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>
+            <div className="history-content">
+              <label className="history-search"><Search className="ui-icon" size={16} aria-hidden="true" /><AppInput aria-label="Search history" placeholder="Search history" value={historySearch} onChange={event => setHistorySearch(event.target.value)} /></label>
+              <div className="history-list" aria-label="History entries">
+                {history.filter(item => `${item.title} ${item.url}`.toLowerCase().includes(historySearch.trim().toLowerCase())).map((item, index) => <div className="history-entry" key={`${item.url}-${item.visitedAt}-${index}`}>
+                  <span className="history-entry-icon" aria-hidden="true"><Clock3 className="ui-icon" size={15} /></span>
+                  <AppButton className="history-entry-open" onClick={() => void openHistoryEntry(item.url)}><strong>{item.title || item.url}</strong><small>{item.url}</small></AppButton>
+                  <time dateTime={new Date(item.visitedAt * 1000).toISOString()}>{new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(item.visitedAt * 1000)}</time>
+                </div>)}
+                {history.length === 0 && <p className="history-empty">Pages you visit will appear here.</p>}
+                {history.length > 0 && !history.some(item => `${item.title} ${item.url}`.toLowerCase().includes(historySearch.trim().toLowerCase())) && <p className="history-empty">No matching pages.</p>}
+              </div>
             </div>
           </section> : (!activeTab?.url || !isTauri) && <div className="start-page">
             <div className="start-orb"><Sparkles className="ui-icon" size={28} aria-hidden="true" /></div>

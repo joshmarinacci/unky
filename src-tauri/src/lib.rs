@@ -20,6 +20,8 @@ mod platforms;
 const TAB_EVENT: &str = "browser://tabs-changed";
 const SPLIT_EVENT: &str = "browser://split-changed";
 const OPEN_SETTINGS_EVENT: &str = "browser://open-settings";
+const SHOW_HISTORY_EVENT: &str = "browser://show-history";
+const SHOW_DOWNLOADS_EVENT: &str = "browser://show-downloads";
 const SHORTCUT_EVENT: &str = "browser://shortcut";
 const HISTORY_EVENT: &str = "browser://history-changed";
 const DOWNLOADS_EVENT: &str = "browser://downloads-changed";
@@ -2923,6 +2925,10 @@ pub fn run() {
                 MenuItemBuilder::with_id("shortcut-focus-address", "Focus Address Bar")
                     .accelerator("CmdOrCtrl+L")
                     .build(app)?;
+            let show_history =
+                MenuItemBuilder::with_id("show-history", "Show History").build(app)?;
+            let show_downloads =
+                MenuItemBuilder::with_id("show-downloads", "Show Downloads").build(app)?;
             let find = MenuItemBuilder::with_id("shortcut-find", "Find in Page")
                 .accelerator("CmdOrCtrl+F")
                 .build(app)?;
@@ -2944,6 +2950,9 @@ pub fn run() {
                 })
                 .build(app)?;
             let view_menu = SubmenuBuilder::new(app, "View")
+                .item(&show_history)
+                .item(&show_downloads)
+                .separator()
                 .item(&focus_address)
                 .item(&find)
                 .item(&reload)
@@ -3197,6 +3206,12 @@ pub fn run() {
             };
             if event.id().as_ref() == "open-settings" {
                 let _ = app.emit_to(&window_label, OPEN_SETTINGS_EVENT, ());
+            }
+            if event.id().as_ref() == "show-history" {
+                let _ = app.emit_to(&window_label, SHOW_HISTORY_EVENT, ());
+            }
+            if event.id().as_ref() == "show-downloads" {
+                let _ = app.emit_to(&window_label, SHOW_DOWNLOADS_EVENT, ());
             }
             let id = event.id().as_ref();
             if id.starts_with("shortcut-") {

@@ -61,6 +61,8 @@ The macOS development app has a native menu bar and a React browser interface. I
 
 The browser chrome uses React Aria Components for accessible controls and interactions, including buttons, text fields, sidebar tabs, tab and bookmark trees, and the appearance selector. Lucide React provides the interface icons. React Aria does not ship a visual theme, so layout and state styling live in `src/style.css`; interactive components use React Aria's state attributes for selection, focus, and drag targets.
 
+Open recent downloads from the toolbar button at the right end of the navigation bar or choose **View → Show Downloads**. The popover shows up to eight newest items, updates download progress, and lets you reveal completed files in Finder. With no downloads, it shows “recent download history” above an empty list. Because website pages use separate native WebViews, opening the popover temporarily reserves its right-hand width from the page view; the page reflows until the popover closes. Tabs and Bookmarks are the only sidebar views.
+
 The desktop layout follows the adjacent React Aria mockup's two-column structure: a resizable sidebar sits beside the browser pane, whose navigation and address toolbar sits above the website view. The sidebar defaults to 240 px and can be resized from 176 to 360 px or collapsed to its icon rail. The interface uses warm neutral surfaces and amber selection accents in both light and dark themes. A previously saved sidebar width takes precedence over the default.
 
 ### Tabs and folders
@@ -72,6 +74,8 @@ The find panel opens with `⌘F`, moves keyboard focus to its search field, and 
 The toolbar security button opens a macOS native popover for the active page. It reports whether the page is in a validated HTTPS secure context, the page's Location, Camera, and Microphone permission states, and whether an audio or video element is playing. The permission states come from the page's Permissions API; WebKit may report a permission as unavailable when it does not expose that permission type. The popover is anchored to the toolbar button and refreshes while it remains open.
 
 The appearance setting supports System, Light, and Dark. Website zoom is controlled from the View menu and applies to the active tab (50% to 300%, in 10% steps).
+
+Choose **View → Show History** to create or activate a browser tab titled `history`. Search by page title or URL, then select an entry to navigate that tab to the page. Private pages are not recorded in history.
 
 ### Open the current page in another browser
 
