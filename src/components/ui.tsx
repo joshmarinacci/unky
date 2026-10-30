@@ -14,10 +14,10 @@ type AppButtonProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'onCli
 };
 
 export const AppButton = forwardRef<HTMLButtonElement, AppButtonProps>(function AppButton(
-  { onClick, disabled, ...props },
+  { onClick, disabled, className, ...props },
   ref,
 ) {
-  return <AriaButton {...(props as AriaButtonProps)} ref={ref} isDisabled={disabled} onPress={onClick} />;
+  return <AriaButton {...(props as AriaButtonProps)} ref={ref} className={`button-base ${className ?? ''}`} data-variant="quiet" isDisabled={disabled} onPress={onClick} />;
 });
 
 type AppInputProps = React.InputHTMLAttributes<HTMLInputElement>;

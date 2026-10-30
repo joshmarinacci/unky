@@ -1482,7 +1482,7 @@ export default function App() {
               <h2>Appearance</h2>
               <div className="settings-card"><div><strong>Color scheme</strong><small>Choose the browser interface appearance.</small></div>
                 <Select aria-label="Color scheme" selectedKey={theme} onSelectionChange={key => setTheme(key as Theme)} className="theme-select">
-                  <AriaButton className="theme-select-trigger"><SelectValue /></AriaButton>
+                  <AriaButton className="button-base theme-select-trigger" data-variant="secondary"><SelectValue /></AriaButton>
                   <Popover className="theme-select-popover"><ListBox>
                     <ListBoxItem id="system">System</ListBoxItem>
                     <ListBoxItem id="light">Light</ListBoxItem>

@@ -6,33 +6,33 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --canvas: hsl(40 12% 11%);
-  --sidebar: hsl(40 13% 14%);
-  --surface: hsl(40 12% 17%);
-  --surface-raised: hsl(40 12% 21%);
-  --surface-hover: hsl(40 12% 25%);
-  --border: hsl(40 10% 29%);
-  --text: hsl(40 18% 92%);
-  --muted: hsl(40 8% 69%);
-  --subtle: hsl(40 6% 54%);
-  --accent: hsl(40 80% 48%);
-  --accent-contrast: hsl(40 80% 10%);
+  --canvas: var(--background-color);
+  --sidebar: var(--gray-100);
+  --surface: var(--gray-50);
+  --surface-raised: var(--gray-200);
+  --surface-hover: var(--highlight-hover);
+  --border: var(--gray-400);
+  --text: var(--text-color);
+  --muted: var(--gray-1000);
+  --subtle: var(--gray-800);
+  --accent: var(--tint-1000);
+  --accent-contrast: var(--highlight-foreground);
   --sidebar-border: var(--border);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --canvas: hsl(40 22% 97%);
-  --sidebar: hsl(40 20% 94%);
-  --surface: hsl(40 18% 99%);
-  --surface-raised: hsl(40 20% 91%);
-  --surface-hover: hsl(40 18% 87%);
-  --border: hsl(40 12% 81%);
-  --text: hsl(40 14% 17%);
-  --muted: hsl(40 7% 39%);
-  --subtle: hsl(40 5% 51%);
-  --accent: hsl(40 78% 39%);
-  --accent-contrast: hsl(40 80% 98%);
+  --canvas: var(--background-color);
+  --sidebar: var(--gray-100);
+  --surface: var(--gray-50);
+  --surface-raised: var(--gray-200);
+  --surface-hover: var(--highlight-hover);
+  --border: var(--gray-400);
+  --text: var(--text-color);
+  --muted: var(--gray-1000);
+  --subtle: var(--gray-800);
+  --accent: var(--tint-1000);
+  --accent-contrast: var(--highlight-foreground);
 }
 
 * { box-sizing: border-box; }
@@ -68,7 +68,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 .sidebar-switcher [role="tab"][data-focus-visible] { outline: 2px solid Highlight; outline-offset: 1px; }
 
 .tab-list, .bookmark-list { display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1; flex-direction: column; gap: 3px; overflow: auto; }
-.tab-tree.react-aria-Tree, .bookmark-tree.react-aria-Tree { outline: none; }
+.tab-tree.react-aria-Tree, .bookmark-tree.react-aria-Tree { width: 100%; max-height: none; outline: none; }
 .react-aria-TreeItem { min-width: 0; outline: none; }
 .react-aria-TreeItemContent { position: relative; min-width: 0; }
 .react-aria-TreeItem[data-focus-visible] > .react-aria-TreeItemContent { outline: 2px solid Highlight; outline-offset: -2px; border-radius: 7px; }
