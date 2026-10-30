@@ -124,6 +124,12 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .folder-action { width: 19px; flex-basis: 19px; }
 .folder-title-input { padding: 4px; font-size: 10px; }
 .bookmark-tree-row { position: relative; border: 1px solid transparent; }
+.bookmark-dnd-list { outline: none; }
+.bookmark-sortable-item { min-width: 0; touch-action: none; }
+.bookmark-dnd-folder, .bookmark-dnd-link { cursor: grab; }
+.bookmark-dnd-folder:active, .bookmark-dnd-link:active { cursor: grabbing; }
+.bookmark-dnd-folder .folder-toggle, .bookmark-dnd-item button { touch-action: manipulation; }
+.bookmark-dnd-list.is-dragging .bookmark-sortable-item { user-select: none; }
 .bookmark-row { display: flex; min-width: 0; align-items: center; border-radius: 6px; }
 .bookmark-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; padding: 8px 4px; overflow: hidden; color: var(--text); text-align: left; }
 .bookmark-open > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
@@ -237,6 +243,48 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .message { color: #b45050; }
 .toast { position: absolute; right: 18px; bottom: 15px; max-width: 60%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); font-size: 11px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Standalone dnd-kit nested tree experiment */
+.tree-demo { min-height: 100vh; color: #252925; background: #f5f6f3; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.demo-topbar { display: flex; height: 58px; align-items: center; justify-content: space-between; padding: 0 38px; border-bottom: 1px solid #e7e9e4; background: #fbfcfa; }
+.demo-brand { display: flex; align-items: center; gap: 9px; color: #344238; font-size: 12px; font-weight: 650; text-decoration: none; }
+.demo-brand-mark { color: #729678; font-size: 18px; }
+.demo-slash { color: #b9beb8; font-weight: 400; }
+.demo-pill { padding: 6px 10px; border: 1px solid #e6e9e3; border-radius: 99px; color: #778078; background: white; font-size: 10px; }
+.demo-content { width: min(760px, calc(100% - 40px)); margin: 74px auto; }
+.demo-heading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 25px; }
+.demo-eyebrow { margin: 0 0 13px; color: #8e9b8f; font-size: 9px; font-weight: 700; letter-spacing: 1.5px; }
+.demo-eyebrow span { margin-left: 5px; color: #b5beb5; }
+.demo-heading h1 { margin: 0; color: #28372d; font-size: 34px; font-weight: 550; letter-spacing: -1.5px; }
+.demo-subtitle { margin: 9px 0 0; color: #89918a; font-size: 12px; }
+.reset-tree { display: flex; height: 32px; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid #e4e8e2; border-radius: 6px; color: #727d73; background: #fff; font-size: 10px; cursor: pointer; }
+.reset-tree:hover { color: #435e48; border-color: #bdcbbc; }
+.tree-card { overflow: hidden; border: 1px solid #e4e8e1; border-radius: 10px; background: #fff; box-shadow: 0 9px 30px #3144310a; }
+.tree-card-head { display: flex; height: 58px; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid #edf0eb; }
+.tree-card-head > div { display: flex; align-items: center; gap: 12px; }
+.tree-card-head strong { color: #3e4b40; font-size: 11px; font-weight: 600; }
+.tree-card-head span { display: flex; align-items: center; gap: 7px; color: #a0a79f; font-size: 9px; }
+.tree-card-head i { width: 3px; height: 3px; border-radius: 50%; background: #c3c9c1; }
+.tree-menu-dots { color: #9ba49b; font-size: 19px !important; letter-spacing: 1px; }
+.tree-guide { display: flex; height: 31px; align-items: center; justify-content: space-between; padding: 0 58px 0 20px; border-bottom: 1px solid #f0f2ef; color: #aab1a9; font-size: 8px; letter-spacing: 1.1px; }
+.tree-list { min-height: 235px; padding: 9px 10px 12px; }
+.tree-row { display: flex; height: 35px; align-items: center; gap: 8px; padding-right: 13px; border: 1px solid transparent; border-radius: 5px; color: #566157; font-size: 11px; cursor: grab; touch-action: none; }
+.tree-row:active { cursor: grabbing; }
+.tree-row:hover { background: #f8faf7; }
+.tree-row.is-over { border-color: #9fbea1; background: #f0f7ef; }
+.tree-chevron { display: grid; width: 16px; height: 22px; flex: 0 0 16px; place-items: center; padding: 0; border: 0; color: #9ba59a; background: transparent; cursor: pointer; }
+.chevron-spacer { width: 12px; }
+.tree-node-icon { display: grid; width: 18px; place-items: center; color: #91a08f; }
+.tree-node-icon.file { color: #aab3aa; }
+.tree-node-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-grip { display: grid; width: 20px; height: 26px; place-items: center; color: #c3cbc2; opacity: 0; }
+.tree-row:hover .tree-grip, .tree-list.is-dragging .tree-grip { opacity: 1; }
+.tree-children { margin-left: 20px; border-left: 1px solid #edf0ec; }
+.empty-folder { height: 30px; display: flex; align-items: center; color: #a6afa6; font-size: 9px; font-style: italic; }
+.tree-card-foot { display: flex; height: 40px; align-items: center; justify-content: space-between; padding: 0 20px; border-top: 1px solid #edf0eb; color: #9ba49b; font-size: 9px; }
+.tree-card-foot span:first-child { display: flex; align-items: center; gap: 5px; }
+.demo-note { margin: 13px 2px; color: #9aa29a; font-size: 10px; line-height: 1.6; }
+@media (max-width: 600px) { .demo-topbar { padding: 0 18px; } .demo-content { margin: 45px auto; } .demo-heading h1 { font-size: 29px; } .tree-guide { padding-right: 40px; } }
 
 @media (max-width: 900px) {
   .sidebar { width: 196px; flex-basis: 196px; }

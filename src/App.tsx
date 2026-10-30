@@ -6,6 +6,12 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Menu } from '@tauri-apps/api/menu';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
+import SortableTreeDemo from './SortableTreeDemo';
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { flattenBookmarkNodes, locateBookmark, moveBookmarkToDepth, resolveBookmarkDropDepth } from './bookmarkTree';
+import type { BookmarkFolder, BookmarkLink, BookmarkNode } from './bookmarkTree';
 
 type Tab = {
   id: string;
@@ -26,9 +32,6 @@ type PageSecurityInfo = { secureHttps: boolean; location: string; camera: string
 type TabReference = { id: string; type: 'tab' };
 type TabFolder = { id: string; type: 'folder'; title: string; collapsed: boolean; children: TabNode[] };
 type TabNode = TabReference | TabFolder;
-type BookmarkLink = { id: string; type: 'bookmark'; title: string; url: string };
-type BookmarkFolder = { id: string; type: 'folder'; title: string; children: BookmarkNode[] };
-type BookmarkNode = BookmarkLink | BookmarkFolder;
 type HistoryEntry = { url: string; title: string; visitedAt: number };
 type Download = { id: string; url: string; filename: string; path: string; status: 'downloading' | 'completed' | 'failed'; bytesReceived: number };
 type Theme = 'system' | 'light' | 'dark';
@@ -278,17 +281,6 @@ function findBookmarkByUrl(nodes: BookmarkNode[], url: string): BookmarkLink | u
   return undefined;
 }
 
-function findBookmarkNode(nodes: BookmarkNode[], id: string): BookmarkNode | undefined {
-  for (const node of nodes) {
-    if (node.id === id) return node;
-    if (node.type === 'folder') {
-      const match = findBookmarkNode(node.children, id);
-      if (match) return match;
-    }
-  }
-  return undefined;
-}
-
 function updateBookmarkNode(nodes: BookmarkNode[], id: string, update: (node: BookmarkNode) => BookmarkNode): BookmarkNode[] {
   return nodes.map(node => {
     if (node.id === id) return update(node);
@@ -311,36 +303,6 @@ function removeBookmarkNode(nodes: BookmarkNode[], id: string): { nodes: Bookmar
     return [node];
   });
   return { nodes: remaining, removed };
-}
-
-function containsBookmarkNode(node: BookmarkNode, id: string): boolean {
-  return node.id === id || (node.type === 'folder' && node.children.some(child => containsBookmarkNode(child, id)));
-}
-
-function insertBookmarkBefore(nodes: BookmarkNode[], targetId: string, moving: BookmarkNode): { nodes: BookmarkNode[]; inserted: boolean } {
-  const result: BookmarkNode[] = [];
-  for (const node of nodes) {
-    if (node.id === targetId) return { nodes: [...result, moving, ...nodes.slice(result.length)], inserted: true };
-    if (node.type === 'folder') {
-      const nested = insertBookmarkBefore(node.children, targetId, moving);
-      if (nested.inserted) return { nodes: [...result, { ...node, children: nested.nodes }, ...nodes.slice(result.length + 1)], inserted: true };
-    }
-    result.push(node);
-  }
-  return { nodes: result, inserted: false };
-}
-
-function insertBookmarkAfter(nodes: BookmarkNode[], targetId: string, moving: BookmarkNode): { nodes: BookmarkNode[]; inserted: boolean } {
-  const result: BookmarkNode[] = [];
-  for (const node of nodes) {
-    if (node.id === targetId) return { nodes: [...result, node, moving, ...nodes.slice(result.length + 1)], inserted: true };
-    if (node.type === 'folder') {
-      const nested = insertBookmarkAfter(node.children, targetId, moving);
-      if (nested.inserted) return { nodes: [...result, { ...node, children: nested.nodes }, ...nodes.slice(result.length + 1)], inserted: true };
-    }
-    result.push(node);
-  }
-  return { nodes: result, inserted: false };
 }
 
 function appendBookmarkToFolder(nodes: BookmarkNode[], folderId: string, moving: BookmarkNode): { nodes: BookmarkNode[]; inserted: boolean } {
@@ -371,12 +333,45 @@ function filterBookmarkNodes(nodes: BookmarkNode[], query: string): BookmarkNode
   });
 }
 
+function BookmarkSortableRow({
+  node, depth, expanded, onToggle, onOpen, onEdit, onDelete, onNewFolder, onRename, onCancelRename, editingFolder, folderTitle, setFolderTitle, saveFolderTitle,
+}: {
+  node: BookmarkNode; depth: number; expanded: boolean; onToggle: () => void; onOpen: (url: string) => void;
+  onEdit: (node: BookmarkLink) => void; onDelete: (node: BookmarkNode) => void; onNewFolder: (id: string) => void;
+  onRename: (node: BookmarkFolder) => void; onCancelRename: () => void; editingFolder: boolean; folderTitle: string; setFolderTitle: (value: string) => void; saveFolderTitle: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: node.id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? .35 : 1 };
+  const stopDrag = (event: React.PointerEvent) => event.stopPropagation();
+  if (node.type === 'folder') return <div ref={setNodeRef} style={style} className="bookmark-sortable-item" {...attributes} {...listeners}>
+    <div className="folder-row bookmark-dnd-folder" style={{ paddingLeft: depth * 14 }}>
+      <button className="folder-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onToggle(); }}>{expanded ? <ChevronDown className="ui-icon" size={14} aria-hidden="true" /> : <ChevronRight className="ui-icon" size={14} aria-hidden="true" />}</button>
+      <span className="bookmark-icon folder-icon" aria-hidden="true"><Folder className="ui-icon" size={14} /></span>
+      {editingFolder ? <AppInput className="folder-title-input" aria-label="Folder name" autoFocus value={folderTitle} onPointerDown={stopDrag} onChange={event => setFolderTitle(event.target.value)} onBlur={saveFolderTitle} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveFolderTitle(); } if (event.key === 'Escape') { event.stopPropagation(); onCancelRename(); } }} /> : <span className="folder-title" title={node.title}>{node.title}</span>}
+      {!node.children.length && expanded && <span className="tree-empty-hint">Empty folder</span>}
+      <span className="folder-actions">
+        <button type="button" className="folder-action" aria-label={`Create subfolder in ${node.title}`} title="New subfolder" onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onNewFolder(node.id); }}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /></button>
+        <button type="button" className="folder-action" aria-label={`Rename ${node.title}`} title="Rename folder" onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onRename(node); }}><Pencil className="ui-icon" size={14} aria-hidden="true" /></button>
+        <button type="button" className="folder-action" aria-label={`Delete ${node.title}`} title="Delete folder and contents" onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onDelete(node); }}><X className="ui-icon" size={14} aria-hidden="true" /></button>
+      </span>
+    </div>
+  </div>;
+  return <div ref={setNodeRef} style={style} className="bookmark-sortable-item" {...attributes} {...listeners}>
+    <div className="bookmark-row bookmark-tree-row bookmark-dnd-link" style={{ paddingLeft: depth * 14 }} onClick={() => onOpen(node.url)}>
+      <span className="bookmark-open"><span className="bookmark-icon"><Star className="ui-icon" size={14} aria-hidden="true" /></span><span><strong>{node.title}</strong><small>{node.url}</small></span></span>
+      <button type="button" className="bookmark-edit" aria-label={`Edit ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onEdit(node); }}><Pencil className="ui-icon" size={14} aria-hidden="true" /></button>
+      <button type="button" className="bookmark-delete" aria-label={`Delete ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onDelete(node); }}><X className="ui-icon" size={14} aria-hidden="true" /></button>
+    </div>
+  </div>;
+}
+
 function initialTheme(): Theme {
   const saved = localStorage.getItem('browser.theme');
   return saved === 'light' || saved === 'dark' ? saved : 'system';
 }
 
 export default function App() {
+  if (new URLSearchParams(window.location.search).get('page') === 'tree') return <SortableTreeDemo />;
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState('');
   const [tabsLoaded, setTabsLoaded] = useState(false);
@@ -399,6 +394,8 @@ export default function App() {
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [sidebarView, setSidebarView] = useState<'tabs' | 'bookmarks'>('tabs');
   const [bookmarks, setBookmarks] = useState<BookmarkNode[]>(initialBookmarks);
+  const [bookmarkDragOrigin, setBookmarkDragOrigin] = useState<{ id: string; depth: number } | null>(null);
+  const bookmarkSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historySearch, setHistorySearch] = useState('');
   const [historyTabIds, setHistoryTabIds] = useState<string[]>(initialHistoryTabIds);
@@ -461,20 +458,6 @@ export default function App() {
         const draggedId = String(key);
         if (event.target.dropPosition === 'on') moveTabNode(draggedId, undefined, String(event.target.key));
         else moveTabNode(draggedId, String(event.target.key), undefined, event.target.dropPosition);
-      }
-    },
-  });
-  const bookmarkDragAndDrop = useDragAndDrop<BookmarkNode>({
-    getItems: keys => [...keys].map(key => ({ 'text/plain': String(key) })),
-    shouldAcceptItemDrop: target => target.dropPosition !== 'on' || findBookmarkNode(bookmarks, String(target.key))?.type === 'folder',
-    onMove: event => {
-      if (event.dropOperation !== 'move') return;
-      for (const key of event.keys) {
-        const draggedId = String(key);
-        if (event.target.dropPosition === 'on') {
-          moveBookmarkNode(draggedId, undefined, String(event.target.key));
-          setExpandedFolderIds(ids => ids.includes(String(event.target.key)) ? ids : [...ids, String(event.target.key)]);
-        } else moveBookmarkNode(draggedId, String(event.target.key), undefined, event.target.dropPosition);
       }
     },
   });
@@ -1156,22 +1139,22 @@ export default function App() {
     setBookmarks(items => removeBookmarkNode(items, node.id).nodes);
   }
 
-  function moveBookmarkNode(draggedId: string, targetId?: string, folderId?: string, position: 'before' | 'after' = 'before') {
-    if (!draggedId || draggedId === targetId || draggedId === folderId) return;
-    setBookmarks(items => {
-      const moving = findBookmarkNode(items, draggedId);
-      const destinationId = folderId ?? targetId;
-      if (!moving || (destinationId && moving.type === 'folder' && containsBookmarkNode(moving, destinationId))) return items;
-      const remaining = removeBookmarkNode(items, draggedId).nodes;
-      if (folderId) return appendBookmarkToFolder(remaining, folderId, moving).nodes;
-      if (targetId) {
-        const inserted = position === 'after'
-          ? insertBookmarkAfter(remaining, targetId, moving)
-          : insertBookmarkBefore(remaining, targetId, moving);
-        return inserted.inserted ? inserted.nodes : items;
-      }
-      return [...remaining, moving];
-    });
+  function handleBookmarkDragStart({ active }: DragStartEvent) {
+    const found = locateBookmark(bookmarks, String(active.id));
+    if (found) setBookmarkDragOrigin({ id: String(active.id), depth: found.depth });
+  }
+
+  function handleBookmarkDragEnd({ active, over, delta }: DragEndEvent) {
+    if (over && bookmarkDragOrigin) {
+      const activeRect = active.rect.current.translated;
+      const after = activeRect ? activeRect.top + activeRect.height / 2 > over.rect.top + over.rect.height / 2 : false;
+      const target = locateBookmark(bookmarks, String(over.id));
+      const depth = resolveBookmarkDropDepth(bookmarkDragOrigin.depth, target?.depth ?? 0, delta.x);
+      const result = moveBookmarkToDepth(bookmarks, String(active.id), String(over.id), depth, after);
+      setBookmarks(result.nodes);
+      if (result.parentId) setExpandedFolderIds(ids => ids.includes(result.parentId!) ? ids : [...ids, result.parentId!]);
+    }
+    setBookmarkDragOrigin(null);
   }
 
   function storeTabTree(nodes: TabNode[]) {
@@ -1279,51 +1262,6 @@ export default function App() {
     });
   }
 
-  function renderBookmarkNodes(nodes: BookmarkNode[], depth = 0): React.ReactNode {
-    return nodes.map(node => {
-      if (node.type === 'folder') {
-        const expanded = expandedFolderIds.includes(node.id) || Boolean(bookmarkSearch.trim());
-        return <TreeItem
-          key={node.id}
-          id={node.id}
-          textValue={`Folder ${node.title}`}
-          hasChildItems
-          className="bookmark-tree-item"
-        >
-          <TreeItemContent>{({ isExpanded }) => <div className="folder-row" style={{ paddingLeft: depth * 14 }}>
-            <AriaButton slot="chevron" className="folder-toggle" aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.title}`}>{isExpanded ? <ChevronDown className="ui-icon" size={14} aria-hidden="true" /> : <ChevronRight className="ui-icon" size={14} aria-hidden="true" />}</AriaButton>
-            <span className="bookmark-icon folder-icon" aria-hidden="true"><Folder className="ui-icon" size={14} /></span>
-            {editingFolderId === node.id
-              ? <AppInput className="folder-title-input" aria-label="Folder name" autoFocus value={folderTitle} onChange={event => setFolderTitle(event.target.value)} onBlur={() => saveFolderTitle(node.id)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveFolderTitle(node.id); } if (event.key === 'Escape') { setEditingFolderId(''); setFolderTitle(node.title); } }} />
-              : <span className="folder-title" title={node.title}>{node.title}</span>}
-            <span className="tree-drag-slot"><AriaButton slot="drag" className="tree-drag-handle" aria-label={`Move folder ${node.title}`}><GripVertical className="ui-icon" size={14} aria-hidden="true" /></AriaButton></span>
-            <span className="folder-actions">
-              <AppButton className="folder-action" aria-label={`Create subfolder in ${node.title}`} title="New subfolder" onClick={() => createBookmarkFolder(node.id)}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /></AppButton>
-              <AppButton className="folder-action" aria-label={`Rename ${node.title}`} title="Rename folder" onClick={() => { setFolderTitle(node.title); setEditingFolderId(node.id); }}><Pencil className="ui-icon" size={14} aria-hidden="true" /></AppButton>
-              <AppButton className="folder-action" aria-label={`Delete ${node.title}`} title="Delete folder and contents" onClick={() => deleteBookmarkNode(node)}><X className="ui-icon" size={14} aria-hidden="true" /></AppButton>
-            </span>
-            {!node.children.length && expanded && <span className="tree-empty-hint">Drop bookmarks here</span>}
-          </div>}</TreeItemContent>
-          {renderBookmarkNodes(node.children, depth + 1)}
-        </TreeItem>;
-      }
-      return <TreeItem
-        key={node.id}
-        id={node.id}
-        textValue={`${node.title} ${node.url}`}
-        className="bookmark-tree-item"
-        onAction={() => void openBookmark(node.url)}
-      >
-        <TreeItemContent><div className="bookmark-row bookmark-tree-row" style={{ paddingLeft: depth * 14 }}>
-          <span className="bookmark-open"><span className="bookmark-icon"><Star className="ui-icon" size={14} aria-hidden="true" /></span><span><strong>{node.title}</strong><small>{node.url}</small></span></span>
-          <span className="tree-drag-slot"><AriaButton slot="drag" className="tree-drag-handle" aria-label={`Move ${node.title}`}><GripVertical className="ui-icon" size={14} aria-hidden="true" /></AriaButton></span>
-          <AppButton className="bookmark-edit" aria-label={`Edit ${node.title}`} onClick={() => editBookmark(node)}><Pencil className="ui-icon" size={14} aria-hidden="true" /></AppButton>
-          <AppButton className="bookmark-delete" aria-label={`Delete ${node.title}`} onClick={() => deleteBookmarkNode(node)}><X className="ui-icon" size={14} aria-hidden="true" /></AppButton>
-        </div></TreeItemContent>
-      </TreeItem>;
-    });
-  }
-
   async function openBookmark(url: string) {
     if (!activeTabId) {
       try { const snapshot = await invoke<BrowserSnapshot>('create_tab'); applySnapshot(snapshot); await invoke('navigate', { tabId: snapshot.activeTabId, url }); }
@@ -1338,6 +1276,9 @@ export default function App() {
     setSettingsOpen(false);
     void invoke('set_settings_open', { open: historyPageOpen }).catch(error => setMessage(String(error)));
   }
+
+  const bookmarkExpanded = new Set(bookmarkSearch.trim() ? bookmarkFolderIds(filterBookmarkNodes(bookmarks, bookmarkSearch.trim())) : expandedFolderIds);
+  const visibleBookmarkRows = flattenBookmarkNodes(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()), bookmarkExpanded);
 
   return (
     <main className="browser-shell">
@@ -1382,18 +1323,21 @@ export default function App() {
             <AppButton type="submit">{editingBookmarkId ? 'Save changes' : 'Add bookmark'}</AppButton>
             {editingBookmarkId && <AppButton type="button" className="cancel-edit" onClick={() => { setEditingBookmarkId(''); setBookmarkTitle(''); setBookmarkUrl(''); }}>Cancel</AppButton>}
           </form>
-          <Tree
-            className="bookmark-list bookmark-tree"
-            aria-label="Saved bookmarks"
-            selectionMode="none"
-            keyboardNavigationBehavior="tab"
-            expandedKeys={new Set(bookmarkSearch.trim() ? bookmarkFolderIds(filterBookmarkNodes(bookmarks, bookmarkSearch.trim())) : expandedFolderIds)}
-            onExpandedChange={keys => setExpandedFolderIds([...keys].map(String))}
-            dragAndDropHooks={bookmarkDragAndDrop.dragAndDropHooks}
-            renderEmptyState={() => <p className="bookmark-empty">{bookmarks.length === 0 ? 'Your saved pages will appear here.' : 'No matching bookmarks.'}</p>}
-          >
-            {renderBookmarkNodes(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()))}
-          </Tree>
+          <DndContext sensors={bookmarkSensors} collisionDetection={closestCenter} onDragStart={handleBookmarkDragStart} onDragEnd={handleBookmarkDragEnd}>
+            <div className={`bookmark-list bookmark-tree bookmark-dnd-list ${bookmarkDragOrigin ? 'is-dragging' : ''}`} role="tree" aria-label="Saved bookmarks">
+              {visibleBookmarkRows.length ? <SortableContext items={visibleBookmarkRows.map(item => item.node.id)} strategy={verticalListSortingStrategy}>
+                {visibleBookmarkRows.map(({ node, depth }) => <BookmarkSortableRow
+                  key={node.id} node={node} depth={depth} expanded={bookmarkExpanded.has(node.id)}
+                  onToggle={() => setExpandedFolderIds(ids => ids.includes(node.id) ? ids.filter(id => id !== node.id) : [...ids, node.id])}
+                  onOpen={url => void openBookmark(url)} onEdit={editBookmark} onDelete={deleteBookmarkNode} onNewFolder={createBookmarkFolder}
+                  onRename={folder => { setFolderTitle(folder.title); setEditingFolderId(folder.id); }}
+                  onCancelRename={() => { setEditingFolderId(''); setFolderTitle(node.type === 'folder' ? node.title : ''); }}
+                  editingFolder={node.type === 'folder' && editingFolderId === node.id} folderTitle={folderTitle} setFolderTitle={setFolderTitle}
+                  saveFolderTitle={() => saveFolderTitle(node.id)}
+                />)}
+              </SortableContext> : <p className="bookmark-empty">{bookmarks.length === 0 ? 'Your saved pages will appear here.' : 'No matching bookmarks.'}</p>}
+            </div>
+          </DndContext>
         </div> : null}
           </TabPanel>
           </TabPanels>

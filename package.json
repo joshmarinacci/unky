@@ -10,13 +10,17 @@
     "check": "npm run build && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri-release":"npm run tauri -- build --bundles dmg",
+    "tauri-release": "npm run tauri -- build --bundles dmg",
     "build:installer": "npm run tauri -- build --bundles nsis",
+    "test:unit": "node --import tsx --test tests/bookmark-tree.test.ts",
     "test:desktop": "node tests/desktop/run.mjs",
-    "publish-dmg":"scp -i ../deployman_private.key target/release/bundle/dmg/*.dmg deployman@josh.earth:/sites/apps.josh.earth/my-browser/",
-    "publish-site":"scp -i ../deployman_private.key -r site/* deployman@josh.earth:/sites/apps.josh.earth/my-browser/"
+    "publish-dmg": "scp -i ../deployman_private.key target/release/bundle/dmg/*.dmg deployman@josh.earth:/sites/apps.josh.earth/my-browser/",
+    "publish-site": "scp -i ../deployman_private.key -r site/* deployman@josh.earth:/sites/apps.josh.earth/my-browser/"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@tauri-apps/api": "2.12.3",
     "lucide-react": "^1.61.0",
     "react": "19.1.1",

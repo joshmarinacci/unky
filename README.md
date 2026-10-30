@@ -43,6 +43,16 @@ Run the Rust unit tests, including session persistence, history ordering, downlo
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
+Run the bookmark tree drag-and-drop unit tests with:
+
+```sh
+npm run test:unit
+```
+
+These tests cover root reordering, moves between nesting levels and folders, folder nesting, and cycle prevention. The tree movement and drop-depth rules are kept in `src/bookmarkTree.ts` so the app and tests exercise the same code.
+
+The standalone dnd-kit interaction playground is available at `/?page=tree` while the Vite development server is running (`npm run dev`).
+
 ## macOS session integration test
 
 After installing dependencies, run `python3 tests/macos_session_test.py` on macOS to launch the browser with real native WKWebViews. It checks find-in-page matches and misses, waits for a fixture page to finish loading and verifies its favicon appears in the sidebar, opens a `target="_blank"` fixture link in a new native tab, cycles between tabs, downloads and reveals a fixture file, checks history, closes and reopens a tab, then restarts the app and checks session and history recovery. It uses a test-only Cargo feature and temporary session, download, and report paths, not the normal browser profile. The test starts the fixture server on ports `4179` and `4180` itself.
@@ -69,7 +79,7 @@ The desktop layout follows the adjacent React Aria mockup's two-column structure
 
 Open tabs appear in a vertical list in the sidebar and use the page title and favicon when available. Right-click a tab to rename it, reload it, open its current page in a new private tab, or choose **Move tab to group…** to place it in an existing folder. Reload actions apply to the tab you clicked, even if it is in the background. The custom tab name is saved locally. Use **＋ Folder** to create a folder, then drag tabs or other folders into it. Click the folder triangle to collapse or expand it. Drag rows to reorder them or move them between folders; the highlighted row, insertion line, and folder outline show the current drop target. Deleting a folder removes the folder while keeping its tabs and nested folders in the list.
 
-The find panel opens with `⌘F`, moves keyboard focus to its search field, and reports the number of matches as you type. The toolbar star adds the current page to bookmarks and fills when that page is saved. Bookmark URLs include query parameters, so pages with different queries can be saved separately. The Bookmarks sidebar supports nested folders, renaming, deletion, and drag-and-drop reordering with visual drop indicators.
+The find panel opens with `⌘F`, moves keyboard focus to its search field, and reports the number of matches as you type. The toolbar star adds the current page to bookmarks and fills when that page is saved. Bookmark URLs include query parameters, so pages with different queries can be saved separately. The Bookmarks sidebar supports nested folders, renaming, deletion, search, and whole-row drag-and-drop. Visible rows sort live while dragging; vertical position controls the insertion point, and horizontal movement changes the nesting depth. When dragging over a shallower row, the item defaults to that row's level unless the horizontal movement indicates that it should nest into a folder. Folder controls and bookmark actions remain independently clickable.
 
 ### Native tab drag preview
 
