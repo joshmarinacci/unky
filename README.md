@@ -61,6 +61,8 @@ The macOS development app has a native menu bar and a React browser interface. I
 
 The browser chrome uses React Aria Components for accessible controls and interactions, including buttons, text fields, sidebar tabs, tab and bookmark trees, and the appearance selector. Lucide React provides the interface icons. React Aria does not ship a visual theme, so layout and state styling live in `src/style.css`; interactive components use React Aria's state attributes for selection, focus, and drag targets.
 
+The desktop layout follows the adjacent React Aria mockup's two-column structure: a resizable sidebar sits beside the browser pane, whose navigation and address toolbar sits above the website view. The sidebar defaults to 240 px and can be resized from 176 to 360 px or collapsed to its icon rail. The interface uses warm neutral surfaces and amber selection accents in both light and dark themes. A previously saved sidebar width takes precedence over the default.
+
 ### Tabs and folders
 
 Open tabs appear in a vertical list in the sidebar and use the page title and favicon when available. Right-click a tab to rename it, reload it, open its current page in a new private tab, or choose **Move tab to group…** to place it in an existing folder. Reload actions apply to the tab you clicked, even if it is in the background. The custom tab name is saved locally. Use **＋ Folder** to create a folder, then drag tabs or other folders into it. Click the folder triangle to collapse or expand it. Drag rows to reorder them or move them between folders; the highlighted row, insertion line, and folder outline show the current drop target. Deleting a folder removes the folder while keeping its tabs and nested folders in the list.
