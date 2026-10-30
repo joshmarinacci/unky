@@ -103,7 +103,7 @@ describe('native Tauri browser', () => {
     assert.equal(initial.loading, false);
     const initialScreenshot = captureNativeWindow('child-webview-rendered.png');
 
-    await invoke('set_tab_dragging', { dragging: true, tabId: null });
+    await invoke('set_tab_dragging', { dragging: true, tabId: null, targetTabId: 'tab-1' });
     try {
       const overlay = await invoke('desktop_test_inspect_tab_drag_overlay') as {
         attached: boolean;
@@ -117,7 +117,7 @@ describe('native Tauri browser', () => {
       assert.match(pageDuringDrag.text, /Fixture Page One/, 'the page remains rendered beneath the preview');
       captureNativeWindow('tab-drag-overlay.png');
     } finally {
-      await invoke('set_tab_dragging', { dragging: false, tabId: null });
+      await invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null });
     }
     const removedOverlay = await invoke('desktop_test_inspect_tab_drag_overlay') as {
       attached: boolean;
@@ -138,6 +138,58 @@ describe('native Tauri browser', () => {
     assert.equal(second.url, 'http://127.0.0.1:4179/two');
     assert.equal(second.browser.tabs.length, 2);
 
+    const thirdState = await invoke('create_tab') as { tabs: Array<{ id: string }>; activeTabId: string };
+    const thirdTabId = thirdState.activeTabId;
+    await invoke('navigate', { tabId: thirdTabId, url: 'http://127.0.0.1:4179/?third=1' });
+    await browser.waitUntil(async () => {
+      const page = await inspect(thirdTabId);
+      return page.readyState === 'complete' && page.text.includes('Fixture Page One');
+    }, { timeout: 20000, timeoutMsg: 'The third local fixture did not finish loading' });
+    await invoke('select_tab', { tabId: 'tab-1' });
+
+    await invoke('set_tab_dragging', { dragging: true, tabId: null, targetTabId: secondTab.id });
+    try {
+      const selectedTarget = await invoke('select_tab', { tabId: 'tab-1' }) as { activeTabId: string };
+      assert.equal(selectedTarget.activeTabId, 'tab-1');
+      const overlayWhileTargetInactive = await invoke('desktop_test_inspect_tab_drag_overlay') as {
+        attached: boolean;
+        visible: boolean;
+        target: string | null;
+      };
+      assert.equal(overlayWhileTargetInactive.attached, true, 'the overlay stays attached to the page that drag started over');
+      assert.equal(overlayWhileTargetInactive.visible, true);
+    } finally {
+      await invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null });
+    }
+    const hiddenOriginalTargetOverlay = await invoke('desktop_test_inspect_tab_drag_overlay') as {
+      attached: boolean;
+      visible: boolean;
+      target: string | null;
+    };
+    assert.deepEqual(hiddenOriginalTargetOverlay, { attached: false, visible: false, target: null });
+
+    await invoke('split_tab', { tabId: 'tab-1', targetTabId: secondTab.id, side: 'left' });
+    const explicitTargetSplit = await invoke('get_split_tabs') as { firstTabId: string; secondTabId: string; orientation: string } | null;
+    assert.deepEqual(explicitTargetSplit, {
+      firstTabId: 'tab-1',
+      secondTabId: secondTab.id,
+      orientation: 'horizontal',
+      firstPanePercent: 50,
+    }, 'a split should use its captured target even when the dragged tab became active');
+    await invoke('clear_tab_split');
+
+    await invoke('set_tab_dragging', { dragging: true, tabId: 'tab-1', targetTabId: 'tab-1' });
+    await invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null });
+    await browser.waitUntil(async () => (await invoke('get_split_tabs')) !== null, {
+      timeout: 5000,
+      timeoutMsg: 'ending a native tab drag should apply the split drop through the browser UI',
+    });
+    const dragDropSplit = await invoke('get_split_tabs') as { firstTabId: string; secondTabId: string; orientation: string } | null;
+    assert.ok(dragDropSplit);
+    assert.deepEqual(new Set([dragDropSplit.firstTabId, dragDropSplit.secondTabId]), new Set(['tab-1', secondTab.id]));
+    assert.ok(['horizontal', 'vertical'].includes(dragDropSplit.orientation));
+    await invoke('clear_tab_split');
+
     const switched = await invoke('select_tab', { tabId: 'tab-1' }) as { tabs: Array<{ id: string; active: boolean }> };
     assert.equal(switched.tabs.find((tab) => tab.id === 'tab-1')?.active, true);
     assert.equal(switched.tabs.find((tab) => tab.id === secondTab.id)?.active, false);
@@ -145,21 +197,40 @@ describe('native Tauri browser', () => {
     assert.equal(afterSwitch.tabId, 'tab-1');
     assert.match(afterSwitch.text, /Fixture Page One/);
 
-    await invoke('split_tab', { tabId: secondTab.id, side: 'right' });
+    await invoke('split_tab', { tabId: secondTab.id, targetTabId: 'tab-1', side: 'right' });
     const splitTabs = await invoke('get_split_tabs') as { firstTabId: string; secondTabId: string; orientation: string } | null;
     assert.deepEqual(splitTabs, {
       firstTabId: 'tab-1',
       secondTabId: secondTab.id,
       orientation: 'horizontal',
+      firstPanePercent: 50,
     }, 'right split should place the active page before the dragged page');
     captureNativeWindow('split-view.png');
+    await invoke('resize_tab_split', { firstPanePercent: 67 });
+    const resizedSplit = await invoke('get_split_tabs') as { firstPanePercent: number } | null;
+    assert.equal(resizedSplit?.firstPanePercent, 67, 'the native divider should update the first pane size');
+    captureNativeWindow('resized-split-view.png');
+    await invoke('resize_tab_split', { firstPanePercent: 50 });
 
-    await invoke('split_tab', { tabId: secondTab.id, side: 'bottom' });
+    await invoke('select_tab', { tabId: secondTab.id });
+    assert.deepEqual(await invoke('get_split_tabs'), splitTabs, 'selecting either pane should keep the split intact');
+    await invoke('select_tab', { tabId: 'tab-1' });
+    assert.deepEqual(await invoke('get_split_tabs'), splitTabs, 'returning to the other pane should keep the split intact');
+    await invoke('select_tab', { tabId: thirdTabId });
+    assert.deepEqual(await invoke('get_split_tabs'), splitTabs, 'a tab outside the split should not change its pane membership');
+    assert.equal((await invoke('get_browser_state') as { activeTabId: string }).activeTabId, thirdTabId);
+    captureNativeWindow('split-view-suspended-for-other-tab.png');
+    await invoke('select_tab', { tabId: 'tab-1' });
+    assert.deepEqual(await invoke('get_split_tabs'), splitTabs, 'returning to a split tab should restore the original pair');
+    captureNativeWindow('split-view-restored-after-tab-select.png');
+
+    await invoke('split_tab', { tabId: secondTab.id, targetTabId: 'tab-1', side: 'bottom' });
     const verticalSplit = await invoke('get_split_tabs') as { firstTabId: string; secondTabId: string; orientation: string } | null;
     assert.deepEqual(verticalSplit, {
       firstTabId: 'tab-1',
       secondTabId: secondTab.id,
       orientation: 'vertical',
+      firstPanePercent: 50,
     }, 'bottom split should place the active page above the dragged page');
     captureNativeWindow('vertical-split.png');
 

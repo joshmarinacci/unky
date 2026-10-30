@@ -19,6 +19,7 @@ mod platforms;
 
 const TAB_EVENT: &str = "browser://tabs-changed";
 const SPLIT_EVENT: &str = "browser://split-changed";
+const SPLIT_RESIZE_EVENT: &str = "browser://split-resize";
 const OPEN_SETTINGS_EVENT: &str = "browser://open-settings";
 const SHOW_HISTORY_EVENT: &str = "browser://show-history";
 const SHOW_DOWNLOADS_EVENT: &str = "browser://show-downloads";
@@ -667,23 +668,6 @@ fn focus_browser_tab(
         .find(|tab| tab.id == tab_id)
         .map(|tab| tab.window_label.clone())
         .ok_or("That tab no longer exists")?;
-    let mut split_cleared = false;
-    {
-        let mut split = state
-            .split_tabs
-            .lock()
-            .map_err(|_| "Browser state is unavailable")?;
-        if split
-            .as_ref()
-            .is_some_and(|layout| !layout.contains(&tab_id))
-        {
-            *split = None;
-            split_cleared = true;
-        }
-    }
-    if split_cleared {
-        let _ = app.emit_to(&owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
-    }
     let mut tabs = state
         .data
         .lock()
@@ -873,7 +857,13 @@ fn desktop_test_inspect_tab_drag_overlay(
             .find(|tab| tab.window_label == owner && tab.active)
             .map(|tab| tab.id.clone())
             .ok_or("The browser window has no active tab")?;
-        let page = get_page(&app, &active_id)?;
+        let target_id = state
+            .tab_drag_target
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?
+            .clone()
+            .unwrap_or(active_id);
+        let page = get_page(&app, &target_id)?;
         let (sender, receiver) = std::sync::mpsc::channel();
         page.with_webview(move |_| {
             let diagnostics = MainThreadMarker::new()
@@ -1849,33 +1839,6 @@ fn select_tab(
         return Err("Tabs can only be selected from the trusted browser UI".into());
     }
     let owner_window = browser_window_for_ui(webview.label()).to_string();
-    if !state
-        .data
-        .lock()
-        .map_err(|_| "Browser state is unavailable")?
-        .iter()
-        .any(|tab| tab.id == tab_id && tab.window_label == owner_window)
-    {
-        return Err("That tab no longer exists".into());
-    }
-    let split_cleared = {
-        let mut split = state
-            .split_tabs
-            .lock()
-            .map_err(|_| "Browser state is unavailable")?;
-        if split
-            .as_ref()
-            .is_some_and(|layout| !layout.contains(&tab_id))
-        {
-            *split = None;
-            true
-        } else {
-            false
-        }
-    };
-    if split_cleared {
-        let _ = app.emit_to(&owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
-    }
     let mut tabs = state
         .data
         .lock()
@@ -2333,36 +2296,73 @@ fn set_tab_dragging(
     state: tauri::State<'_, BrowserState>,
     dragging: bool,
     tab_id: Option<String>,
+    target_tab_id: Option<String>,
 ) -> Result<(), String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Tab drag layout is only available to browser windows".into());
     }
     let owner_window = browser_window_for_ui(webview.label()).to_string();
+    let (source_id, target_id) = if dragging {
+        let tabs = state
+            .data
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?;
+        let active_id = tabs
+            .iter()
+            .find(|tab| tab.window_label == owner_window && tab.active)
+            .map(|tab| tab.id.clone());
+        let target_id = target_tab_id
+            .or(active_id)
+            .ok_or("The browser window has no active tab")?;
+        if !tabs
+            .iter()
+            .any(|tab| tab.id == target_id && tab.window_label == owner_window)
+        {
+            return Err("The tab drag target does not belong to this browser window".into());
+        }
+        if let Some(source_id) = tab_id.as_deref() {
+            if !tabs
+                .iter()
+                .any(|tab| tab.id == source_id && tab.window_label == owner_window)
+            {
+                return Err("The dragged tab does not belong to this browser window".into());
+            }
+        }
+        drop(tabs);
+        *state
+            .tab_drag_source
+            .lock()
+            .map_err(|_| "Browser state is unavailable")? = tab_id.clone();
+        *state
+            .tab_drag_target
+            .lock()
+            .map_err(|_| "Browser state is unavailable")? = Some(target_id.clone());
+        (tab_id, Some(target_id))
+    } else {
+        let source_id = state
+            .tab_drag_source
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?
+            .take();
+        let target_id = state
+            .tab_drag_target
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?
+            .take();
+        (source_id, target_id)
+    };
     *state
         .tab_dragging
         .lock()
         .map_err(|_| "Browser state is unavailable")? = dragging.then(|| owner_window.clone());
-    if dragging {
-        *state
-            .tab_drag_source
-            .lock()
-            .map_err(|_| "Browser state is unavailable")? = tab_id;
-    }
 
     #[cfg(target_os = "macos")]
     {
         use objc2::MainThreadMarker;
         use objc2_app_kit::NSView;
         if dragging {
-            let active_id = state
-                .data
-                .lock()
-                .map_err(|_| "Browser state is unavailable")?
-                .iter()
-                .find(|tab| tab.window_label == owner_window && tab.active)
-                .map(|tab| tab.id.clone());
-            if let Some(active_id) = active_id {
-                if let Some(page) = app.get_webview(&page_label(&active_id)) {
+            if let Some(target_id) = target_id.as_ref() {
+                if let Some(page) = app.get_webview(&page_label(target_id)) {
                     let (sender, receiver) = std::sync::mpsc::channel();
                     page.with_webview(move |platform| {
                         let attached = MainThreadMarker::new().is_some_and(|mtm| unsafe {
@@ -2378,16 +2378,9 @@ fn set_tab_dragging(
                 }
             }
         } else {
-            let active_id = state
-                .data
-                .lock()
-                .map_err(|_| "Browser state is unavailable")?
-                .iter()
-                .find(|tab| tab.window_label == owner_window && tab.active)
-                .map(|tab| tab.id.clone());
             let mut completed_target = None;
-            if let Some(active_id) = active_id {
-                if let Some(page) = app.get_webview(&page_label(&active_id)) {
+            if let Some(target_id) = target_id.as_ref() {
+                if let Some(page) = app.get_webview(&page_label(target_id)) {
                     let (sender, receiver) = std::sync::mpsc::channel();
                     page.with_webview(move |_| {
                         let target = if MainThreadMarker::new().is_some() {
@@ -2401,27 +2394,19 @@ fn set_tab_dragging(
                     completed_target = receiver.recv().map_err(|error| error.to_string())?;
                 }
             }
-            if let Some(target) = completed_target {
-                let source_id = state
-                    .tab_drag_source
-                    .lock()
-                    .map_err(|_| "Browser state is unavailable")?
-                    .clone();
-                if let Some(tab_id) = source_id {
-                    let _ = app.emit_to(
-                        &owner_window,
-                        "browser://tab-drag-drop",
-                        serde_json::json!({
-                            "tabId": tab_id,
-                            "target": target.as_str(),
-                        }),
-                    );
-                }
+            if let (Some(target), Some(tab_id), Some(target_tab_id)) =
+                (completed_target, source_id, target_id)
+            {
+                let _ = app.emit_to(
+                    &owner_window,
+                    "browser://tab-drag-drop",
+                    serde_json::json!({
+                        "tabId": tab_id,
+                        "targetTabId": target_tab_id,
+                        "target": target.as_str(),
+                    }),
+                );
             }
-            *state
-                .tab_drag_source
-                .lock()
-                .map_err(|_| "Browser state is unavailable")? = None;
         }
     }
     position_tabs(&app, &state)
@@ -2464,6 +2449,7 @@ fn split_tab(
     app: tauri::AppHandle,
     state: tauri::State<'_, BrowserState>,
     tab_id: String,
+    target_tab_id: String,
     side: String,
 ) -> Result<(), String> {
     if !is_trusted_browser_ui(webview.label())
@@ -2476,23 +2462,24 @@ fn split_tab(
         .data
         .lock()
         .map_err(|_| "Browser state is unavailable")?;
-    let active_id = tabs
+    let target_id = tabs
         .iter()
-        .find(|tab| tab.active && tab.window_label == owner_window)
+        .find(|tab| tab.id == target_tab_id && tab.window_label == owner_window)
         .map(|tab| (tab.id.clone(), tab.url.is_empty()))
-        .ok_or("There is no active tab to split beside")?;
+        .ok_or("The split target does not belong to this browser window")?;
     let target = tabs
         .iter()
         .find(|tab| tab.id == tab_id && tab.window_label == owner_window)
         .ok_or("Choose a different tab in this window")?;
-    if active_id.0 == tab_id || active_id.1 || target.url.is_empty() {
+    if target_id.0 == tab_id || target_id.1 || target.url.is_empty() {
         return Err("Choose two tabs that both have a loaded page".into());
     }
-    let active_id = active_id.0;
+    let target_id = target_id.0;
     let split = if matches!(side.as_str(), "left" | "top") {
         SplitLayout {
             first_tab_id: tab_id,
-            second_tab_id: active_id,
+            second_tab_id: target_id,
+            first_pane_percent: 50,
             orientation: if matches!(side.as_str(), "left" | "right") {
                 SplitOrientation::Horizontal
             } else {
@@ -2501,8 +2488,9 @@ fn split_tab(
         }
     } else {
         SplitLayout {
-            first_tab_id: active_id,
+            first_tab_id: target_id,
             second_tab_id: tab_id,
+            first_pane_percent: 50,
             orientation: if matches!(side.as_str(), "left" | "right") {
                 SplitOrientation::Horizontal
             } else {
@@ -2537,6 +2525,32 @@ fn clear_tab_split(
         SPLIT_EVENT,
         Option::<SplitLayout>::None,
     );
+    position_tabs(&app, &state)
+}
+
+#[tauri::command]
+fn resize_tab_split(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    first_pane_percent: u8,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) || !(20..=80).contains(&first_pane_percent) {
+        return Err("Invalid split divider position".into());
+    }
+    let owner = browser_window_for_ui(webview.label()).to_string();
+    let updated = {
+        let mut split = state
+            .split_tabs
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?;
+        let Some(layout) = split.as_mut() else {
+            return Err("There is no active split".into());
+        };
+        layout.first_pane_percent = first_pane_percent;
+        layout.clone()
+    };
+    let _ = app.emit_to(&owner, SPLIT_EVENT, Some(updated));
     position_tabs(&app, &state)
 }
 
@@ -2701,6 +2715,39 @@ fn adjust_active_zoom(
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+fn native_child_frame(page: tauri::Webview) -> Result<(objc2_foundation::NSRect, usize), String> {
+    use objc2_app_kit::NSView;
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+    page.with_webview(move |platform| {
+        let native = unsafe { &*(platform.inner() as *mut NSView) };
+        let frame = native.frame();
+        let parent = unsafe { native.superview() };
+        let parent_id = parent
+            .as_deref()
+            .map_or(0, |parent| parent as *const NSView as usize);
+        let _ = sender.send((
+            [
+                frame.origin.x,
+                frame.origin.y,
+                frame.size.width,
+                frame.size.height,
+            ],
+            parent_id,
+        ));
+    })
+    .map_err(|error| error.to_string())?;
+    let (frame, parent_id) = receiver.recv().map_err(|error| error.to_string())?;
+    Ok((
+        objc2_foundation::NSRect::new(
+            objc2_foundation::NSPoint::new(frame[0], frame[1]),
+            objc2_foundation::NSSize::new(frame[2], frame[3]),
+        ),
+        parent_id,
+    ))
+}
+
 fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), String> {
     let split_tabs = state
         .split_tabs
@@ -2718,25 +2765,42 @@ fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), Str
     for tab in tabs.iter() {
         if let Some(page) = app.get_webview(&page_label(&tab.id)) {
             let bounds = window_bounds(state, &tab.window_label)?;
-            let split_position = split_tabs.as_ref().and_then(|layout| {
-                if tab.id == layout.first_tab_id {
-                    Some((layout.orientation, false))
-                } else if tab.id == layout.second_tab_id {
-                    Some((layout.orientation, true))
-                } else {
-                    None
-                }
+            let split_is_active = split_tabs.as_ref().is_some_and(|layout| {
+                tabs.iter().any(|active_tab| {
+                    active_tab.window_label == tab.window_label
+                        && active_tab.active
+                        && layout.contains(&active_tab.id)
+                })
             });
+            let split_position =
+                split_tabs
+                    .as_ref()
+                    .filter(|_| split_is_active)
+                    .and_then(|layout| {
+                        if tab.id == layout.first_tab_id {
+                            Some((layout.orientation, false))
+                        } else if tab.id == layout.second_tab_id {
+                            Some((layout.orientation, true))
+                        } else {
+                            None
+                        }
+                    });
             let is_visible = !settings_open.contains(&tab.window_label)
                 && (split_position.is_some() || tab.active)
                 && !tab.url.is_empty();
             let (position, size) = if let Some((orientation, is_second)) = split_position {
                 let gutter = 6.0;
+                let first_percent = split_tabs
+                    .as_ref()
+                    .map_or(50.0, |layout| layout.first_pane_percent as f64 / 100.0);
                 match orientation {
                     SplitOrientation::Horizontal => {
-                        let pane_width = (bounds.width - gutter) / 2.0;
+                        let usable_width = (bounds.width - gutter).max(1.0);
+                        let first_width = usable_width * first_percent;
+                        let second_width = usable_width - first_width;
+                        let pane_width = if is_second { second_width } else { first_width };
                         let x = if is_second {
-                            bounds.x + pane_width + gutter
+                            bounds.x + first_width + gutter
                         } else {
                             bounds.x
                         };
@@ -2746,9 +2810,16 @@ fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), Str
                         )
                     }
                     SplitOrientation::Vertical => {
-                        let pane_height = (bounds.height - gutter) / 2.0;
+                        let usable_height = (bounds.height - gutter).max(1.0);
+                        let first_height = usable_height * first_percent;
+                        let second_height = usable_height - first_height;
+                        let pane_height = if is_second {
+                            second_height
+                        } else {
+                            first_height
+                        };
                         let y = if is_second {
-                            bounds.y + pane_height + gutter
+                            bounds.y + first_height + gutter
                         } else {
                             bounds.y
                         };
@@ -2771,6 +2842,68 @@ fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), Str
             };
             page.set_position(position).map_err(|e| e.to_string())?;
             page.set_size(size).map_err(|e| e.to_string())?;
+        }
+    }
+    drop(tabs);
+    drop(settings_open);
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::NSView;
+        let overlay_state = split_tabs.as_ref().and_then(|layout| {
+            let tabs = state.data.lock().ok()?;
+            let owner = tabs
+                .iter()
+                .find(|tab| tab.id == layout.first_tab_id)?
+                .window_label
+                .clone();
+            let active = tabs
+                .iter()
+                .find(|tab| tab.window_label == owner && tab.active)?;
+            if !layout.contains(&active.id) || state.settings_open.lock().ok()?.contains(&owner) {
+                return None;
+            }
+            Some((owner, layout.clone(), active.id == layout.first_tab_id))
+        });
+        if let Some((owner, layout, active_first)) = overlay_state {
+            if let (Some(page), Some(second_page)) = (
+                app.get_webview(&page_label(&layout.first_tab_id)),
+                app.get_webview(&page_label(&layout.second_tab_id)),
+            ) {
+                let (second_frame, second_parent_id) = native_child_frame(second_page)?;
+                let horizontal = layout.orientation == SplitOrientation::Horizontal;
+                let percent = layout.first_pane_percent;
+                let changed_app = app.clone();
+                let changed_owner = owner.clone();
+                let on_change = Arc::new(move |new_percent| {
+                    let _ = changed_app.emit_to(&changed_owner, SPLIT_RESIZE_EVENT, new_percent);
+                });
+                page.with_webview(move |platform| {
+                    if let Some(mtm) = MainThreadMarker::new() {
+                        let native = unsafe { &*(platform.inner() as *mut NSView) };
+                        let parent_id = unsafe { native.superview() }
+                            .as_deref()
+                            .map_or(0, |parent| parent as *const NSView as usize);
+                        if parent_id == second_parent_id {
+                            unsafe {
+                                platforms::split_overlay::update(
+                                    native,
+                                    second_frame,
+                                    horizontal,
+                                    percent,
+                                    active_first,
+                                    on_change,
+                                    mtm,
+                                );
+                            }
+                        }
+                    }
+                })
+                .map_err(|error| error.to_string())?;
+            }
+        } else {
+            app.run_on_main_thread(|| unsafe { platforms::split_overlay::hide() })
+                .map_err(|error| error.to_string())?;
         }
     }
     Ok(())
@@ -3222,6 +3355,7 @@ pub fn run() {
         get_split_tabs,
         split_tab,
         clear_tab_split,
+        resize_tab_split,
         move_tab_to_new_window,
         focus_browser_tab,
         get_history,
@@ -3267,6 +3401,7 @@ pub fn run() {
         get_split_tabs,
         split_tab,
         clear_tab_split,
+        resize_tab_split,
         move_tab_to_new_window,
         focus_browser_tab,
         get_history,
@@ -3310,6 +3445,7 @@ pub fn run() {
         get_split_tabs,
         split_tab,
         clear_tab_split,
+        resize_tab_split,
         move_tab_to_new_window,
         focus_browser_tab,
         get_history,

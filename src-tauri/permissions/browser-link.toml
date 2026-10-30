@@ -63,6 +63,7 @@ commands.allow = [
   "get_split_tabs",
   "split_tab",
   "clear_tab_split",
+  "resize_tab_split",
   "move_tab_to_new_window",
   "session_test_phase",
   "report_session_test",

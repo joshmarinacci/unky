@@ -21,7 +21,7 @@ type Tab = {
 
 type BrowserSnapshot = { tabs: Tab[]; activeTabId: string };
 type ExternalBrowser = { id: string; name: string };
-type SplitLayout = { firstTabId: string; secondTabId: string; orientation: 'horizontal' | 'vertical' };
+type SplitLayout = { firstTabId: string; secondTabId: string; orientation: 'horizontal' | 'vertical'; firstPanePercent: number };
 type PageSecurityInfo = { secureHttps: boolean; location: string; camera: string; microphone: string; playingAudio: boolean };
 type TabReference = { id: string; type: 'tab' };
 type TabFolder = { id: string; type: 'folder'; title: string; collapsed: boolean; children: TabNode[] };
@@ -429,6 +429,7 @@ export default function App() {
   const findRef = useRef<HTMLInputElement>(null);
   const viewRef = useRef<HTMLDivElement>(null);
   const activeTabIdRef = useRef(activeTabId);
+  const tabsRef = useRef(tabs);
   const tabNodesRef = useRef(tabNodes);
   const faviconRequests = useRef(new Set<string>());
   const sessionTestStarted = useRef(false);
@@ -447,11 +448,11 @@ export default function App() {
       const key = [...event.keys].map(String).find(id => findTabNode(tabNodesRef.current, id)?.type === 'tab');
       if (!key) return;
       setDraggingTabId(key);
-      void invoke('set_tab_dragging', { dragging: true, tabId: key }).catch(error => setMessage(String(error)));
+      void invoke('set_tab_dragging', { dragging: true, tabId: key, targetTabId: activeTabIdRef.current }).catch(error => setMessage(String(error)));
     },
     onDragEnd: () => {
       setDraggingTabId('');
-      void invoke('set_tab_dragging', { dragging: false, tabId: null }).catch(error => setMessage(String(error)));
+      void invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null }).catch(error => setMessage(String(error)));
     },
     shouldAcceptItemDrop: target => target.dropPosition !== 'on' || findTabNode(tabNodesRef.current, String(target.key))?.type === 'folder',
     onMove: event => {
@@ -627,6 +628,7 @@ export default function App() {
 
   const applySnapshot = useCallback((snapshot: BrowserSnapshot) => {
     setTabs(snapshot.tabs);
+    tabsRef.current = snapshot.tabs;
     setActiveTabId(snapshot.activeTabId);
     activeTabIdRef.current = snapshot.activeTabId;
     setTabsLoaded(true);
@@ -656,9 +658,12 @@ export default function App() {
         setFilterProgress(event.payload);
       });
       const unlistenSplit = await listen<SplitLayout | null>(splitEvent, event => setSplitLayout(event.payload));
-      const unlistenTabDragDrop = await listen<{ tabId: string; target: 'left' | 'right' | 'top' | 'bottom' | 'new-window' }>('browser://tab-drag-drop', event => {
+      const unlistenSplitResize = await listen<number>('browser://split-resize', event => {
+        void invoke('resize_tab_split', { firstPanePercent: event.payload }).catch(error => setMessage(String(error)));
+      });
+      const unlistenTabDragDrop = await listen<{ tabId: string; targetTabId: string; target: 'left' | 'right' | 'top' | 'bottom' | 'new-window' }>('browser://tab-drag-drop', event => {
         if (event.payload.target === 'new-window') void dropTabIntoNewWindow(event.payload.tabId);
-        else void dropTabIntoSplit(event.payload.target, event.payload.tabId);
+        else void dropTabIntoSplit(event.payload.target, event.payload.tabId, event.payload.targetTabId);
       });
       void invoke<SplitLayout | null>('get_split_tabs').then(setSplitLayout).catch(error => setMessage(String(error)));
       void invoke<FilterSettingsView>('get_filter_settings').then(setFilterSettings).catch(error => setMessage(String(error)));
@@ -687,10 +692,10 @@ export default function App() {
       }
       catch (error) { setMessage(String(error)); }
       if (!cancelled) void runSessionIntegrationTest();
-      if (cancelled) { unlisten(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); }
+      if (cancelled) { unlisten(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); }
       else {
         const originalUnlisten = unlisten;
-        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); };
+        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); };
       }
     })();
     return () => { cancelled = true; unlisten?.(); };
@@ -963,24 +968,38 @@ export default function App() {
     finally { setFilterBusy(false); }
   }
 
-  async function dropTabIntoSplit(side: 'left' | 'right' | 'top' | 'bottom', draggedTabId = draggingTabId) {
+  function findSplitCompanion(tabId: string) {
+    const tabOrder = flattenTabIds(tabNodesRef.current);
+    const sourceIndex = tabOrder.indexOf(tabId);
+    const candidates = sourceIndex < 0
+      ? tabOrder
+      : [...tabOrder.slice(sourceIndex + 1), ...tabOrder.slice(0, sourceIndex).reverse()];
+    return candidates
+      .map(id => tabsRef.current.find(tab => tab.id === id))
+      .find(tab => tab && tab.id !== tabId && tab.url && !tab.loading)?.id;
+  }
+
+  async function dropTabIntoSplit(side: 'left' | 'right' | 'top' | 'bottom', draggedTabId = draggingTabId, targetTabId = activeTabIdRef.current) {
     const tabId = draggedTabId;
-    const targetTabId = activeTabIdRef.current;
-    if (!tabId || !targetTabId || tabId === targetTabId) {
-      setMessage('Drag a different loaded tab to create a split view.');
+    const targetId = tabId === targetTabId
+      ? findSplitCompanion(tabId)
+      : targetTabId;
+    if (!tabId || !targetId) {
+      setMessage('Open another loaded tab to create a split view.');
       return;
     }
     try {
-      await invoke('split_tab', { tabId, side });
-      const firstTabId = side === 'left' || side === 'top' ? tabId : targetTabId;
+      await invoke('split_tab', { tabId, targetTabId: targetId, side });
+      const firstTabId = side === 'left' || side === 'top' ? tabId : targetId;
       setSplitLayout({
         firstTabId,
-        secondTabId: firstTabId === tabId ? targetTabId : tabId,
+        secondTabId: firstTabId === tabId ? targetId : tabId,
         orientation: side === 'left' || side === 'right' ? 'horizontal' : 'vertical',
+        firstPanePercent: 50,
       });
     } catch (error) { setMessage(String(error)); }
     setDraggingTabId('');
-    void invoke('set_tab_dragging', { dragging: false, tabId: null }).catch(error => setMessage(String(error)));
+    void invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null }).catch(error => setMessage(String(error)));
   }
 
   async function dropTabIntoNewWindow(draggedTabId = draggingTabId) {
@@ -991,7 +1010,7 @@ export default function App() {
       setMessage('Tab moved to a new window.');
     } catch (error) { setMessage(String(error)); }
     setDraggingTabId('');
-    void invoke('set_tab_dragging', { dragging: false, tabId: null }).catch(error => setMessage(String(error)));
+    void invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null }).catch(error => setMessage(String(error)));
   }
 
   async function closeSplitView() {

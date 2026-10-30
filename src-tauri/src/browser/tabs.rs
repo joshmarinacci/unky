@@ -46,6 +46,12 @@ pub struct SplitLayout {
     pub first_tab_id: String,
     pub second_tab_id: String,
     pub orientation: SplitOrientation,
+    #[serde(default = "default_split_ratio")]
+    pub first_pane_percent: u8,
+}
+
+fn default_split_ratio() -> u8 {
+    50
 }
 
 impl SplitLayout {
@@ -70,6 +76,7 @@ pub struct BrowserState {
     pub split_tabs: Arc<Mutex<Option<SplitLayout>>>,
     pub tab_dragging: Arc<Mutex<Option<String>>>,
     pub tab_drag_source: Arc<Mutex<Option<String>>>,
+    pub tab_drag_target: Arc<Mutex<Option<String>>>,
     pub recently_closed: Arc<Mutex<Vec<SessionTab>>>,
     pub session_file: Arc<Mutex<Option<PathBuf>>>,
     pub history: Arc<Mutex<Vec<HistoryEntry>>>,
