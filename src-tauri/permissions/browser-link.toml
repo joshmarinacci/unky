@@ -60,6 +60,7 @@ commands.allow = [
   "set_view_bounds",
   "reopen_closed_tab",
   "set_tab_dragging",
+  "toggle_devtools",
   "get_split_tabs",
   "split_tab",
   "clear_tab_split",

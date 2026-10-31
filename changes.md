@@ -72,3 +72,13 @@
 ## 2026-10-31 11:57
 
 - Browser chrome text now uses size tokens (`--fs-body/callout/sub/foot`, default 13/12/11/10px, one step larger than the old 12/11/10/9px) instead of hard-coded px. `src/osTextSizes.ts` measures the macOS text-style keywords (`-apple-system-body` etc.) at startup and overrides the tokens when the WebView supports them. Start-page and demo styles are unchanged.
+
+## 2026-10-31 12:00
+
+- Collapsed sidebar is now a 48px icon rail instead of an empty strip: expand button at the top, a + new-tab button below it, one icon per visible tab/folder (favicon or folder icon, active tab highlighted, title on hover), and a developer console toggle at the bottom.
+- New `toggle_devtools` command (and permission) opens/closes the web inspector of the window active page; the Tauri `devtools` feature is enabled so it also works in release builds.
+
+## 2026-10-31 12:04
+
+- The context menu now works on the collapsed icon rail and is the same menu as the full-width tabs (rename expands the sidebar first so the inline field is visible; the menu moved out of the sidebar content so it is not hidden while collapsed).
+- Tabs view toolbar: **+ Tab** and **Folder** moved to the top of the tabs list, styled like the bookmarks toolbar. **New private tab** stays at the bottom.

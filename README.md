@@ -81,6 +81,8 @@ The desktop layout follows the adjacent React Aria mockup's two-column structure
 
 Open tabs appear in a vertical list in the sidebar and use the page title and favicon when available. Right-click a tab to rename it, reload it, open its current page in a new private tab, or choose **Move tab to group…** to place it in an existing folder. Reload actions apply to the tab you clicked, even if it is in the background. The custom tab name is saved locally. Use **＋ Folder** to create a folder, then drag tabs or other folders into it. Click the folder triangle to collapse or expand it. Drag rows to reorder them or move them between folders; the highlighted row, insertion line, and folder outline show the current drop target. Deleting a folder removes the folder while keeping its tabs and nested folders in the list.
 
+Collapsing the sidebar leaves a 48 px icon rail: the expand button at the top, a **+** button for a new tab, one icon per visible tab or folder (click to select a tab or toggle a folder; hover for the title), and a button at the bottom that toggles the web inspector for the active page. The inspector is enabled in release builds through Tauri's `devtools` feature, which uses a private macOS API.
+
 The find panel opens with `⌘F`, moves keyboard focus to its search field, and reports the number of matches as you type. The toolbar star adds the current page to bookmarks and fills when that page is saved. Bookmark URLs include query parameters, so pages with different queries can be saved separately. The Bookmarks sidebar supports nested folders, renaming, deletion, search, and whole-row drag-and-drop. Visible rows sort live while dragging; vertical position controls the insertion point, and horizontal movement changes the nesting depth. When dragging over a shallower row, the item defaults to that row's level unless the horizontal movement indicates that it should nest into a folder. Folder controls and bookmark actions remain independently clickable.
 
 ### Native tab drag preview
@@ -109,7 +111,7 @@ The desktop suite checks discovery, URL preservation, invalid selections, blank 
 
 ### Private tabs
 
-Open a private tab with **New private tab** below **New tab**, **File → New Private Tab**, or `⌘⇧N`. The existing **Settings → New private tab** action is also available. The tab has a crossed-eye indicator and uses ephemeral website storage separate from normal tabs. Private pages are excluded from browsing history, session recovery, and recently closed tabs; links opened in a new tab inherit the source tab's private mode. Normal tabs remain the default.
+Open a private tab with **New private tab** at the bottom of the tabs list, **File → New Private Tab**, or `⌘⇧N`. The existing **Settings → New private tab** action is also available. The tab has a crossed-eye indicator and uses ephemeral website storage separate from normal tabs. Private pages are excluded from browsing history, session recovery, and recently closed tabs; links opened in a new tab inherit the source tab's private mode. Normal tabs remain the default.
 
 The trusted browser UI can request either mode through the existing command:
 

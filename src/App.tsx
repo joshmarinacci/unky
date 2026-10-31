@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button as AriaButton, ListBox, ListBoxItem, Popover, Select, SelectValue, Tab, TabList, TabPanel, TabPanels, Tabs } from 'react-aria-components';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Columns2, Download, ExternalLink, EyeOff, Folder, FolderPlus, Globe2, LoaderCircle, LockKeyhole, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Columns2, Download, ExternalLink, EyeOff, Folder, FolderPlus, Globe2, LoaderCircle, LockKeyhole, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, Terminal, X } from 'lucide-react';
 import { AppButton, AppInput } from './components/ui';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -1334,6 +1334,28 @@ export default function App() {
     setEditingTabId('');
   }
 
+  function renderTabIcon(tab: Tab): React.ReactNode {
+    const icon = tabFavicons[tab.id];
+    return <span className={`tab-favicon ${tab.loading ? 'is-loading' : ''}`}>{tab.loading ? <LoaderCircle className="ui-icon" size={14} aria-hidden="true" /> : icon ? <img src={icon} alt="" onError={() => setTabFavicons(current => { const next = { ...current }; delete next[tab.id]; return next; })} /> : tab.url ? <Globe2 className="ui-icon" size={14} aria-hidden="true" /> : <Sparkles className="ui-icon" size={14} aria-hidden="true" />}</span>;
+  }
+
+  // Same menu as the full-width rows, opened to the right of the narrow rail.
+  function openRailContextMenu(event: React.MouseEvent, id: string, type: 'tab' | 'folder') {
+    event.preventDefault();
+    setTabGroupPickerOpen(false);
+    setTabContextMenu({ id, type, x: Math.min(event.clientX + 8, window.innerWidth - tabContextMenuWidth - 8), y: Math.min(event.clientY, window.innerHeight - 90) });
+  }
+
+  function renderRailItem({ node }: FlatNode<TabNode>): React.ReactNode {
+    if (node.type === 'folder') {
+      return <button key={node.id} type="button" className="rail-button" title={node.title} aria-label={`${node.collapsed ? 'Expand' : 'Collapse'} folder ${node.title}`} onClick={() => toggleTabFolder(node.id)} onContextMenu={event => openRailContextMenu(event, node.id, 'folder')}><Folder className="ui-icon" size={16} aria-hidden="true" /></button>;
+    }
+    const tab = tabs.find(item => item.id === node.id);
+    if (!tab) return null;
+    const title = tabNameOverrides[tab.id] || tab.title || 'New Tab';
+    return <button key={node.id} type="button" className={`rail-button ${tab.id === activeTabId ? 'selected' : ''}`} title={title} aria-label={title} aria-current={tab.id === activeTabId ? 'page' : undefined} onClick={() => void selectTab(tab.id)} onContextMenu={event => openRailContextMenu(event, tab.id, 'tab')}>{renderTabIcon(tab)}</button>;
+  }
+
   function renderTabRow({ node, depth }: FlatNode<TabNode>): React.ReactNode {
     const dropZone = tabDropTarget?.overId === node.id ? tabDropTarget.zone : undefined;
     const stopDrag = (event: React.PointerEvent) => event.stopPropagation();
@@ -1363,7 +1385,6 @@ export default function App() {
     const tab = tabs.find(item => item.id === node.id);
     if (!tab) return null;
     const title = tabNameOverrides[tab.id] || tab.title || 'New Tab';
-    const icon = tabFavicons[tab.id];
     return <SortableRow
       key={node.id}
       id={node.id}
@@ -1377,7 +1398,7 @@ export default function App() {
       onContextMenu={event => { event.preventDefault(); setTabGroupPickerOpen(false); setTabContextMenu({ id: tab.id, type: 'tab', x: Math.max(8, Math.min(event.clientX, sidebarWidth - tabContextMenuWidth - 8)), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
     >
       <div className={`tab-row ${tab.id === activeTabId ? 'selected' : ''}`} style={{ paddingLeft: depth * 14 }} data-tab-id={tab.id} onClick={() => void selectTab(tab.id)}>
-        <span className={`tab-favicon ${tab.loading ? 'is-loading' : ''}`}>{tab.loading ? <LoaderCircle className="ui-icon" size={14} aria-hidden="true" /> : icon ? <img src={icon} alt="" onError={() => setTabFavicons(current => { const next = { ...current }; delete next[tab.id]; return next; })} /> : tab.url ? <Globe2 className="ui-icon" size={14} aria-hidden="true" /> : <Sparkles className="ui-icon" size={14} aria-hidden="true" />}</span>
+        {renderTabIcon(tab)}
         {editingTabId === tab.id
           ? <AppInput className="tab-rename-input" aria-label="Tab name" value={tabNameDraft} autoFocus onPointerDown={stopDrag} onClick={event => event.stopPropagation()} onChange={event => setTabNameDraft(event.target.value)} onBlur={() => saveTabName(tab.id)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveTabName(tab.id); } if (event.key === 'Escape') { setEditingTabId(''); } }} />
           : <span className="tab-title">{title}</span>}
@@ -1426,6 +1447,11 @@ export default function App() {
           <span className="brand-name">Unky</span>
           <AppButton className="sidebar-collapse-button" type="button" aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!sidebarCollapsed} aria-controls="sidebar-content" onClick={() => setSidebarCollapsed(collapsed => !collapsed)}>{sidebarCollapsed ? <PanelLeftOpen className="ui-icon" size={16} aria-hidden="true" /> : <PanelLeftClose className="ui-icon" size={16} aria-hidden="true" />}</AppButton>
         </div>
+        {sidebarCollapsed && <div className="sidebar-rail">
+          <button type="button" className="rail-button" title={`New tab (${commandKey}+T)`} aria-label="New tab" onClick={() => void createTab()}><Plus className="ui-icon" size={16} aria-hidden="true" /></button>
+          <div className="rail-tabs">{visibleTabRows.map(renderRailItem)}</div>
+          <button type="button" className="rail-button" title="Toggle developer console" aria-label="Toggle developer console" onClick={() => void invoke('toggle_devtools').catch(error => setMessage(String(error)))}><Terminal className="ui-icon" size={16} aria-hidden="true" /></button>
+        </div>}
         <div className="sidebar-content" id="sidebar-content">
         <Tabs className="sidebar-tabs" selectedKey={sidebarView} onSelectionChange={key => setSidebarView(key as typeof sidebarView)}>
           <TabList className="sidebar-switcher" aria-label="Sidebar views">
@@ -1435,6 +1461,10 @@ export default function App() {
           <TabPanels className="sidebar-panels">
           <TabPanel id={sidebarView} className="sidebar-panel">
         {sidebarView === 'tabs' ? <>
+        <div className="bookmark-toolbar tab-toolbar">
+          <AppButton className="new-folder-button" title={`New tab (${commandKey}+T)`} onClick={() => void createTab()}><Plus className="ui-icon" size={14} aria-hidden="true" /> Tab</AppButton>
+          <AppButton className="new-folder-button" title="Create tab folder" aria-label="Create tab folder" onClick={createTabFolder}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
+        </div>
         <DndContext sensors={tabSensors} collisionDetection={closestCenter} onDragStart={handleTabDragStart} onDragMove={handleTabDragMove} onDragEnd={handleTabDragEnd} onDragCancel={() => finishTabDrag(true)}>
           <div className={`tab-list tab-tree ${tabDragOrigin ? 'is-dragging' : ''}`} role="tree" aria-label="Open tabs">
             <SortableContext items={visibleTabRows.map(row => row.node.id)} strategy={() => null}>
@@ -1443,10 +1473,6 @@ export default function App() {
           </div>
           <DragOverlay dropAnimation={null}>{draggedTabNode ? <div className="bookmark-drag-overlay">{draggedTabNode.type === 'folder' ? <Folder className="ui-icon" size={14} aria-hidden="true" /> : <Globe2 className="ui-icon" size={14} aria-hidden="true" />}<span>{draggedTabNode.type === 'folder' ? draggedTabNode.title : tabNameOverrides[draggedTabNode.id] || tabs.find(item => item.id === draggedTabNode.id)?.title || 'New Tab'}</span></div> : null}</DragOverlay>
         </DndContext>
-        <div className="tab-actions">
-          <AppButton className="new-tab" onClick={() => void createTab()}><Plus className="ui-icon" size={16} aria-hidden="true" /> New tab <kbd>{commandKey} T</kbd></AppButton>
-          <AppButton className="new-tab-folder" title="Create tab folder" aria-label="Create tab folder" onClick={createTabFolder}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
-        </div>
         <div className="tab-actions">
           <AppButton className="new-tab" title={`New private tab (${commandKey}+Shift+N)`} onClick={() => void createTab(true)}><EyeOff className="ui-icon" size={16} aria-hidden="true" /> New private tab</AppButton>
         </div>
@@ -1474,10 +1500,13 @@ export default function App() {
           </TabPanel>
           </TabPanels>
         </Tabs>
+        </div>
         {tabContextMenu && <>
           <div className="sidebar-context-dismiss" onClick={() => setTabContextMenu(null)} />
           <div className="sidebar-context-menu" style={{ left: tabContextMenu.x, top: tabContextMenu.y, width: tabContextMenu.type === 'tab' ? tabContextMenuWidth : undefined }} role="menu">
             <AppButton role="menuitem" onClick={() => {
+              // The rename field lives in the full tab list, so open it first from the icon rail.
+              if (sidebarCollapsed) { setSidebarCollapsed(false); setSidebarView('tabs'); }
               if (tabContextMenu.type === 'tab') {
                 const tab = tabs.find(item => item.id === tabContextMenu.id);
                 setTabNameDraft(tabNameOverrides[tabContextMenu.id] || tab?.title || '');
@@ -1524,7 +1553,6 @@ export default function App() {
             {tabContextMenu.type === 'folder' && <AppButton role="menuitem" onClick={() => { deleteTabFolder(tabContextMenu.id); setTabContextMenu(null); }}>Delete folder</AppButton>}
           </div>
         </>}
-        </div>
         <div className={`sidebar-sizer ${resizingSidebar ? 'dragging' : ''}`} role="separator" aria-label="Resize tab sidebar" aria-orientation="vertical" aria-valuemin={sidebarMinWidth} aria-valuemax={sidebarMaxWidth} aria-valuenow={Math.round(sidebarWidth)} tabIndex={0} data-sidebar-sizer onPointerDown={event => { event.preventDefault(); setResizingSidebar(true); }} onDoubleClick={() => { setSidebarWidth(sidebarDefaultWidth); localStorage.removeItem('browser.sidebarWidth'); }} />
       </aside>
 

@@ -2436,6 +2436,36 @@ fn set_tab_dragging(
     position_tabs(&app, &state)
 }
 
+/// Toggle the web inspector of the window's active page.
+#[tauri::command]
+fn toggle_devtools(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Developer tools are only available to browser windows".into());
+    }
+    let owner_window = browser_window_for_ui(webview.label()).to_string();
+    let tab_id = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .iter()
+        .find(|tab| tab.window_label == owner_window && tab.active)
+        .map(|tab| tab.id.clone())
+        .ok_or("The browser window has no active tab")?;
+    let page = app
+        .get_webview(&page_label(&tab_id))
+        .ok_or("The active tab has no page to inspect")?;
+    if page.is_devtools_open() {
+        page.close_devtools();
+    } else {
+        page.open_devtools();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn get_split_tabs(
     webview: tauri::Webview,
@@ -3376,6 +3406,7 @@ pub fn run() {
         set_filter_site_exception,
         update_filter_list,
         set_tab_dragging,
+        toggle_devtools,
         get_split_tabs,
         split_tab,
         clear_tab_split,
@@ -3422,6 +3453,7 @@ pub fn run() {
         set_filter_site_exception,
         update_filter_list,
         set_tab_dragging,
+        toggle_devtools,
         get_split_tabs,
         split_tab,
         clear_tab_split,
@@ -3466,6 +3498,7 @@ pub fn run() {
         set_filter_site_exception,
         update_filter_list,
         set_tab_dragging,
+        toggle_devtools,
         get_split_tabs,
         split_tab,
         clear_tab_split,
