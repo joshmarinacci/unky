@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "check": "npm run build && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
     "preview": "vite preview",
+    "clean": "rm -rf dist test-results node_modules/.tmp && cargo clean",
     "tauri": "tauri",
     "tauri-release": "npm run tauri -- build --bundles dmg",
     "build:installer": "npm run tauri -- build --bundles nsis",

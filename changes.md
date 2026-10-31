@@ -5,3 +5,7 @@
 ## 2026-10-31 10:37
 
 - Stopped tracking generated `src-tauri/gen/schemas/` and ignored it, along with `.idea/`.
+
+## 2026-10-31 10:38
+
+- Added `npm run clean`: removes `dist`, `test-results`, TypeScript build info (`node_modules/.tmp`) and runs `cargo clean`. Leaves `node_modules` installed.
