@@ -8,6 +8,7 @@
     "allow-desktop-test-inspect-page",
     "allow-desktop-test-inspect-tab-drag-overlay",
     "allow-desktop-test-browser-ui",
+    "allow-desktop-test-new-window",
     "wdio:default",
     "wdio-webdriver:default"
   ]

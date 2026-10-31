@@ -499,6 +499,24 @@ fn open_url_in_new_tab(
     position_tabs(app, state)
 }
 
+fn route_webview_new_window_request(
+    app: &tauri::AppHandle,
+    state: &BrowserState,
+    source_tab_id: &str,
+    url: &str,
+) -> Result<String, String> {
+    let (private, owner_window) = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .iter()
+        .find(|tab| tab.id == source_tab_id)
+        .map(|tab| (tab.private, tab.window_label.clone()))
+        .ok_or("The source tab no longer exists")?;
+    open_url_in_new_tab(app, state, url, private, &owner_window)?;
+    Ok(owner_window)
+}
+
 fn validated_session_tab(tab: SessionTab) -> Option<SessionTab> {
     let url = if tab.url.is_empty() {
         String::new()
@@ -964,6 +982,23 @@ async fn desktop_test_browser_ui(
     Ok(value)
 }
 
+/// Exercise app-tab routing for a website's new-window request.
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+#[tauri::command]
+fn desktop_test_request_new_window(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    tab_id: String,
+    url: String,
+) -> Result<String, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Desktop UI controls are only available to the trusted browser UI".into());
+    }
+    allowed_navigation_url(&url)?;
+    route_webview_new_window_request(&app, &state, &tab_id, &url)
+}
+
 fn create_page_webview(
     app: &tauri::AppHandle,
     state: &BrowserState,
@@ -1153,7 +1188,24 @@ fn create_page_webview(
                 }
             }
         })
-        .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Deny)
+        .on_new_window({
+            let new_window_app = app.clone();
+            let new_window_state = (*state).clone();
+            let new_window_tab_id = navigation_tab_id.clone();
+            move |url, _features| {
+                if let Err(error) = route_webview_new_window_request(
+                    &new_window_app,
+                    &new_window_state,
+                    &new_window_tab_id,
+                    url.as_str(),
+                ) {
+                    eprintln!("could not route the requested link to a new browser tab: {error}");
+                }
+                // The browser creates a tab in its current app shell. Deny WebKit's
+                // unmanaged popup after routing the request into that tab.
+                tauri::webview::NewWindowResponse::Deny
+            }
+        })
         .on_download(move |_webview, event| match event {
             tauri::webview::DownloadEvent::Requested { url, destination } => {
                 let directory = download_directory(&download_app);
@@ -3563,7 +3615,8 @@ pub fn run() {
         reopen_closed_tab,
         desktop_test_inspect_page,
         desktop_test_inspect_tab_drag_overlay,
-        desktop_test_browser_ui
+        desktop_test_browser_ui,
+        desktop_test_request_new_window
     ]);
     #[cfg(all(not(feature = "macos-session-test"), not(feature = "desktop-test")))]
     let builder = builder.invoke_handler(tauri::generate_handler![

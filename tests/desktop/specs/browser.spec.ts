@@ -168,6 +168,44 @@ describe('native Tauri browser', () => {
     }, { timeout: 5000, timeoutMsg: 'The context-menu test should restore the initial one-tab browser state' });
   });
 
+  it('routes website new-window links into tabs in the current browser window', async () => {
+    const privateSource = await invoke('create_tab', { private: true }) as { activeTabId: string; tabs: Array<{ id: string; windowLabel: string }> };
+    await invoke('navigate', { tabId: privateSource.activeTabId, url: 'http://127.0.0.1:4179/' });
+    await browser.waitUntil(async () => {
+      const page = await inspect(privateSource.activeTabId);
+      return page.url === 'http://127.0.0.1:4179/' && page.readyState === 'complete';
+    }, { timeout: 15000, timeoutMsg: 'The private source page did not load' });
+    const source = await inspect(privateSource.activeTabId);
+    assert.match(source.dom, /data-testid="open-new-window"/);
+    const sourceWindowLabel = source.browser.tabs.find((tab: { id: string }) => tab.id === privateSource.activeTabId)?.windowLabel;
+    assert.ok(sourceWindowLabel);
+    const sourceTabCount = source.browser.tabs.length;
+    const url = 'http://127.0.0.1:4179/two?source=new-window';
+    const ownerWindowLabel = await invoke('desktop_test_request_new_window', { tabId: privateSource.activeTabId, url }) as string;
+
+    let newWindowTab: { id: string; windowLabel: string; private: boolean } | undefined;
+    await browser.waitUntil(async () => {
+      const page = await inspect(privateSource.activeTabId);
+      newWindowTab = page.browser.tabs.find((tab: { id: string; url: string; windowLabel: string; private: boolean }) =>
+        tab.url === url && tab.windowLabel === ownerWindowLabel);
+      return Boolean(newWindowTab && page.browser.tabs.length === sourceTabCount + 1);
+    }, { timeout: 10000, timeoutMsg: 'The WebKit new-window request did not create a tab in the current browser window' });
+    assert.ok(newWindowTab);
+    await browser.waitUntil(async () => {
+      const page = await inspect(newWindowTab!.id);
+      return page.url === url && page.readyState === 'complete' && page.text.includes('Fixture Page Two');
+    }, { timeout: 15000, timeoutMsg: 'The link in the new tab did not load' });
+    assert.equal(newWindowTab.private, true, 'the new tab should preserve its private source tab mode');
+    assert.equal(newWindowTab.windowLabel, sourceWindowLabel, 'the new tab should stay in the source browser window');
+
+    await invoke('close_tab', { tabId: newWindowTab.id });
+    await browser.waitUntil(async () => {
+      const page = await inspect(privateSource.activeTabId);
+      return page.browser.tabs.length === sourceTabCount && !page.browser.tabs.some((tab: { id: string }) => tab.id === newWindowTab!.id);
+    }, { timeout: 5000, timeoutMsg: 'The tab opened from the WebKit menu did not close cleanly' });
+    await invoke('close_tab', { tabId: privateSource.activeTabId });
+  });
+
   it('loads a child WebView, navigates, switches tabs, and captures the native window', async () => {
     await browser.waitUntil(async () => {
       const page = await inspect('tab-1');
