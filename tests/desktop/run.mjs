@@ -50,7 +50,7 @@ await new Promise((resolveReady, reject) => {
 
 let code = 1;
 try {
-  const child = spawn('npx', ['wdio', 'run', 'tests/desktop/wdio.conf.ts'], {
+  const child = spawn('npx', ['wdio', 'run', 'tests/desktop/wdio.conf.ts', ...process.argv.slice(2)], {
     cwd: root,
     env: {
       ...process.env,

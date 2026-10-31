@@ -455,6 +455,20 @@ export default function App() {
   const faviconRequests = useRef(new Set<string>());
   const sessionTestStarted = useRef(false);
   const activeTab = tabs.find(tab => tab.id === activeTabId);
+  const splitStartPageStyle: React.CSSProperties | undefined = (() => {
+    if (!activeTab || activeTab.url || !splitLayout) return undefined;
+    const blankIsFirst = splitLayout.firstTabId === activeTab.id;
+    if (!blankIsFirst && splitLayout.secondTabId !== activeTab.id) return undefined;
+    const first = splitLayout.firstPanePercent / 100;
+    if (splitLayout.orientation === 'horizontal') {
+      return blankIsFirst
+        ? { left: 0, top: 0, width: `calc((100% - 6px) * ${first})`, height: '100%' }
+        : { left: `calc((100% - 6px) * ${first} + 6px)`, top: 0, width: `calc((100% - 6px) * ${1 - first})`, height: '100%' };
+    }
+    return blankIsFirst
+      ? { left: 0, top: 0, width: '100%', height: `calc((100% - 6px) * ${first})` }
+      : { left: 0, top: `calc((100% - 6px) * ${first} + 6px)`, width: '100%', height: `calc((100% - 6px) * ${1 - first})` };
+  })();
   const activeTabTitle = activeTab ? tabNameOverrides[activeTab.id] || activeTab.title : '';
   useEffect(() => {
     if (!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return;
@@ -467,6 +481,17 @@ export default function App() {
   })();
   const historyPageOpen = historyTabIds.includes(activeTabId);
   const tabContextMenuWidth = Math.min(200, sidebarWidth - 16);
+  useEffect(() => {
+    if (import.meta.env.MODE !== 'desktop-test') return;
+    const testWindow = window as typeof window & { __myBrowserTestOpenTabContextMenu?: (tabId: string) => void };
+    const openTestContextMenu = (tabId: string) => {
+      if (!tabId) return;
+      setTabGroupPickerOpen(false);
+      setTabContextMenu({ id: tabId, type: 'tab', x: Math.max(8, Math.min(100, sidebarWidth - tabContextMenuWidth - 8)), y: 100 });
+    };
+    testWindow.__myBrowserTestOpenTabContextMenu = openTestContextMenu;
+    return () => { delete testWindow.__myBrowserTestOpenTabContextMenu; };
+  }, [sidebarWidth, tabContextMenuWidth]);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
   useEffect(() => () => { void externalBrowserMenuRef.current?.close(); }, []);
   const tabSensors = useSensors(
@@ -967,27 +992,19 @@ export default function App() {
     finally { setFilterBusy(false); }
   }
 
-  function findSplitCompanion(tabId: string) {
-    const tabOrder = flattenTabIds(tabNodesRef.current);
-    const sourceIndex = tabOrder.indexOf(tabId);
-    const candidates = sourceIndex < 0
-      ? tabOrder
-      : [...tabOrder.slice(sourceIndex + 1), ...tabOrder.slice(0, sourceIndex).reverse()];
-    return candidates
-      .map(id => tabsRef.current.find(tab => tab.id === id))
-      .find(tab => tab && tab.id !== tabId && tab.url && !tab.loading)?.id;
-  }
-
   async function dropTabIntoSplit(side: 'left' | 'right' | 'top' | 'bottom', draggedTabId = draggingTabId, targetTabId = activeTabIdRef.current) {
     const tabId = draggedTabId;
-    const targetId = tabId === targetTabId
-      ? findSplitCompanion(tabId)
-      : targetTabId;
-    if (!tabId || !targetId) {
-      setMessage('Open another loaded tab to create a split view.');
+    if (!tabId) {
+      setMessage('Choose a loaded tab to create a split view.');
       return;
     }
     try {
+      let targetId = targetTabId;
+      if (tabId === targetTabId) {
+        const snapshot = await invoke<BrowserSnapshot>('create_tab');
+        applySnapshot(snapshot);
+        targetId = snapshot.activeTabId;
+      }
       await invoke('split_tab', { tabId, targetTabId: targetId, side });
       const firstTabId = side === 'left' || side === 'top' ? tabId : targetId;
       setSplitLayout({
@@ -1027,6 +1044,16 @@ export default function App() {
   async function closeTab(id: string) {
     try { applySnapshot(await invoke<BrowserSnapshot>('close_tab', { tabId: id })); }
     catch (error) { setMessage(String(error)); }
+  }
+
+  async function duplicateTab(id: string) {
+    const source = tabsRef.current.find(tab => tab.id === id);
+    if (!source) return;
+    try {
+      const snapshot = await invoke<BrowserSnapshot>('create_tab', { private: source.private });
+      applySnapshot(snapshot);
+      if (source.url) await invoke('navigate', { tabId: snapshot.activeTabId, url: source.url });
+    } catch (error) { setMessage(String(error)); }
   }
 
   async function reopenClosedTab() {
@@ -1523,11 +1550,20 @@ export default function App() {
               void showExternalBrowsers(id, { x, y });
             }}>Open in another browser…</AppButton>}
             {tabContextMenu.type === 'tab' && <>
-              {(['left', 'right', 'top', 'bottom'] as const).map(side => <AppButton key={side} role="menuitem" disabled={tabContextMenu.id === activeTabIdRef.current || !tabs.find(tab => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)} onClick={() => {
+              <AppButton role="menuitem" onClick={() => {
                 const tabId = tabContextMenu.id;
                 setTabContextMenu(null);
-                void dropTabIntoSplit(side, tabId);
+                void duplicateTab(tabId);
+              }}>Duplicate tab</AppButton>
+              {(['left', 'right', 'top', 'bottom'] as const).map(side => <AppButton key={side} role="menuitem" disabled={!tabs.find(tab => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)} onClick={() => {
+                const tabId = tabContextMenu.id;
+                setTabContextMenu(null);
+                void dropTabIntoSplit(side, tabId, tabId === activeTabIdRef.current ? tabId : activeTabIdRef.current);
               }}>Split {side}</AppButton>)}
+              {splitLayout && (splitLayout.firstTabId === tabContextMenu.id || splitLayout.secondTabId === tabContextMenu.id) && <AppButton role="menuitem" onClick={() => {
+                setTabContextMenu(null);
+                void closeSplitView();
+              }}>Unsplit from other tab</AppButton>}
               <AppButton role="menuitem" disabled={!tabs.find(tab => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)} onClick={() => {
                 const tab = tabs.find(item => item.id === tabContextMenu.id);
                 if (tab) void invoke('reload', { tabId: tab.id }).catch(error => setMessage(String(error)));
@@ -1543,6 +1579,11 @@ export default function App() {
                   await invoke('navigate', { tabId: snapshot.activeTabId, url: tab.url });
                 } catch (error) { setMessage(String(error)); }
               }}>Reload in private tab</AppButton>
+              <AppButton role="menuitem" onClick={() => {
+                const tabId = tabContextMenu.id;
+                setTabContextMenu(null);
+                void closeTab(tabId);
+              }}>Close tab</AppButton>
               <AppButton role="menuitem" aria-haspopup="menu" aria-expanded={tabGroupPickerOpen} disabled={tabFolders(tabNodes).length === 0} onClick={() => setTabGroupPickerOpen(open => !open)}>Move tab to group…</AppButton>
               {tabGroupPickerOpen && tabFolders(tabNodes).map(folder => <AppButton key={folder.id} role="menuitem" className="context-submenu-item" onClick={() => {
                 moveTabNode(tabContextMenu.id, undefined, folder.id);
@@ -1647,7 +1688,7 @@ export default function App() {
                 {history.length > 0 && !history.some(item => `${item.title} ${item.url}`.toLowerCase().includes(historySearch.trim().toLowerCase())) && <p className="history-empty">No matching pages.</p>}
               </div>
             </div>
-          </section> : (!activeTab?.url || !isTauri) && <div className="start-page">
+          </section> : (!activeTab?.url || !isTauri) && <div className={`start-page${splitStartPageStyle ? ' start-page-in-split' : ''}`} style={splitStartPageStyle}>
             <div className="start-orb"><Sparkles className="ui-icon" size={28} aria-hidden="true" /></div>
             <p className="eyebrow">A CLEARER PLACE TO BROWSE</p>
             <h1>Where to?</h1>

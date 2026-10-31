@@ -4,6 +4,22 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { captureNativeWindow, inspect, invoke, results } from '../wdio.conf.js';
 
+async function browserUi(action: string, tabId?: string, menuItem?: string) {
+  return invoke('desktop_test_browser_ui', { action, tabId, menuItem });
+}
+
+async function clickTabContextItem(tabId: string, menuItem: string) {
+  await browserUi('open-context-menu', tabId);
+  const initial = await browserUi('inspect') as { menuItems: string[]; tabRows: number; menus: number; hasTestContextMenuBridge: boolean };
+  assert.ok(initial, 'The browser UI test inspector did not return a result');
+  assert.equal(initial.hasTestContextMenuBridge, true, `The context menu test bridge is missing: ${JSON.stringify(initial)}`);
+  await browser.waitUntil(async () => {
+    const state = await browserUi('inspect') as { menuItems: string[] };
+    return state.menuItems.includes(menuItem);
+  }, { timeout: 3000, timeoutMsg: `The ${menuItem} context menu item did not appear (initial UI state: ${JSON.stringify(initial)})` });
+  await browserUi('click-context-item', undefined, menuItem);
+}
+
 describe('native Tauri browser', () => {
   it('forwards a command-line URL into a private tab in the running browser', async () => {
     type Snapshot = { tabs: Array<{ id: string; url: string; private: boolean }> };
@@ -88,6 +104,68 @@ describe('native Tauri browser', () => {
     await invoke('close_tab', { tabId: normalId });
     await invoke('select_tab', { tabId: 'tab-1' });
     writeFileSync(join(results, 'private-storage.json'), JSON.stringify({ privateStorage, saved, history }, null, 2));
+  });
+
+  it('splits from the tab context menu, shows the start page, unsplits, duplicates, and closes tabs', async () => {
+    await browser.waitUntil(async () => {
+      const page = await inspect('tab-1');
+      return page.url === 'http://127.0.0.1:4179/' && page.readyState === 'complete';
+    }, { timeout: 15000, timeoutMsg: 'The starting tab did not load for the context-menu test' });
+    await invoke('select_tab', { tabId: 'tab-1' });
+
+    await clickTabContextItem('tab-1', 'Split right');
+    let companionTabId = '';
+    await browser.waitUntil(async () => {
+      const split = await invoke('get_split_tabs') as { firstTabId: string; secondTabId: string } | null;
+      if (split && split.firstTabId !== 'tab-1' && split.secondTabId === 'tab-1') companionTabId = split.firstTabId;
+      return Boolean(split && split.firstTabId !== 'tab-1' && split.secondTabId === 'tab-1');
+    }, { timeout: 5000, timeoutMsg: 'The active tab context action did not create a start-page companion' });
+    const splitUi = await browserUi('inspect') as { startPage: { text: string; width: number } | null; slot: { width: number } };
+    assert.match(splitUi.startPage?.text ?? '', /Where to\?/);
+    assert.ok(splitUi.startPage!.width < splitUi.slot.width, 'the start page should fit within one split pane');
+
+    await clickTabContextItem('tab-1', 'Unsplit from other tab');
+    assert.equal(await invoke('get_split_tabs'), null, 'the tab context action should remove the split');
+    await clickTabContextItem(companionTabId, 'Close tab');
+    await browser.waitUntil(async () => {
+      const state = await invoke('get_browser_state') as { tabs: Array<{ id: string }> };
+      return !state.tabs.some(tab => tab.id === companionTabId);
+    }, { timeout: 5000, timeoutMsg: 'The start-page companion tab should close after the split test' });
+
+    await clickTabContextItem('tab-1', 'Duplicate tab');
+    let duplicateTabId = '';
+    await browser.waitUntil(async () => {
+      const state = await invoke('get_browser_state') as { tabs: Array<{ id: string; url: string; private: boolean }> };
+      const duplicate = state.tabs.find(tab => tab.id !== 'tab-1' && tab.url === 'http://127.0.0.1:4179/' && !tab.private);
+      duplicateTabId = duplicate?.id ?? '';
+      return Boolean(duplicate);
+    }, { timeout: 5000, timeoutMsg: 'Duplicate tab did not copy the page URL' });
+    await clickTabContextItem(duplicateTabId, 'Close tab');
+    await browser.waitUntil(async () => {
+      const state = await invoke('get_browser_state') as { tabs: Array<{ id: string }> };
+      return !state.tabs.some(tab => tab.id === duplicateTabId);
+    }, { timeout: 5000, timeoutMsg: 'Close tab context action did not remove the tab' });
+
+    const privateTab = await invoke('create_tab', { private: true }) as { activeTabId: string };
+    await invoke('navigate', { tabId: privateTab.activeTabId, url: 'http://127.0.0.1:4179/two' });
+    await browser.waitUntil(async () => {
+      const state = await invoke('get_browser_state') as { tabs: Array<{ id: string; url: string; private: boolean }> };
+      return state.tabs.some(tab => tab.id === privateTab.activeTabId && tab.url === 'http://127.0.0.1:4179/two' && tab.private);
+    }, { timeout: 5000, timeoutMsg: 'The private source tab did not finish navigating' });
+    await clickTabContextItem(privateTab.activeTabId, 'Duplicate tab');
+    let privateDuplicateId = '';
+    await browser.waitUntil(async () => {
+      const state = await invoke('get_browser_state') as { tabs: Array<{ id: string; url: string; private: boolean }> };
+      const duplicate = state.tabs.find(tab => tab.id !== privateTab.activeTabId && tab.url === 'http://127.0.0.1:4179/two' && tab.private);
+      privateDuplicateId = duplicate?.id ?? '';
+      return Boolean(duplicate);
+    }, { timeout: 5000, timeoutMsg: 'A duplicated private tab should keep private mode' });
+    await invoke('close_tab', { tabId: privateDuplicateId });
+    await invoke('close_tab', { tabId: privateTab.activeTabId });
+    await browser.waitUntil(async () => {
+      const state = await invoke('get_browser_state') as { tabs: Array<{ id: string }> };
+      return state.tabs.length === 1 && state.tabs[0].id === 'tab-1';
+    }, { timeout: 5000, timeoutMsg: 'The context-menu test should restore the initial one-tab browser state' });
   });
 
   it('loads a child WebView, navigates, switches tabs, and captures the native window', async () => {
@@ -176,6 +254,19 @@ describe('native Tauri browser', () => {
       firstPanePercent: 50,
     }, 'a split should use its captured target even when the dragged tab became active');
     await invoke('clear_tab_split');
+
+    const blankCompanion = await invoke('create_tab') as Snapshot;
+    const blankTab = blankCompanion.tabs.find(tab => tab.id === blankCompanion.activeTabId)!;
+    assert.equal(blankTab.url, '', 'a new tab should remain blank when created as a split companion');
+    await invoke('split_tab', { tabId: 'tab-1', targetTabId: blankTab.id, side: 'right' });
+    assert.deepEqual(await invoke('get_split_tabs'), {
+      firstTabId: blankTab.id,
+      secondTabId: 'tab-1',
+      orientation: 'horizontal',
+      firstPanePercent: 50,
+    }, 'a loaded tab should split alongside a newly created blank tab');
+    captureNativeWindow('split-with-new-tab.png');
+    await invoke('close_tab', { tabId: blankTab.id });
 
     await invoke('set_tab_dragging', { dragging: true, tabId: 'tab-1', targetTabId: 'tab-1' });
     await invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null, cancelled: true });

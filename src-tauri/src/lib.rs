@@ -894,6 +894,76 @@ fn desktop_test_inspect_tab_drag_overlay(
     }
 }
 
+/// Drive and inspect the trusted browser UI from the debug-only WebDriver host.
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+#[tauri::command]
+async fn desktop_test_browser_ui(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    action: String,
+    tab_id: Option<String>,
+    menu_item: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Desktop UI controls are only available to the trusted browser UI".into());
+    }
+    let ui = app
+        .get_webview("main")
+        .ok_or("The trusted browser UI is unavailable")?;
+    let args = serde_json::json!({ "action": action, "tabId": tab_id, "menuItem": menu_item });
+    let script = format!(
+        r#"JSON.stringify((() => {{
+          const args = {args};
+          if (args.action === 'open-context-menu') {{
+            const row = Array.from(document.querySelectorAll('[data-tab-id]')).find(node => node.dataset.tabId === args.tabId);
+            if (!row) return {{ error: `Tab row ${{args.tabId}} was not found` }};
+            if (typeof window.__myBrowserTestOpenTabContextMenu !== 'function') return {{ error: 'The desktop-test context menu bridge is unavailable' }};
+            window.__myBrowserTestOpenTabContextMenu(args.tabId);
+            return {{ opened: true }};
+          }}
+          if (args.action === 'click-context-item') {{
+            const item = Array.from(document.querySelectorAll('.sidebar-context-menu button')).find(node => node.textContent.trim() === args.menuItem);
+            if (!item) return {{ error: `Context item ${{args.menuItem}} was not found` }};
+            if (item.getAttribute('aria-disabled') === 'true' || item.hasAttribute('disabled')) return {{ error: `Context item ${{args.menuItem}} is disabled` }};
+            const pointer = {{ bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1 }};
+            item.dispatchEvent(new PointerEvent('pointerdown', pointer));
+            item.dispatchEvent(new PointerEvent('pointerup', {{ ...pointer, buttons: 0 }}));
+            item.dispatchEvent(new MouseEvent('click', {{ bubbles: true, cancelable: true, button: 0 }}));
+            return {{ clicked: true }};
+          }}
+          if (args.action === 'inspect') {{
+            const page = document.querySelector('.start-page');
+            const menuItems = Array.from(document.querySelectorAll('.sidebar-context-menu button')).map(node => node.textContent.trim());
+            const hasTestContextMenuBridge = typeof window.__myBrowserTestOpenTabContextMenu === 'function';
+            if (!page) return {{ startPage: null, menuItems, tabRows: document.querySelectorAll('[data-tab-id]').length, menus: document.querySelectorAll('[role="menu"]').length, hasTestContextMenuBridge }};
+            const rect = page.getBoundingClientRect();
+            return {{ startPage: {{ text: page.innerText, left: rect.left, top: rect.top, width: rect.width, height: rect.height, className: page.className }}, slot: (() => {{ const slot = document.querySelector('.webview-slot').getBoundingClientRect(); return {{ left: slot.left, top: slot.top, width: slot.width, height: slot.height }}; }})(), menuItems, tabRows: document.querySelectorAll('[data-tab-id]').length, menus: document.querySelectorAll('[role="menu"]').length, hasTestContextMenuBridge }};
+          }}
+          throw new Error(`Unsupported UI test action ${{args.action}}`);
+        }})())"#,
+        args = args
+    );
+    let (sender, receiver) = std::sync::mpsc::channel();
+    ui.eval_with_callback(&script, move |result| {
+        let _ = sender.send(result);
+    })
+    .map_err(|error| error.to_string())?;
+    let encoded = tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let mut value: serde_json::Value = serde_json::from_str(&encoded).map_err(|error| {
+        format!("Could not decode browser UI test result ({error}); raw result: {encoded:?}")
+    })?;
+    if let Some(json) = value.as_str() {
+        value = serde_json::from_str(json).map_err(|error| error.to_string())?;
+    }
+    Ok(value)
+}
+
 fn create_page_webview(
     app: &tauri::AppHandle,
     state: &BrowserState,
@@ -2533,8 +2603,8 @@ fn split_tab(
         .iter()
         .find(|tab| tab.id == tab_id && tab.window_label == owner_window)
         .ok_or("Choose a different tab in this window")?;
-    if target_id.0 == tab_id || target_id.1 || target.url.is_empty() {
-        return Err("Choose two tabs that both have a loaded page".into());
+    if target_id.0 == tab_id || (target_id.1 && target.url.is_empty()) {
+        return Err("A split requires at least one loaded page".into());
     }
     let target_id = target_id.0;
     let split = if matches!(side.as_str(), "left" | "top") {
@@ -2849,7 +2919,9 @@ fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), Str
             let is_visible = !settings_open.contains(&tab.window_label)
                 && (split_position.is_some() || tab.active)
                 && !tab.url.is_empty();
-            let (position, size) = if let Some((orientation, is_second)) = split_position {
+            let (position, size) = if let Some((orientation, is_second)) =
+                split_position.filter(|_| !tab.url.is_empty())
+            {
                 let gutter = 6.0;
                 let first_percent =
                     split.map_or(50.0, |layout| layout.first_pane_percent as f64 / 100.0);
@@ -3490,7 +3562,8 @@ pub fn run() {
         set_view_bounds,
         reopen_closed_tab,
         desktop_test_inspect_page,
-        desktop_test_inspect_tab_drag_overlay
+        desktop_test_inspect_tab_drag_overlay,
+        desktop_test_browser_ui
     ]);
     #[cfg(all(not(feature = "macos-session-test"), not(feature = "desktop-test")))]
     let builder = builder.invoke_handler(tauri::generate_handler![
