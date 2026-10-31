@@ -43,8 +43,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 .ui-icon { display: block; flex: 0 0 auto; stroke-width: 1.8; }
 
 .browser-shell { display: grid; width: 100vw; height: 100vh; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); background: var(--canvas); }
-.sidebar { position: relative; z-index: 2; display: flex; width: 224px; min-width: 0; flex: 0 0 224px; flex-direction: column; height: 100%; padding: 19px 11px 12px; overflow: hidden; background: var(--sidebar); border-right: 1px solid var(--sidebar-border); }
-.sidebar.collapsed { padding: 19px 9px 12px; }
+.sidebar { position: relative; z-index: 2; display: flex; width: 224px; min-width: 0; flex: 0 0 224px; flex-direction: column; height: 100%; padding: 18px 11px 12px; overflow: hidden; background: var(--sidebar); border-top: 1px solid var(--border); border-right: 1px solid var(--sidebar-border); }
+.sidebar.collapsed { padding: 18px 9px 12px; }
 .sidebar-sizer { position: absolute; z-index: 5; top: 0; right: -3px; bottom: 0; width: 6px; cursor: col-resize; touch-action: none; }
 .sidebar-sizer::after { position: absolute; top: 0; right: 2px; bottom: 0; width: 1px; background: transparent; content: ''; }
 .sidebar-sizer:hover::after, .sidebar-sizer:focus-visible::after, .sidebar-sizer.dragging::after { background: var(--accent); }
@@ -154,7 +154,7 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .sidebar-action span { width: 15px; color: var(--subtle); font-size: 14px; text-align: center; }
 
 .browser-main { position: relative; display: grid; min-width: 0; min-height: 0; grid-template-rows: 64px minmax(0, 1fr); background: var(--canvas); }
-.toolbar { position: relative; z-index: 3; display: flex; height: 64px; flex: 0 0 64px; align-items: center; gap: 15px; padding: 0 19px; border-bottom: 1px solid var(--border); background: var(--sidebar); }
+.toolbar { position: relative; z-index: 3; display: flex; height: 64px; flex: 0 0 64px; align-items: center; gap: 15px; padding: 0 19px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--sidebar); }
 .nav-controls { display: flex; gap: 4px; }
 .icon-button { display: grid; width: 29px; height: 29px; place-items: center; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; }
 .icon-button:hover:not(:disabled), .toolbar-action:hover:not(:disabled) { background: var(--surface-hover); }

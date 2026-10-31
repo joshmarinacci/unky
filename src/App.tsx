@@ -5,6 +5,7 @@ import { AppButton, AppInput } from './components/ui';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Menu } from '@tauri-apps/api/menu';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
 import SortableTreeDemo from './SortableTreeDemo';
 import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent, type DragMoveEvent, type DragStartEvent } from '@dnd-kit/core';
@@ -436,6 +437,12 @@ export default function App() {
   const faviconRequests = useRef(new Set<string>());
   const sessionTestStarted = useRef(false);
   const activeTab = tabs.find(tab => tab.id === activeTabId);
+  const activeTabTitle = activeTab ? tabNameOverrides[activeTab.id] || activeTab.title : '';
+  useEffect(() => {
+    if (!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return;
+    const title = activeTabTitle && activeTabTitle !== 'New Tab' ? `${activeTabTitle} — Unky` : 'Unky';
+    void getCurrentWindow().setTitle(title).catch(error => setMessage(String(error)));
+  }, [activeTabTitle]);
   const activeSiteDomain = (() => {
     try { return activeTab?.url ? new URL(activeTab.url).hostname : ''; }
     catch { return ''; }

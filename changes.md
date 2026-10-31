@@ -45,3 +45,15 @@
 ## 2026-10-31 11:34
 
 - Removed the "Personal / Local profile" area from the bottom of the sidebar (markup, unused `MoreHorizontal` import and its CSS).
+
+## 2026-10-31 11:36
+
+- The window title now follows the selected tab ("Page title — Unky", or just "Unky" for a blank/new tab), per window. Uses the sidebar display title, so renamed tabs show their custom name. Added the `core:window:allow-set-title` permission to the main capability.
+
+## 2026-10-31 11:39
+
+- Added a 1px top border to the toolbar so it separates from the native window title bar (toolbar height is unchanged; borders are inside its fixed 64px).
+
+## 2026-10-31 11:39
+
+- Added the same 1px top border to the sidebar (top padding reduced by 1px so content does not shift).

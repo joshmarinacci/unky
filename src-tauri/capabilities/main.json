@@ -8,6 +8,7 @@
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-set-title",
     "allow-main-browser-commands"
   ]
 }
