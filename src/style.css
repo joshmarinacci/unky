@@ -163,7 +163,7 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .icon-button:disabled, .toolbar-action:disabled { color: var(--subtle); cursor: default; opacity: .7; }
 .address-form { display: flex; height: 35px; min-width: 100px; flex: 1; align-items: center; gap: 9px; padding: 0 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .address-form:focus-within, .find-form:focus-within, .start-search:focus-within { border-color: Highlight; }
-.security-icon { color: var(--muted); font-size: var(--fs-body); }
+.address-form .toolbar-action { width: 26px; height: 26px; flex-basis: 26px; margin: 0 -4px; }
 .address-form input, .start-search input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; font-size: var(--fs-callout); }
 .address-form input:focus-visible, .start-search input:focus-visible { outline: 0; }
 .address-form input::selection { background: Highlight; }
@@ -173,7 +173,6 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .find-form button:hover { background: var(--surface-hover); }
 .find-result { white-space: nowrap; color: var(--muted); font-size: var(--fs-foot); }
 .download-progress { width: 100%; height: 4px; margin-top: 5px; accent-color: var(--accent); }
-.clear-address { display: grid; width: 19px; height: 19px; flex: 0 0 19px; place-items: center; padding: 0; border: 0; border-radius: 50%; color: var(--muted); background: var(--surface-raised); }
 .toolbar-action { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; font-size: 17px; }
 .bookmark-toggle.is-bookmarked { color: var(--accent); }
 .toolbar-action.security-active { background: var(--surface-raised); }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button as AriaButton, ListBox, ListBoxItem, Popover, Select, SelectValue, Tab, TabList, TabPanel, TabPanels, Tabs } from 'react-aria-components';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Columns2, Download, ExternalLink, EyeOff, Folder, FolderPlus, Globe2, LoaderCircle, LockKeyhole, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, Terminal, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Columns2, Download, ExternalLink, EyeOff, Folder, FolderPlus, Globe2, LoaderCircle, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, Terminal, X } from 'lucide-react';
 import { AppButton, AppInput } from './components/ui';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -1564,19 +1564,7 @@ export default function App() {
             <AppButton className="icon-button reload-button" title={activeTab?.loading ? 'Stop loading' : 'Reload'} aria-label={activeTab?.loading ? 'Stop loading' : 'Reload'} onClick={() => void runNavigationCommand(activeTab?.loading ? 'stop_loading' : 'reload')}>{activeTab?.loading ? <X className="ui-icon" size={16} aria-hidden="true" /> : <RotateCw className="ui-icon" size={16} aria-hidden="true" />}</AppButton>
           </div>
           <form className="address-form" onSubmit={navigate}>
-            <span className="security-icon" aria-hidden="true">{activeTab?.url.startsWith('https:') ? <LockKeyhole className="ui-icon" size={13} /> : <Globe2 className="ui-icon" size={13} />}</span>
-            <AppInput ref={addressRef} aria-label="Search or enter address" autoComplete="off" spellCheck={false} placeholder="Search or enter address" value={address} onChange={event => setAddress(event.target.value)} onFocus={event => event.currentTarget.select()} />
-            {activeTab?.url && <AppButton type="button" className="clear-address" title="Clear address" aria-label="Clear address" onClick={() => { setAddress(''); addressRef.current?.focus(); }}><X className="ui-icon" size={13} aria-hidden="true" /></AppButton>}
-          </form>
-          {findOpen ? <form className="find-form" aria-label="Find in page" onSubmit={event => { event.preventDefault(); void findInPage(findQuery); }}>
-            <AppInput ref={findRef} aria-label="Find in page" placeholder="Find in page" value={findQuery} onChange={event => { setFindQuery(event.target.value); setFindMatches(null); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void findInPage(findQuery, event.shiftKey); } }} />
-            {findMatches !== null && <span className="find-result" role="status" aria-live="polite">{findMatches} {findMatches === 1 ? 'match' : 'matches'}</span>}
-            <AppButton type="submit" title="Find next" aria-label="Find next"><ArrowDown className="ui-icon" size={13} aria-hidden="true" /></AppButton><AppButton type="button" title="Find previous" aria-label="Find previous" onClick={() => void findInPage(findQuery, true)}><ArrowUp className="ui-icon" size={13} aria-hidden="true" /></AppButton>
-            <AppButton type="button" title="Close find" aria-label="Close find" onClick={() => { setFindOpen(false); setFindQuery(''); setFindMatches(null); }}><X className="ui-icon" size={13} aria-hidden="true" /></AppButton>
-          </form> : <AppButton className="toolbar-action" title={`Find in page (${commandKey}+F)`} aria-label="Find in page" onClick={openFindPanel}><Search className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
-          <AppButton className={`toolbar-action bookmark-toggle ${currentBookmark ? 'is-bookmarked' : ''}`} title={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-label={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-pressed={Boolean(currentBookmark)} disabled={!activeTab?.url} onClick={addCurrentPage}><Star className="ui-icon" size={17} aria-hidden="true" fill={currentBookmark ? 'currentColor' : 'none'} /></AppButton>
-          <AppButton ref={externalBrowserButtonRef} className="toolbar-action" title="Open in another browser" aria-label="Open in another browser" aria-haspopup="menu" disabled={!isTauri || !activeTab?.url.match(/^https?:\/\//)} onClick={() => void showExternalBrowsers()}><ExternalLink className="ui-icon" size={17} aria-hidden="true" /></AppButton>
-          <AppButton ref={securityButtonRef} className={`toolbar-action ${securityOpen ? 'security-active' : ''}`} title="Page security and permissions" aria-label="Page security and permissions" aria-expanded={securityOpen} disabled={!activeTab?.url} onClick={async () => {
+            <AppButton ref={securityButtonRef} className={`toolbar-action ${securityOpen ? 'security-active' : ''}`} title="Page security and permissions" aria-label="Page security and permissions" aria-expanded={securityOpen} disabled={!activeTab?.url} onClick={async () => {
             const rect = securityButtonRef.current?.getBoundingClientRect();
             if (!rect || !activeTab?.url) return;
             const info = securityInfo || { origin: new URL(activeTab.url).origin, secureHttps: activeTab.url.startsWith('https:'), location: 'unknown', camera: 'unknown', microphone: 'unknown', playingAudio: false };
@@ -1587,7 +1575,17 @@ export default function App() {
               setSecurityOpen(shown);
               if (!shown) setSecurityInfo(null);
             } catch (error) { setMessage(String(error)); }
-          }}><Shield className="ui-icon" size={17} aria-hidden="true" /></AppButton>
+          }}><Shield className="ui-icon" size={15} aria-hidden="true" /></AppButton>
+            <AppInput ref={addressRef} aria-label="Search or enter address" autoComplete="off" spellCheck={false} placeholder="Search or enter address" value={address} onChange={event => setAddress(event.target.value)} onFocus={event => event.currentTarget.select()} />
+            <AppButton className={`toolbar-action bookmark-toggle ${currentBookmark ? 'is-bookmarked' : ''}`} title={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-label={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-pressed={Boolean(currentBookmark)} disabled={!activeTab?.url} onClick={addCurrentPage}><Star className="ui-icon" size={15} aria-hidden="true" fill={currentBookmark ? 'currentColor' : 'none'} /></AppButton>
+          </form>
+          {findOpen ? <form className="find-form" aria-label="Find in page" onSubmit={event => { event.preventDefault(); void findInPage(findQuery); }}>
+            <AppInput ref={findRef} aria-label="Find in page" placeholder="Find in page" value={findQuery} onChange={event => { setFindQuery(event.target.value); setFindMatches(null); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void findInPage(findQuery, event.shiftKey); } }} />
+            {findMatches !== null && <span className="find-result" role="status" aria-live="polite">{findMatches} {findMatches === 1 ? 'match' : 'matches'}</span>}
+            <AppButton type="submit" title="Find next" aria-label="Find next"><ArrowDown className="ui-icon" size={13} aria-hidden="true" /></AppButton><AppButton type="button" title="Find previous" aria-label="Find previous" onClick={() => void findInPage(findQuery, true)}><ArrowUp className="ui-icon" size={13} aria-hidden="true" /></AppButton>
+            <AppButton type="button" title="Close find" aria-label="Close find" onClick={() => { setFindOpen(false); setFindQuery(''); setFindMatches(null); }}><X className="ui-icon" size={13} aria-hidden="true" /></AppButton>
+          </form> : <AppButton className="toolbar-action" title={`Find in page (${commandKey}+F)`} aria-label="Find in page" onClick={openFindPanel}><Search className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
+          <AppButton ref={externalBrowserButtonRef} className="toolbar-action" title="Open in another browser" aria-label="Open in another browser" aria-haspopup="menu" disabled={!isTauri || !activeTab?.url.match(/^https?:\/\//)} onClick={() => void showExternalBrowsers()}><ExternalLink className="ui-icon" size={17} aria-hidden="true" /></AppButton>
           {splitLayout && <AppButton className="toolbar-action" title="Close split view" aria-label="Close split view" onClick={() => void closeSplitView()}><Columns2 className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
           <AppButton className="toolbar-action" title="Settings" aria-label="Settings" onClick={() => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); }}><Settings className="ui-icon" size={17} aria-hidden="true" /></AppButton>
           <AppButton className="toolbar-action downloads-trigger" title="Recent downloads" aria-label={`Recent downloads${downloads.length ? `, ${downloads.length} items` : ''}`} aria-haspopup="dialog" aria-expanded={downloadsPopoverOpen} aria-controls="downloads-popover" onClick={() => setDownloadsPopoverOpen(open => !open)}><Download className="ui-icon" size={17} aria-hidden="true" />{downloads.length > 0 && <span className="download-count" aria-hidden="true">{downloads.length > 99 ? '99+' : downloads.length}</span>}</AppButton>

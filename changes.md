@@ -82,3 +82,7 @@
 
 - The context menu now works on the collapsed icon rail and is the same menu as the full-width tabs (rename expands the sidebar first so the inline field is visible; the menu moved out of the sidebar content so it is not hidden while collapsed).
 - Tabs view toolbar: **+ Tab** and **Folder** moved to the top of the tabs list, styled like the bookmarks toolbar. **New private tab** stays at the bottom.
+
+## 2026-10-31 12:06
+
+- Address box: the shield (page security popover) now sits at the left end where the lock/globe indicator was, and the bookmark star at the right end where the clear-address "x" was. The clear button is removed (the address is still selected on focus). Both leave the toolbar.
