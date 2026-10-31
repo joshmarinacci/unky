@@ -98,3 +98,19 @@ test('dropping before/after a row places the item as its sibling', () => {
 test('dropping onto an unknown row fails loudly', () => {
   assert.throws(() => moveBookmarkToDropZone([], 'a', 'missing', 'after', 0, 0), /missing/);
 });
+
+test('the tree helpers also move tab nodes between folders', () => {
+  type TabNode = { id: string; type: 'tab' } | { id: string; type: 'folder'; collapsed: boolean; children: TabNode[] };
+  const nodes: TabNode[] = [
+    { id: 't1', type: 'tab' },
+    { id: 'f', type: 'folder', collapsed: true, children: [{ id: 't2', type: 'tab' }] },
+    { id: 't3', type: 'tab' },
+  ];
+  const nested = moveBookmarkToDropZone(nodes, 't3', 'f', 'inside', 0, 0);
+  assert.equal(nested.parentId, 'f');
+  const folder = nested.nodes[1];
+  assert.equal(folder.type === 'folder' && folder.collapsed, true, 'extra folder fields are preserved');
+  assert.equal(folder.type === 'folder' && folder.children.map(n => n.id).join(), 't2,t3');
+  const reordered = moveBookmarkToDropZone(nodes, 't3', 't1', 'before', 0, 0);
+  assert.deepEqual(reordered.nodes.map(n => n.id), ['t3', 't1', 'f']);
+});

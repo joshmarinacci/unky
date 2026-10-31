@@ -62,3 +62,9 @@
 
 - Toolbar spacing no longer changes below 900px wide (removed the `max-width: 900px` toolbar override), so windowed and full-screen padding match.
 - The macOS titlebar inset used to position website views and the security popover is now read from AppKit (the shell WebView's top safe-area inset) instead of a fixed 20px, so it is the real titlebar height in windowed mode and 0 in full screen (`titlebar_inset` in `lib.rs`; the popover takes it as a parameter). The fixed 20px left the page view overlapping the bottom of the toolbar in windowed mode. The frontend re-reports bounds on resize, so entering/leaving full screen re-applies it.
+
+## 2026-10-31 11:55
+
+- Tabs view now uses dnd-kit like the bookmarks view: a drop indicator (line before/after, highlight for inside a folder), a drag overlay, folders collapse while dragged, collapsed folders auto-expand after 600ms hover, and keyboard dragging (Space to start, Enter selects the tab). Replaces the React Aria Tree and its visible/hidden drag handles; the stale tree CSS is removed.
+- `src/bookmarkTree.ts` helpers are now generic and shared by the bookmark and tab trees.
+- Native tab drag overlay is pointer-driven (dnd-kit does not start a native drag session): it no longer accepts pasteboard drops and ignores mouse hits. `set_tab_dragging` takes an optional `cancelled`; a split or new-window move happens only when the drag ends with the pointer in an overlay zone and was not cancelled.

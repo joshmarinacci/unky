@@ -68,20 +68,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 .sidebar-switcher [role="tab"][data-focus-visible] { outline: 2px solid Highlight; outline-offset: 1px; }
 
 .tab-list, .bookmark-list { display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1; flex-direction: column; gap: 3px; overflow: auto; }
-.tab-tree.react-aria-Tree, .bookmark-tree.react-aria-Tree { width: 100%; max-height: none; outline: none; }
-.react-aria-TreeItem { min-width: 0; outline: none; }
-.react-aria-TreeItemContent { position: relative; min-width: 0; }
-.react-aria-TreeItem[data-focus-visible] > .react-aria-TreeItemContent { outline: 2px solid Highlight; outline-offset: -2px; border-radius: 7px; }
-.react-aria-TreeItem[data-drop-target] > .react-aria-TreeItemContent .tab-folder-row,
-.react-aria-TreeItem[data-drop-target] > .react-aria-TreeItemContent .folder-row { background: color-mix(in srgb, Highlight 12%, transparent); }
-.react-aria-DropIndicator { height: 2px; margin: 1px 3px; }
-.react-aria-DropIndicator[data-drop-target] { background: Highlight; }
-.tab-tree [role="group"], .bookmark-tree [role="group"] { min-width: 0; margin-left: 9px; border-left: 1px solid var(--border); }
 /* Mouse users drag the whole row; the handle stays in the DOM for keyboard and screen-reader drags and is revealed on focus. */
-.tree-drag-slot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.tree-drag-slot:focus-within { position: static; display: flex; width: 24px; height: 28px; flex: 0 0 24px; align-items: center; justify-content: center; overflow: visible; clip-path: none; }
-.tree-drag-handle { display: grid; width: 24px; height: 28px; place-items: center; padding: 0; border: 0; border-radius: 4px; color: var(--muted); background: transparent; font-size: 13px; cursor: grab; }
-.tree-drag-handle:active { cursor: grabbing; }
 .tree-empty-hint { min-width: 0; overflow: hidden; color: var(--subtle); font-size: 9px; font-style: italic; text-overflow: ellipsis; white-space: nowrap; }
 .tab-folder-row, .folder-row { position: relative; display: flex; min-width: 0; min-height: 34px; align-items: center; gap: 5px; padding-right: 6px; border-radius: 6px; color: var(--muted); }
 .tab-folder-row:hover, .folder-row:hover, .bookmark-row:hover { background: var(--surface-hover); }
@@ -135,9 +122,12 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .bookmark-dnd-folder:active, .bookmark-dnd-link:active { cursor: grabbing; }
 .bookmark-dnd-folder .folder-toggle, .bookmark-dnd-item button { touch-action: manipulation; }
 .bookmark-dnd-list.is-dragging .bookmark-sortable-item { user-select: none; }
-.bookmark-sortable-item.drop-before { box-shadow: inset 0 2px 0 Highlight; }
-.bookmark-sortable-item.drop-after { box-shadow: inset 0 -2px 0 Highlight; }
-.bookmark-sortable-item.drop-inside > .folder-row { background: color-mix(in srgb, Highlight 18%, transparent); outline: 1px solid Highlight; outline-offset: -1px; }
+.bookmark-sortable-item.drop-before, .tab-sortable-item.drop-before { box-shadow: inset 0 2px 0 Highlight; }
+.bookmark-sortable-item.drop-after, .tab-sortable-item.drop-after { box-shadow: inset 0 -2px 0 Highlight; }
+.tab-sortable-item { min-width: 0; outline: none; touch-action: none; }
+.tab-sortable-item:focus-visible > .tab-row, .tab-sortable-item:focus-visible > .tab-folder-row { outline: 2px solid Highlight; outline-offset: -2px; border-radius: 7px; }
+.tab-tree.is-dragging .tab-sortable-item { user-select: none; }
+.tab-sortable-item.drop-inside > .tab-folder-row, .bookmark-sortable-item.drop-inside > .folder-row { background: color-mix(in srgb, Highlight 18%, transparent); outline: 1px solid Highlight; outline-offset: -1px; }
 .bookmark-drag-overlay { display: flex; max-width: 100%; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface-raised); box-shadow: 0 4px 14px rgb(0 0 0 / 22%); font-size: 12px; cursor: grabbing; }
 .bookmark-drag-overlay span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bookmark-row { display: flex; min-width: 0; align-items: center; border-radius: 6px; }

@@ -2,11 +2,8 @@
 
 use block2::{DynBlock, RcBlock};
 use objc2::{define_class, msg_send, rc::Retained, DefinedClass, MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{
-    NSBezierPath, NSColor, NSDragOperation, NSDraggingDestination, NSDraggingInfo, NSEvent,
-    NSPasteboardTypeString, NSView,
-};
-use objc2_foundation::{NSArray, NSObjectProtocol, NSPoint, NSRect, NSSize, NSTimer};
+use objc2_app_kit::{NSBezierPath, NSColor, NSEvent, NSView};
+use objc2_foundation::{NSObjectProtocol, NSPoint, NSRect, NSSize, NSTimer};
 use std::cell::{Cell, RefCell};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +59,10 @@ define_class!(
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool { true }
 
+        // Pointer events must keep reaching the tab list that started the drag.
+        #[unsafe(method(hitTest:))]
+        fn hit_test(&self, _point: NSPoint) -> *mut NSView { std::ptr::null_mut() }
+
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
             let Some(target) = self.ivars().target.get() else { return; };
@@ -83,39 +84,11 @@ define_class!(
     }
 
     unsafe impl NSObjectProtocol for TabDragOverlay {}
-    unsafe impl NSDraggingDestination for TabDragOverlay {
-        #[unsafe(method(draggingEntered:))]
-        fn dragging_entered(&self, info: &objc2::runtime::ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
-            update_target(self, info);
-            NSDragOperation::Move
-        }
-
-        #[unsafe(method(draggingUpdated:))]
-        fn dragging_updated(&self, info: &objc2::runtime::ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
-            update_target(self, info);
-            NSDragOperation::Move
-        }
-
-        #[unsafe(method(draggingExited:))]
-        fn dragging_exited(&self, _info: Option<&objc2::runtime::ProtocolObject<dyn NSDraggingInfo>>) {
-            self.ivars().target.set(None);
-            self.setNeedsDisplay(true);
-        }
-
-        #[unsafe(method(performDragOperation:))]
-        fn perform_drag_operation(&self, info: &objc2::runtime::ProtocolObject<dyn NSDraggingInfo>) -> bool {
-            update_target(self, info);
-            let target = self.ivars().target.get();
-            COMPLETED_TARGET.with(|completed| completed.set(target));
-            target.is_some()
-        }
-    }
 );
 
 thread_local! {
     static OVERLAY: RefCell<Option<Retained<TabDragOverlay>>> = const { RefCell::new(None) };
     static POINTER_TRACKER: RefCell<Option<Retained<NSTimer>>> = const { RefCell::new(None) };
-    static COMPLETED_TARGET: Cell<Option<DropTarget>> = const { Cell::new(None) };
 }
 
 fn target_rect(target: DropTarget, width: f64, height: f64) -> (f64, f64, f64, f64) {
@@ -172,17 +145,6 @@ fn target_at(point: NSPoint, width: f64, height: f64) -> Option<DropTarget> {
         .map(|(_, target)| target)
 }
 
-fn update_target(view: &TabDragOverlay, info: &objc2::runtime::ProtocolObject<dyn NSDraggingInfo>) {
-    let window_point = info.draggingLocation();
-    let point = view.convertPoint_fromView(window_point, None);
-    let bounds = view.bounds();
-    let target = target_at(point, bounds.size.width, bounds.size.height);
-    if view.ivars().target.get() != target {
-        view.ivars().target.set(target);
-        view.setNeedsDisplay(true);
-    }
-}
-
 fn update_target_from_pointer(view: &TabDragOverlay) {
     let Some(window) = view.window() else {
         return;
@@ -221,7 +183,6 @@ fn start_pointer_tracker(overlay: &Retained<TabDragOverlay>) {
 
 /// Display and register an overlay over the native website view.
 pub unsafe fn show(view: &NSView, mtm: MainThreadMarker) -> bool {
-    COMPLETED_TARGET.with(|target| target.set(None));
     let Some(parent) = view.superview() else {
         return false;
     };
@@ -229,7 +190,6 @@ pub unsafe fn show(view: &NSView, mtm: MainThreadMarker) -> bool {
     let target = TabDragOverlay::alloc(mtm).set_ivars(OverlayIvars::default());
     let overlay: Retained<TabDragOverlay> = msg_send![super(target), initWithFrame: frame];
     overlay.setAutoresizingMask(view.autoresizingMask());
-    overlay.registerForDraggedTypes(&NSArray::from_slice(&[NSPasteboardTypeString]));
     parent.addSubview(&overlay);
     overlay.setNeedsDisplay(true);
     OVERLAY.with(|slot| *slot.borrow_mut() = Some(overlay.clone()));
@@ -237,21 +197,26 @@ pub unsafe fn show(view: &NSView, mtm: MainThreadMarker) -> bool {
     true
 }
 
-/// Remove the overlay and return the target of a drop that was actually performed on it.
-/// A drag that ended elsewhere (a sidebar reorder, a cancel) returns `None`.
-pub unsafe fn hide() -> Option<DropTarget> {
+/// Remove the overlay and return the zone under the pointer when the drag ended over the page.
+/// A cancelled drag, or one that ended over the sidebar or the page center, returns `None`.
+pub unsafe fn hide(cancelled: bool) -> Option<DropTarget> {
     POINTER_TRACKER.with(|slot| {
         if let Some(timer) = slot.borrow_mut().take() {
             timer.invalidate();
         }
     });
-    let completed = COMPLETED_TARGET.with(|target| target.replace(None));
+    let mut dropped = None;
     OVERLAY.with(|slot| {
         if let Some(overlay) = slot.borrow_mut().take() {
+            if !cancelled {
+                // Re-read the pointer so a drop is not decided by a stale timer tick.
+                update_target_from_pointer(&overlay);
+                dropped = overlay.ivars().target.get();
+            }
             overlay.removeFromSuperview();
         }
     });
-    completed
+    dropped
 }
 
 /// Return native overlay state for the debug desktop regression test.

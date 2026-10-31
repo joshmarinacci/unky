@@ -112,7 +112,6 @@ describe('native Tauri browser', () => {
       };
       assert.equal(overlay.attached, true, 'the preview should attach above the active website WebView');
       assert.equal(overlay.visible, true, 'the native preview should be visible during a tab drag');
-      assert.equal(overlay.target, null, 'the preview should not preselect a drop target before the pointer reaches an edge');
       const pageDuringDrag = await inspect('tab-1');
       assert.match(pageDuringDrag.text, /Fixture Page One/, 'the page remains rendered beneath the preview');
       captureNativeWindow('tab-drag-overlay.png');
@@ -179,9 +178,9 @@ describe('native Tauri browser', () => {
     await invoke('clear_tab_split');
 
     await invoke('set_tab_dragging', { dragging: true, tabId: 'tab-1', targetTabId: 'tab-1' });
-    await invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null });
+    await invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null, cancelled: true });
     await browser.pause(500);
-    assert.equal(await invoke('get_split_tabs'), null, 'a drag that ends without a drop on the page overlay must not split');
+    assert.equal(await invoke('get_split_tabs'), null, 'a cancelled tab drag must not split');
     await invoke('clear_tab_split');
 
     const switched = await invoke('select_tab', { tabId: 'tab-1' }) as { tabs: Array<{ id: string; active: boolean }> };

@@ -2319,6 +2319,7 @@ fn set_tab_dragging(
     dragging: bool,
     tab_id: Option<String>,
     target_tab_id: Option<String>,
+    cancelled: Option<bool>,
 ) -> Result<(), String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Tab drag layout is only available to browser windows".into());
@@ -2404,9 +2405,10 @@ fn set_tab_dragging(
             if let Some(target_id) = target_id.as_ref() {
                 if let Some(page) = app.get_webview(&page_label(target_id)) {
                     let (sender, receiver) = std::sync::mpsc::channel();
+                    let cancelled = cancelled.unwrap_or(false);
                     page.with_webview(move |_| {
                         let target = if MainThreadMarker::new().is_some() {
-                            unsafe { platforms::tab_drag_overlay::hide() }
+                            unsafe { platforms::tab_drag_overlay::hide(cancelled) }
                         } else {
                             None
                         };
