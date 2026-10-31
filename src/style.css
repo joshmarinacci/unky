@@ -77,10 +77,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 .react-aria-DropIndicator { height: 2px; margin: 1px 3px; }
 .react-aria-DropIndicator[data-drop-target] { background: Highlight; }
 .tab-tree [role="group"], .bookmark-tree [role="group"] { min-width: 0; margin-left: 9px; border-left: 1px solid var(--border); }
-.tree-drag-slot { display: flex; width: 19px; height: 22px; flex: 0 0 19px; align-items: center; justify-content: center; opacity: 0; }
-.react-aria-TreeItem:hover .tree-drag-slot, .react-aria-TreeItem[data-focus-visible] .tree-drag-slot,
-.react-aria-TreeItem[data-focus-visible-within] .tree-drag-slot, .tree-drag-slot:focus-within { opacity: 1; }
-.tree-drag-handle { display: grid; width: 19px; height: 22px; place-items: center; padding: 0; border: 0; border-radius: 4px; color: var(--muted); background: transparent; font-size: 13px; cursor: grab; }
+/* Mouse users drag the whole row; the handle stays in the DOM for keyboard and screen-reader drags and is revealed on focus. */
+.tree-drag-slot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tree-drag-slot:focus-within { position: static; display: flex; width: 24px; height: 28px; flex: 0 0 24px; align-items: center; justify-content: center; overflow: visible; clip-path: none; }
+.tree-drag-handle { display: grid; width: 24px; height: 28px; place-items: center; padding: 0; border: 0; border-radius: 4px; color: var(--muted); background: transparent; font-size: 13px; cursor: grab; }
 .tree-drag-handle:active { cursor: grabbing; }
 .tree-empty-hint { min-width: 0; overflow: hidden; color: var(--subtle); font-size: 9px; font-style: italic; text-overflow: ellipsis; white-space: nowrap; }
 .tab-folder-row, .folder-row { position: relative; display: flex; min-width: 0; min-height: 34px; align-items: center; gap: 5px; padding-right: 6px; border-radius: 6px; color: var(--muted); }

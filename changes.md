@@ -9,3 +9,14 @@
 ## 2026-10-31 10:38
 
 - Added `npm run clean`: removes `dist`, `test-results`, TypeScript build info (`node_modules/.tmp`) and runs `cargo clean`. Leaves `node_modules` installed.
+
+## 2026-10-31 11:10
+
+- Tab drag fixes: split overlay no longer preselects a target; only the outer 25% edge bands of the page (and the new-window strip) are drop zones, the page center does nothing.
+- The overlay clears its target when the pointer leaves it, and a drag only splits or moves to a new window when it is actually dropped on the overlay (previously the last hovered zone was used, so sidebar reorders/cancels could split).
+- Tab drag handle is always visible (dimmed) and larger (24x28px).
+- Added Rust unit tests for the drop-zone mapping; the desktop spec now asserts no split without a drop.
+
+## 2026-10-31 11:16
+
+- Tab/folder drag handles are now visually hidden (still focusable for keyboard and screen-reader drags, shown on focus); mouse users drag the whole row. Reverts the earlier always-visible handle.

@@ -46,7 +46,7 @@ struct OverlayIvars {
 impl Default for OverlayIvars {
     fn default() -> Self {
         Self {
-            target: Cell::new(Some(DropTarget::Left)),
+            target: Cell::new(None),
         }
     }
 }
@@ -105,8 +105,9 @@ define_class!(
         #[unsafe(method(performDragOperation:))]
         fn perform_drag_operation(&self, info: &objc2::runtime::ProtocolObject<dyn NSDraggingInfo>) -> bool {
             update_target(self, info);
-            COMPLETED_TARGET.with(|target| target.set(self.ivars().target.get()));
-            true
+            let target = self.ivars().target.get();
+            COMPLETED_TARGET.with(|completed| completed.set(target));
+            target.is_some()
         }
     }
 );
@@ -148,18 +149,27 @@ fn target_rect(target: DropTarget, width: f64, height: f64) -> (f64, f64, f64, f
     }
 }
 
-fn target_at(point: NSPoint, width: f64, height: f64) -> DropTarget {
+/// Fraction of the page, measured from each edge, that counts as a split drop zone.
+const EDGE_BAND: f64 = 0.25;
+
+/// Map a pointer position to a drop target. The page center returns `None` so only a
+/// deliberate move to an edge (or the new-window strip) can split or move a tab.
+fn target_at(point: NSPoint, width: f64, height: f64) -> Option<DropTarget> {
     if point.y < 64.0 && point.x > width * 0.30 && point.x < width * 0.70 {
-        DropTarget::NewWindow
-    } else if point.x < width / 2.0 && point.y < height / 2.0 {
-        DropTarget::Left
-    } else if point.y < height / 2.0 {
-        DropTarget::Right
-    } else if point.x < width / 2.0 {
-        DropTarget::Top
-    } else {
-        DropTarget::Bottom
+        return Some(DropTarget::NewWindow);
     }
+    // Normalised distance to each edge; the nearest edge inside its band wins.
+    let edges = [
+        (point.x / width, DropTarget::Left),
+        (1.0 - point.x / width, DropTarget::Right),
+        (point.y / height, DropTarget::Top),
+        (1.0 - point.y / height, DropTarget::Bottom),
+    ];
+    edges
+        .into_iter()
+        .filter(|(distance, _)| *distance < EDGE_BAND)
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, target)| target)
 }
 
 fn update_target(view: &TabDragOverlay, info: &objc2::runtime::ProtocolObject<dyn NSDraggingInfo>) {
@@ -167,8 +177,10 @@ fn update_target(view: &TabDragOverlay, info: &objc2::runtime::ProtocolObject<dy
     let point = view.convertPoint_fromView(window_point, None);
     let bounds = view.bounds();
     let target = target_at(point, bounds.size.width, bounds.size.height);
-    view.ivars().target.set(Some(target));
-    view.setNeedsDisplay(true);
+    if view.ivars().target.get() != target {
+        view.ivars().target.set(target);
+        view.setNeedsDisplay(true);
+    }
 }
 
 fn update_target_from_pointer(view: &TabDragOverlay) {
@@ -183,12 +195,14 @@ fn update_target_from_pointer(view: &TabDragOverlay) {
         && point.y >= 0.0
         && point.x <= bounds.size.width
         && point.y <= bounds.size.height;
-    if is_inside {
-        let target = Some(target_at(point, bounds.size.width, bounds.size.height));
-        if view.ivars().target.get() != target {
-            view.ivars().target.set(target);
-            view.setNeedsDisplay(true);
-        }
+    let target = if is_inside {
+        target_at(point, bounds.size.width, bounds.size.height)
+    } else {
+        None
+    };
+    if view.ivars().target.get() != target {
+        view.ivars().target.set(target);
+        view.setNeedsDisplay(true);
     }
 }
 
@@ -223,7 +237,8 @@ pub unsafe fn show(view: &NSView, mtm: MainThreadMarker) -> bool {
     true
 }
 
-/// Remove the overlay and return the target selected by the completed drag.
+/// Remove the overlay and return the target of a drop that was actually performed on it.
+/// A drag that ended elsewhere (a sidebar reorder, a cancel) returns `None`.
 pub unsafe fn hide() -> Option<DropTarget> {
     POINTER_TRACKER.with(|slot| {
         if let Some(timer) = slot.borrow_mut().take() {
@@ -231,14 +246,12 @@ pub unsafe fn hide() -> Option<DropTarget> {
         }
     });
     let completed = COMPLETED_TARGET.with(|target| target.replace(None));
-    let mut current = None;
     OVERLAY.with(|slot| {
         if let Some(overlay) = slot.borrow_mut().take() {
-            current = overlay.ivars().target.get();
             overlay.removeFromSuperview();
         }
     });
-    completed.or(current)
+    completed
 }
 
 /// Return native overlay state for the debug desktop regression test.
@@ -259,4 +272,35 @@ pub unsafe fn diagnostics() -> OverlayDiagnostics {
             target: overlay.ivars().target.get().map(DropTarget::as_str),
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(x: f64, y: f64) -> Option<DropTarget> {
+        target_at(NSPoint::new(x, y), 1000.0, 800.0)
+    }
+
+    #[test]
+    fn center_of_page_is_not_a_drop_target() {
+        assert_eq!(at(500.0, 400.0), None);
+        assert_eq!(at(300.0, 300.0), None);
+    }
+
+    #[test]
+    fn edge_bands_select_the_nearest_edge() {
+        assert_eq!(at(100.0, 400.0), Some(DropTarget::Left));
+        assert_eq!(at(900.0, 400.0), Some(DropTarget::Right));
+        assert_eq!(at(500.0, 700.0), Some(DropTarget::Bottom));
+        assert_eq!(at(500.0, 150.0), Some(DropTarget::Top));
+        // Corner closer to the left edge than the top edge.
+        assert_eq!(at(20.0, 150.0), Some(DropTarget::Left));
+    }
+
+    #[test]
+    fn new_window_strip_wins_at_top_center() {
+        assert_eq!(at(500.0, 30.0), Some(DropTarget::NewWindow));
+        assert_eq!(at(20.0, 30.0), Some(DropTarget::Left));
+    }
 }

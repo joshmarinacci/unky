@@ -10,7 +10,7 @@
 
 ## Tab splitting and multiple browser windows
 
-- Drag a loaded tab over the page area to show the split targets. Left/right targets split the content horizontally; top/bottom targets split it vertically. The targets use React Aria `DropZone` so the operation is available through accessible drag and drop interactions.
+- Drag a loaded tab over the page area to show the split targets. Left/right targets split the content horizontally; top/bottom targets split it vertically. The targets use React Aria `DropZone` so the operation is available through accessible drag and drop interactions. The native overlay only treats the outer 25% edge bands of the page (plus the top-center new-window strip) as drop zones, and a split or window move happens only when the drop is performed on the overlay.
 - Native split layout is applied to the existing child WebViews. `SplitLayout` records the two ordered tab IDs and orientation; keep the frontend event payload and Rust command return type in sync when changing it.
 - Dropping a tab on “New window” creates a `browser-window-*` shell window and reattaches that tab’s child WebView to it. Keep tab snapshots, navigation commands, and window teardown scoped to each tab’s owning window.
 - Menu accelerators are app-wide on macOS. Route shortcut, settings, and zoom actions to the focused browser window; do not hard-code the `main` label for these actions.
