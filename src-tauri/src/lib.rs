@@ -204,6 +204,16 @@ fn emit_snapshot(app: &tauri::AppHandle, data: &MutexGuard<'_, Vec<TabState>>) {
     }
 }
 
+fn emit_history(app: &tauri::AppHandle, entries: &[HistoryEntry]) {
+    for label in app
+        .windows()
+        .keys()
+        .filter(|label| label.as_str() == "main" || label.starts_with("browser-window-"))
+    {
+        let _ = app.emit_to(label, HISTORY_EVENT, entries);
+    }
+}
+
 fn snapshot_for_window(tabs: &[TabState], window_label: &str) -> BrowserSnapshot {
     let window_label = browser_window_for_ui(window_label);
     let local: Vec<_> = tabs
@@ -244,16 +254,10 @@ fn close_browser_window_tabs(app: &tauri::AppHandle, state: &BrowserState, windo
     let split_changed = state
         .split_tabs
         .lock()
-        .map(|mut split| split.take().is_some())
+        .map(|mut splits| splits.remove(window_label).is_some())
         .unwrap_or(false);
     if split_changed {
-        for label in app.windows().keys() {
-            if label.as_str() != window_label
-                && (label.as_str() == "main" || label.starts_with("browser-window-"))
-            {
-                let _ = app.emit_to(label, SPLIT_EVENT, Option::<SplitLayout>::None);
-            }
-        }
+        let _ = app.emit_to(window_label, SPLIT_EVENT, Option::<SplitLayout>::None);
     }
     let _ = persist_session(state);
 }
@@ -368,7 +372,7 @@ fn record_history_visit(app: &tauri::AppHandle, state: &BrowserState, url: Strin
         let snapshot = history.clone();
         drop(history);
         let _ = persist_history(state);
-        let _ = app.emit_to("main", HISTORY_EVENT, snapshot);
+        emit_history(app, &snapshot);
     }
 }
 
@@ -383,7 +387,7 @@ fn update_history_entry_title(
         let snapshot = history.clone();
         drop(history);
         let _ = persist_history(state);
-        let _ = app.emit_to("main", HISTORY_EVENT, snapshot);
+        emit_history(app, &snapshot);
     }
 }
 
@@ -485,10 +489,11 @@ fn open_url_in_new_tab(
     tabs.push(tab);
     emit_snapshot(app, &tabs);
     drop(tabs);
-    *state
+    state
         .split_tabs
         .lock()
-        .map_err(|_| "Browser state is unavailable")? = None;
+        .map_err(|_| "Browser state is unavailable")?
+        .remove(owner_window);
     let _ = app.emit_to(owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
     persist_session(state)?;
     position_tabs(app, state)
@@ -1193,7 +1198,7 @@ fn clear_browsing_data(
         .map_err(|_| "History is unavailable")?
         .clear();
     persist_history(&state)?;
-    let _ = app.emit_to("main", HISTORY_EVENT, Vec::<HistoryEntry>::new());
+    emit_history(&app, &[]);
     Ok(())
 }
 
@@ -1816,10 +1821,11 @@ fn create_tab(
     ));
     emit_snapshot(&app, &tabs);
     drop(tabs);
-    *state
+    state
         .split_tabs
         .lock()
-        .map_err(|_| "Browser state is unavailable")? = None;
+        .map_err(|_| "Browser state is unavailable")?
+        .remove(&owner_window);
     let _ = app.emit_to(&owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
     persist_session(&state)?;
     position_tabs(&app, &state)?;
@@ -1972,15 +1978,15 @@ fn close_tab(
         }
     }
     let split_cleared = {
-        let mut split = state
+        let mut splits = state
             .split_tabs
             .lock()
             .map_err(|_| "Browser state is unavailable")?;
-        if split
-            .as_ref()
+        if splits
+            .get(&owner_window)
             .is_some_and(|layout| layout.contains(&tab_id))
         {
-            *split = None;
+            splits.remove(&owner_window);
             true
         } else {
             false
@@ -2474,11 +2480,13 @@ fn get_split_tabs(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Split layout is only available to browser windows".into());
     }
+    let owner = browser_window_for_ui(webview.label());
     let split = state
         .split_tabs
         .lock()
         .map_err(|_| "Browser state is unavailable")?
-        .clone();
+        .get(owner)
+        .cloned();
     let split = split.filter(|layout| {
         state
             .data
@@ -2553,10 +2561,11 @@ fn split_tab(
         }
     };
     drop(tabs);
-    *state
+    state
         .split_tabs
         .lock()
-        .map_err(|_| "Browser state is unavailable")? = Some(split.clone());
+        .map_err(|_| "Browser state is unavailable")?
+        .insert(owner_window.to_string(), split.clone());
     let _ = app.emit_to(owner_window, SPLIT_EVENT, Some(split));
     position_tabs(&app, &state)
 }
@@ -2570,10 +2579,11 @@ fn clear_tab_split(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Split layout is only available to browser windows".into());
     }
-    *state
+    state
         .split_tabs
         .lock()
-        .map_err(|_| "Browser state is unavailable")? = None;
+        .map_err(|_| "Browser state is unavailable")?
+        .remove(browser_window_for_ui(webview.label()));
     let _ = app.emit_to(
         browser_window_for_ui(webview.label()),
         SPLIT_EVENT,
@@ -2594,11 +2604,11 @@ fn resize_tab_split(
     }
     let owner = browser_window_for_ui(webview.label()).to_string();
     let updated = {
-        let mut split = state
+        let mut splits = state
             .split_tabs
             .lock()
             .map_err(|_| "Browser state is unavailable")?;
-        let Some(layout) = split.as_mut() else {
+        let Some(layout) = splits.get_mut(&owner) else {
             return Err("There is no active split".into());
         };
         layout.first_pane_percent = first_pane_percent;
@@ -2721,15 +2731,15 @@ fn move_tab_to_new_window(
         page.set_zoom(tab.zoom).map_err(|error| error.to_string())?;
     }
     {
-        let mut split = state
+        let mut splits = state
             .split_tabs
             .lock()
             .map_err(|_| "Browser state is unavailable")?;
-        if split
-            .as_ref()
+        if splits
+            .get(&source_window)
             .is_some_and(|layout| layout.contains(&tab_id))
         {
-            *split = None;
+            splits.remove(&source_window);
             let _ = app.emit_to(&source_window, SPLIT_EVENT, Option::<SplitLayout>::None);
         }
     }
@@ -2818,35 +2828,31 @@ fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), Str
         .map_err(|_| "Browser state is unavailable")?;
     for tab in tabs.iter() {
         if let Some(page) = app.get_webview(&page_label(&tab.id)) {
+            let split = split_tabs.get(&tab.window_label);
             let bounds = window_bounds(state, &tab.window_label)?;
-            let split_is_active = split_tabs.as_ref().is_some_and(|layout| {
+            let split_is_active = split.is_some_and(|layout| {
                 tabs.iter().any(|active_tab| {
                     active_tab.window_label == tab.window_label
                         && active_tab.active
                         && layout.contains(&active_tab.id)
                 })
             });
-            let split_position =
-                split_tabs
-                    .as_ref()
-                    .filter(|_| split_is_active)
-                    .and_then(|layout| {
-                        if tab.id == layout.first_tab_id {
-                            Some((layout.orientation, false))
-                        } else if tab.id == layout.second_tab_id {
-                            Some((layout.orientation, true))
-                        } else {
-                            None
-                        }
-                    });
+            let split_position = split.filter(|_| split_is_active).and_then(|layout| {
+                if tab.id == layout.first_tab_id {
+                    Some((layout.orientation, false))
+                } else if tab.id == layout.second_tab_id {
+                    Some((layout.orientation, true))
+                } else {
+                    None
+                }
+            });
             let is_visible = !settings_open.contains(&tab.window_label)
                 && (split_position.is_some() || tab.active)
                 && !tab.url.is_empty();
             let (position, size) = if let Some((orientation, is_second)) = split_position {
                 let gutter = 6.0;
-                let first_percent = split_tabs
-                    .as_ref()
-                    .map_or(50.0, |layout| layout.first_pane_percent as f64 / 100.0);
+                let first_percent =
+                    split.map_or(50.0, |layout| layout.first_pane_percent as f64 / 100.0);
                 match orientation {
                     SplitOrientation::Horizontal => {
                         let usable_width = (bounds.width - gutter).max(1.0);
@@ -2904,7 +2910,7 @@ fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), Str
     {
         use objc2::MainThreadMarker;
         use objc2_app_kit::NSView;
-        let overlay_state = split_tabs.as_ref().and_then(|layout| {
+        let overlay_state = split_tabs.values().find_map(|layout| {
             let tabs = state.data.lock().ok()?;
             let owner = tabs
                 .iter()

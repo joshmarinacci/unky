@@ -73,7 +73,7 @@ pub struct BrowserState {
     pub next_id: Arc<std::sync::atomic::AtomicU64>,
     pub settings_open: Arc<Mutex<std::collections::HashSet<String>>>,
     pub window_bounds: Arc<Mutex<std::collections::HashMap<String, ViewBounds>>>,
-    pub split_tabs: Arc<Mutex<Option<SplitLayout>>>,
+    pub split_tabs: Arc<Mutex<std::collections::HashMap<String, SplitLayout>>>,
     pub tab_dragging: Arc<Mutex<Option<String>>>,
     pub tab_drag_source: Arc<Mutex<Option<String>>>,
     pub tab_drag_target: Arc<Mutex<Option<String>>>,
