@@ -20,3 +20,12 @@
 ## 2026-10-31 11:16
 
 - Tab/folder drag handles are now visually hidden (still focusable for keyboard and screen-reader drags, shown on focus); mouse users drag the whole row. Reverts the earlier always-visible handle.
+
+## 2026-10-31 11:21
+
+- Bookmarks drag and drop: dropping on the middle of a folder row now nests the item (top/bottom quarters mean before/after), no horizontal nudge needed.
+- Added a drop indicator (line before/after, highlight for inside) and a drag overlay; rows no longer shift while dragging.
+- A dragged folder collapses during the drag so its children are not drop targets (fixes silently ignored drops).
+- Collapsed folders auto-expand after hovering 600ms while dragging.
+- Added a keyboard sensor and `treeitem` role/`aria-level` on rows.
+- New `resolveBookmarkDropZone` / `moveBookmarkToDropZone` in `bookmarkTree.ts` with unit tests.

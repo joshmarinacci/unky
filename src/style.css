@@ -130,6 +130,11 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .bookmark-dnd-folder:active, .bookmark-dnd-link:active { cursor: grabbing; }
 .bookmark-dnd-folder .folder-toggle, .bookmark-dnd-item button { touch-action: manipulation; }
 .bookmark-dnd-list.is-dragging .bookmark-sortable-item { user-select: none; }
+.bookmark-sortable-item.drop-before { box-shadow: inset 0 2px 0 Highlight; }
+.bookmark-sortable-item.drop-after { box-shadow: inset 0 -2px 0 Highlight; }
+.bookmark-sortable-item.drop-inside > .folder-row { background: color-mix(in srgb, Highlight 18%, transparent); outline: 1px solid Highlight; outline-offset: -1px; }
+.bookmark-drag-overlay { display: flex; max-width: 100%; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface-raised); box-shadow: 0 4px 14px rgb(0 0 0 / 22%); font-size: 12px; cursor: grabbing; }
+.bookmark-drag-overlay span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bookmark-row { display: flex; min-width: 0; align-items: center; border-radius: 6px; }
 .bookmark-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; padding: 8px 4px; overflow: hidden; color: var(--text); text-align: left; }
 .bookmark-open > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 3px; }

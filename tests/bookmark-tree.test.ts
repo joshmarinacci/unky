@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { moveBookmarkToDepth, resolveBookmarkDropDepth, type BookmarkNode } from '../src/bookmarkTree.ts';
+import { moveBookmarkToDepth, moveBookmarkToDropZone, resolveBookmarkDropDepth, resolveBookmarkDropZone, type BookmarkNode } from '../src/bookmarkTree.ts';
 
 const tree: BookmarkNode[] = [
   { id: 'work', type: 'folder', title: 'Work', children: [
@@ -63,4 +63,38 @@ test('uses the hovered shallower row depth unless the pointer is deliberately in
   assert.equal(resolveBookmarkDropDepth(2, 0, -14), 0);
   assert.equal(resolveBookmarkDropDepth(0, 0, 14), 1);
   assert.equal(resolveBookmarkDropDepth(0, 1, 0), 0);
+});
+
+test('classifies drop zones: folders have a middle nesting band, links split in half', () => {
+  assert.equal(resolveBookmarkDropZone(105, 100, 40, true), 'before');
+  assert.equal(resolveBookmarkDropZone(120, 100, 40, true), 'inside');
+  assert.equal(resolveBookmarkDropZone(135, 100, 40, true), 'after');
+  assert.equal(resolveBookmarkDropZone(110, 100, 40, false), 'before');
+  assert.equal(resolveBookmarkDropZone(130, 100, 40, false), 'after');
+});
+
+test('dropping inside a folder appends to it without any horizontal movement', () => {
+  const nodes: BookmarkNode[] = [
+    { id: 'a', type: 'bookmark', title: 'A', url: 'https://a' },
+    { id: 'f', type: 'folder', title: 'F', children: [{ id: 'c', type: 'bookmark', title: 'C', url: 'https://c' }] },
+  ];
+  const result = moveBookmarkToDropZone(nodes, 'a', 'f', 'inside', 0, 0);
+  assert.equal(result.parentId, 'f');
+  assert.deepEqual(result.nodes.map(n => n.id), ['f']);
+  const folder = result.nodes[0];
+  assert.equal(folder.type === 'folder' && folder.children.map(n => n.id).join(), 'c,a');
+});
+
+test('dropping before/after a row places the item as its sibling', () => {
+  const nodes: BookmarkNode[] = [
+    { id: 'a', type: 'bookmark', title: 'A', url: 'https://a' },
+    { id: 'b', type: 'bookmark', title: 'B', url: 'https://b' },
+    { id: 'c', type: 'bookmark', title: 'C', url: 'https://c' },
+  ];
+  assert.deepEqual(moveBookmarkToDropZone(nodes, 'a', 'c', 'after', 0, 0).nodes.map(n => n.id), ['b', 'c', 'a']);
+  assert.deepEqual(moveBookmarkToDropZone(nodes, 'c', 'a', 'before', 0, 0).nodes.map(n => n.id), ['c', 'a', 'b']);
+});
+
+test('dropping onto an unknown row fails loudly', () => {
+  assert.throws(() => moveBookmarkToDropZone([], 'a', 'missing', 'after', 0, 0), /missing/);
 });

@@ -22,6 +22,24 @@ export function resolveBookmarkDropDepth(originDepth: number, targetDepth: numbe
   return targetDepth < originDepth && horizontalDelta < 20 ? targetDepth : requestedDepth;
 }
 
+export type BookmarkDropZone = 'before' | 'inside' | 'after';
+
+/** Classify where the dragged item's center sits within the hovered row. Folder rows have a middle band that nests. */
+export function resolveBookmarkDropZone(pointerY: number, rowTop: number, rowHeight: number, isFolder: boolean): BookmarkDropZone {
+  const ratio = rowHeight > 0 ? (pointerY - rowTop) / rowHeight : 0.5;
+  if (!isFolder) return ratio < 0.5 ? 'before' : 'after';
+  return ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'inside';
+}
+
+/** Move an item according to the drop zone: `inside` appends to the hovered folder, otherwise it lands before/after the row. */
+export function moveBookmarkToDropZone(nodes: BookmarkNode[], activeId: string, overId: string, zone: BookmarkDropZone, originDepth: number, horizontalDelta: number): { nodes: BookmarkNode[]; parentId: string | null } {
+  const over = locateBookmark(nodes, overId);
+  if (!over) throw new Error(`Bookmark drop target ${overId} was not found`);
+  if (zone === 'inside' && over.node.type === 'folder') return moveBookmarkToDepth(nodes, activeId, overId, over.depth + 1, true);
+  const depth = resolveBookmarkDropDepth(originDepth, over.depth, horizontalDelta);
+  return moveBookmarkToDepth(nodes, activeId, overId, depth, zone !== 'before');
+}
+
 function updateNode(nodes: BookmarkNode[], id: string, update: (node: BookmarkNode) => BookmarkNode): BookmarkNode[] {
   return nodes.map(node => node.id === id ? update(node) : node.type === 'folder' ? { ...node, children: updateNode(node.children, id, update) } : node);
 }
