@@ -1343,7 +1343,7 @@ async fn update_filter_list(
                 "--max-filesize",
                 "8388608",
                 "--user-agent",
-                "MyBrowser/0.1 EasyList updater",
+                "Unky/0.1 EasyList updater",
                 browser::filtering::EASYLIST_URL,
             ])
             .stdout(Stdio::piped())
@@ -2582,7 +2582,7 @@ fn move_tab_to_new_window(
     let browser_window =
         tauri::WebviewWindowBuilder::new(&app, &destination, WebviewUrl::App("index.html".into()))
             .title(if tab.title.is_empty() {
-                "My Browser"
+                "Unky"
             } else {
                 &tab.title
             })
@@ -3062,7 +3062,7 @@ pub fn run() {
     let builder = builder.manage(BrowserState::default()).setup(move |app| {
         #[cfg(all(debug_assertions, feature = "desktop-test"))]
         tauri::WebviewWindowBuilder::new(app, "wdio-host", WebviewUrl::App("index.html".into()))
-            .title("My Browser WebDriver")
+            .title("Unky WebDriver")
             .inner_size(1200.0, 800.0)
             .visible(false)
             .build()?;
@@ -3126,7 +3126,7 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+,")
                 .build(app)?;
             #[cfg(target_os = "macos")]
-            let app_menu = SubmenuBuilder::new(app, "My Browser")
+            let app_menu = SubmenuBuilder::new(app, "Unky")
                 .item(&settings)
                 .separator()
                 .hide()

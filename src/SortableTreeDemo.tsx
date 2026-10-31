@@ -93,7 +93,7 @@ export default function SortableTreeDemo() {
     setDragOrigin(null);
   };
   return <main className="tree-demo">
-    <header className="demo-topbar"><a className="demo-brand" href="/"><span className="demo-brand-mark">◉</span> My Browser <span className="demo-slash">/</span> Experiments</a><span className="demo-pill">dnd-kit playground</span></header>
+    <header className="demo-topbar"><a className="demo-brand" href="/"><span className="demo-brand-mark">◉</span> Unky <span className="demo-slash">/</span> Experiments</a><span className="demo-pill">dnd-kit playground</span></header>
     <section className="demo-content">
       <div className="demo-heading"><div><p className="demo-eyebrow">INTERACTION LAB <span>01</span></p><h1>Nested tree</h1><p className="demo-subtitle">Move things around. Give your ideas a new home.</p></div><button className="reset-tree" onClick={() => { setTree(initialTree); setExpanded(new Set(['projects', 'atlas', 'research', 'garden', 'writing', 'ideas'])); }}><RotateCcw size={14}/> Reset tree</button></div>
       <div className="tree-card"><div className="tree-card-head"><div><strong>Workspace</strong><span>3 folders <i/> 8 items</span></div><span className="tree-menu-dots">···</span></div>

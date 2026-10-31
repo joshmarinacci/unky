@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button as AriaButton, ListBox, ListBoxItem, Popover, Select, SelectValue, Tab, TabList, TabPanel, TabPanels, Tabs, Tree, TreeItem, TreeItemContent, useDragAndDrop } from 'react-aria-components';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Columns2, Download, ExternalLink, EyeOff, Folder, FolderPlus, Globe2, GripVertical, LoaderCircle, LockKeyhole, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Columns2, Download, ExternalLink, EyeOff, Folder, FolderPlus, Globe2, GripVertical, LoaderCircle, LockKeyhole, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, X } from 'lucide-react';
 import { AppButton, AppInput } from './components/ui';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -1337,7 +1337,7 @@ export default function App() {
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`} style={{ width: sidebarCollapsed ? 48 : sidebarWidth, flexBasis: sidebarCollapsed ? 48 : sidebarWidth }}>
         <div className="brand-row">
           <div className="brand-mark" aria-hidden="true"><CircleDot className="ui-icon" size={17} /></div>
-          <span className="brand-name">My Browser</span>
+          <span className="brand-name">Unky</span>
           <AppButton className="sidebar-collapse-button" type="button" aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!sidebarCollapsed} aria-controls="sidebar-content" onClick={() => setSidebarCollapsed(collapsed => !collapsed)}>{sidebarCollapsed ? <PanelLeftOpen className="ui-icon" size={16} aria-hidden="true" /> : <PanelLeftClose className="ui-icon" size={16} aria-hidden="true" />}</AppButton>
         </div>
         <div className="sidebar-content" id="sidebar-content">
@@ -1441,9 +1441,6 @@ export default function App() {
             {tabContextMenu.type === 'folder' && <AppButton role="menuitem" onClick={() => { deleteTabFolder(tabContextMenu.id); setTabContextMenu(null); }}>Delete folder</AppButton>}
           </div>
         </>}
-        <div className="sidebar-bottom">
-          <AppButton className="profile-button"><span className="avatar">J</span><span className="profile-copy"><strong>Personal</strong><small>Local profile</small></span><MoreHorizontal className="ui-icon profile-menu" size={16} aria-hidden="true" /></AppButton>
-        </div>
         </div>
         <div className={`sidebar-sizer ${resizingSidebar ? 'dragging' : ''}`} role="separator" aria-label="Resize tab sidebar" aria-orientation="vertical" aria-valuemin={sidebarMinWidth} aria-valuemax={sidebarMaxWidth} aria-valuenow={Math.round(sidebarWidth)} tabIndex={0} data-sidebar-sizer onPointerDown={event => { event.preventDefault(); setResizingSidebar(true); }} onDoubleClick={() => { setSidebarWidth(sidebarDefaultWidth); localStorage.removeItem('browser.sidebarWidth'); }} />
       </aside>
@@ -1497,7 +1494,7 @@ export default function App() {
 
         <div className="webview-slot" ref={viewRef}>
           {settingsOpen ? <section className="settings-page" aria-label="Settings">
-            <header className="settings-heading"><div><p className="eyebrow">MY BROWSER</p><h1>Settings</h1></div><AppButton className="settings-close" onClick={closeSettings} aria-label="Close settings"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>
+            <header className="settings-heading"><div><p className="eyebrow">UNKY</p><h1>Settings</h1></div><AppButton className="settings-close" onClick={closeSettings} aria-label="Close settings"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>
             <div className="settings-content">
               <h2>General</h2>
               <div className="settings-card"><div><strong>Bookmarks</strong><small>Saved locally in this browser profile.</small></div><AppButton onClick={() => { closeSettings(); setSidebarView('bookmarks'); }}>Manage bookmarks</AppButton></div>
@@ -1525,10 +1522,10 @@ export default function App() {
               <div className="settings-card"><div><strong>Current site</strong><small>{activeSiteDomain ? `Allow requests on ${activeSiteDomain} by disabling filtering for this site.` : 'Open a website to manage its filter exception.'}</small></div><AppButton disabled={filterBusy || !activeSiteDomain} onClick={() => void changeSiteFilterException(!filterSettings?.exceptions.includes(activeSiteDomain))}>{filterSettings?.exceptions.includes(activeSiteDomain) ? 'Enable for site' : 'Disable for site'}</AppButton></div>
               {message && <p className="message" role="status">{message}</p>}
               <h2>About</h2>
-              <div className="settings-card"><div><strong>My Browser</strong><small>macOS development build</small></div><span>0.1.0</span></div>
+              <div className="settings-card"><div><strong>Unky</strong><small>macOS development build</small></div><span>0.1.0</span></div>
             </div>
           </section> : historyPageOpen ? <section className="history-page" aria-label="Browsing history">
-            <header className="settings-heading"><div><p className="eyebrow">MY BROWSER</p><h1>History</h1></div><AppButton className="settings-close" onClick={() => void closeTab(activeTabId)} aria-label="Close history tab"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>
+            <header className="settings-heading"><div><p className="eyebrow">UNKY</p><h1>History</h1></div><AppButton className="settings-close" onClick={() => void closeTab(activeTabId)} aria-label="Close history tab"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>
             <div className="history-content">
               <label className="history-search"><Search className="ui-icon" size={16} aria-hidden="true" /><AppInput aria-label="Search history" placeholder="Search history" value={historySearch} onChange={event => setHistorySearch(event.target.value)} /></label>
               <div className="history-list" aria-label="History entries">

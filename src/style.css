@@ -150,15 +150,8 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .bookmark-row:hover .bookmark-edit, .bookmark-row:hover .bookmark-delete, .bookmark-edit:focus-visible, .bookmark-delete:focus-visible { opacity: 1; }
 .bookmark-edit:hover, .bookmark-delete:hover { background: var(--surface-hover); }
 .bookmark-empty { padding: 10px 5px; color: var(--muted); font-size: 10px; line-height: 1.5; }
-.sidebar-bottom { display: flex; flex-direction: column; gap: 2px; margin-top: auto; }
 .sidebar-action { display: flex; height: 33px; align-items: center; gap: 10px; padding: 0 10px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: 11px; text-align: left; }
 .sidebar-action span { width: 15px; color: var(--subtle); font-size: 14px; text-align: center; }
-.profile-button { display: flex; align-items: center; gap: 9px; margin-top: 10px; padding: 9px 7px 3px; border: 0; border-top: 1px solid var(--border); background: transparent; text-align: left; }
-.avatar, .toolbar-action.profile-small { display: grid; width: 27px; height: 27px; place-items: center; border: 1px solid var(--border); border-radius: 50%; color: var(--text); background: var(--surface-raised); font-size: 11px; font-weight: 700; }
-.profile-copy { display: flex; flex: 1; flex-direction: column; gap: 2px; }
-.profile-copy strong { color: var(--text); font-size: 11px; font-weight: 600; }
-.profile-copy small { color: var(--subtle); font-size: 9px; }
-.profile-menu { color: var(--subtle); letter-spacing: 1px; }
 
 .browser-main { position: relative; display: grid; min-width: 0; min-height: 0; grid-template-rows: 64px minmax(0, 1fr); background: var(--canvas); }
 .toolbar { position: relative; z-index: 3; display: flex; height: 64px; flex: 0 0 64px; align-items: center; gap: 15px; padding: 0 19px; border-bottom: 1px solid var(--border); background: var(--sidebar); }
@@ -182,7 +175,6 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .toolbar-action { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; font-size: 17px; }
 .bookmark-toggle.is-bookmarked { color: var(--accent); }
 .toolbar-action.security-active { background: var(--surface-raised); }
-.toolbar-action.profile-small { width: 26px; height: 26px; flex-basis: 26px; }
 .downloads-trigger { position: relative; }
 .download-count { position: absolute; top: -2px; right: -3px; min-width: 14px; height: 14px; padding: 0 3px; border: 1px solid var(--sidebar); border-radius: 8px; color: var(--accent-contrast); background: var(--accent); font-size: 8px; font-weight: 700; line-height: 12px; text-align: center; }
 .downloads-popover { position: absolute; z-index: 20; top: calc(100% + 8px); right: 19px; width: min(360px, calc(100vw - 24px)); max-height: min(520px, calc(100vh - 88px)); padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; color: var(--text); background: var(--surface); box-shadow: 0 8px 26px #0005; }

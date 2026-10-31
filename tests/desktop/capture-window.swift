@@ -6,10 +6,10 @@ let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopEl
 let target = windows.first { item in
     let owner = (item[kCGWindowOwnerName as String] as? String ?? "").lowercased()
     let title = (item[kCGWindowName as String] as? String ?? "").lowercased()
-    return owner.contains("my-browser") || title == "my browser"
+    return owner.contains("my-browser") || title == "unky"
 }
 guard let number = target?[kCGWindowNumber as String] as? Int else {
-    fputs("Could not find the visible My Browser native window.\n", stderr)
+    fputs("Could not find the visible Unky native window.\n", stderr)
     exit(2)
 }
 print(number)

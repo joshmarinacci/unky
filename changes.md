@@ -37,3 +37,11 @@
 ## 2026-10-31 11:28
 
 - Removed the always-visible add-bookmark form from the top of the Bookmarks view. A new "Bookmark" toolbar button opens the same inline form (Add/Cancel, Enter, Escape) at the top of the list, matching inline editing. The toolbar wraps so the search box keeps full width.
+
+## 2026-10-31 11:30
+
+- Renamed the app from "My Browser" to "Unky": product name, window and menu titles, UI text, docs, download page and launcher bundle paths. Internal identifiers are unchanged on purpose (crate/binary `my-browser`, bundle identifier `dev.example.my-browser` so the existing profile is kept, `MY_BROWSER_*` env vars, `mybrowser` CLI).
+
+## 2026-10-31 11:34
+
+- Removed the "Personal / Local profile" area from the bottom of the sidebar (markup, unused `MoreHorizontal` import and its CSS).

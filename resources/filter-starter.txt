@@ -1,4 +1,4 @@
-! My Browser starter set. Replaced by the official EasyList update when available.
+! Unky starter set. Replaced by the official EasyList update when available.
 ||ad.doubleclick.net^
 ||doubleclick.net^
 ||googlesyndication.com^

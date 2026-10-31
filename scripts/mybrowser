@@ -12,19 +12,19 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 
 if [[ -n "${MY_BROWSER_BIN:-}" ]]; then
   browser_bin="$MY_BROWSER_BIN"
-elif [[ -x "$repo_root/target/release/bundle/macos/My Browser.app/Contents/MacOS/my-browser" ]]; then
-  browser_bin="$repo_root/target/release/bundle/macos/My Browser.app/Contents/MacOS/my-browser"
+elif [[ -x "$repo_root/target/release/bundle/macos/Unky.app/Contents/MacOS/my-browser" ]]; then
+  browser_bin="$repo_root/target/release/bundle/macos/Unky.app/Contents/MacOS/my-browser"
 elif [[ -x "$repo_root/target/debug/my-browser" ]]; then
   browser_bin="$repo_root/target/debug/my-browser"
-elif [[ -x "/Applications/My Browser.app/Contents/MacOS/my-browser" ]]; then
-  browser_bin="/Applications/My Browser.app/Contents/MacOS/my-browser"
+elif [[ -x "/Applications/Unky.app/Contents/MacOS/my-browser" ]]; then
+  browser_bin="/Applications/Unky.app/Contents/MacOS/my-browser"
 else
-  browser_bin="/Applications/My Browser.app/Contents/MacOS/my-browser"
+  browser_bin="/Applications/Unky.app/Contents/MacOS/my-browser"
 fi
 
 if [[ ! -x "$browser_bin" ]]; then
-  echo "My Browser executable not found at: $browser_bin" >&2
-  echo "Install My Browser in /Applications or set MY_BROWSER_BIN to its executable." >&2
+  echo "Unky executable not found at: $browser_bin" >&2
+  echo "Install Unky in /Applications or set MY_BROWSER_BIN to its executable." >&2
   exit 1
 fi
 

@@ -1,4 +1,4 @@
-# My Browser
+# Unky
 
 A Tauri 2, Rust, React, and TypeScript desktop browser prototype. The app uses one trusted UI WebView and a separate native website WebView for each browser tab.
 
@@ -97,7 +97,7 @@ Choose **View → Show History** to create or activate a browser tab titled `his
 
 ### Open the current page in another browser
 
-On macOS, click **Open in another browser** in the toolbar (the arrow leaving a square), or choose **File → Open in Another Browser…**. A native menu lists installed applications registered for HTTPS links that also declare HTML document support, excluding My Browser. This can include browser launchers such as Choosy. Choose a browser to load the current page there; the original tab stays open. The action is disabled for blank tabs.
+On macOS, click **Open in another browser** in the toolbar (the arrow leaving a square), or choose **File → Open in Another Browser…**. A native menu lists installed applications registered for HTTPS links that also declare HTML document support, excluding Unky. This can include browser launchers such as Choosy. Choose a browser to load the current page there; the original tab stays open. The action is disabled for blank tabs.
 
 You can also right-click any loaded tab and choose **Open in another browser…**. This opens the browser picker for that tab without switching to it. Blank tabs have the action disabled; folder menus do not include it.
 
