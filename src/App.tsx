@@ -333,13 +333,13 @@ function filterBookmarkNodes(nodes: BookmarkNode[], query: string): BookmarkNode
 }
 
 function BookmarkSortableRow({
-  node, depth, expanded, dropZone, onToggle, onOpen, onEdit, onDelete, onNewFolder, onRename, onCancelRename, editingFolder, folderTitle, setFolderTitle, saveFolderTitle,
+  node, depth, expanded, dropZone, editing, onToggle, onOpen, onEdit, onDelete, onNewFolder, onRename, onCancelRename, editingFolder, folderTitle, setFolderTitle, saveFolderTitle, editForm,
 }: {
-  node: BookmarkNode; depth: number; expanded: boolean; dropZone?: BookmarkDropZone; onToggle: () => void; onOpen: (url: string) => void;
+  node: BookmarkNode; depth: number; expanded: boolean; dropZone?: BookmarkDropZone; editing: boolean; onToggle: () => void; onOpen: (url: string) => void;
   onEdit: (node: BookmarkLink) => void; onDelete: (node: BookmarkNode) => void; onNewFolder: (id: string) => void;
-  onRename: (node: BookmarkFolder) => void; onCancelRename: () => void; editingFolder: boolean; folderTitle: string; setFolderTitle: (value: string) => void; saveFolderTitle: () => void;
+  onRename: (node: BookmarkFolder) => void; onCancelRename: () => void; editingFolder: boolean; folderTitle: string; setFolderTitle: (value: string) => void; saveFolderTitle: () => void; editForm: React.ReactNode;
 }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id: node.id });
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id: node.id, disabled: editing });
   const style = { opacity: isDragging ? .35 : 1 };
   const itemProps = { ...attributes, role: 'treeitem', 'aria-level': depth + 1, 'aria-expanded': node.type === 'folder' ? expanded : undefined };
   const itemClass = `bookmark-sortable-item ${dropZone ? `drop-${dropZone}` : ''}`;
@@ -357,6 +357,7 @@ function BookmarkSortableRow({
       </span>
     </div>
   </div>;
+  if (editing) return <div ref={setNodeRef} className="bookmark-sortable-item" style={{ paddingLeft: depth * 14 }}>{editForm}</div>;
   return <div ref={setNodeRef} style={style} className={itemClass} {...itemProps} {...listeners}>
     <div className="bookmark-row bookmark-tree-row bookmark-dnd-link" style={{ paddingLeft: depth * 14 }} onClick={() => onOpen(node.url)}>
       <span className="bookmark-open"><span className="bookmark-icon"><Star className="ui-icon" size={14} aria-hidden="true" /></span><span><strong>{node.title}</strong><small>{node.url}</small></span></span>
@@ -410,9 +411,10 @@ export default function App() {
   const [securityOpen, setSecurityOpen] = useState(false);
   const [securityInfo, setSecurityInfo] = useState<PageSecurityInfo | null>(null);
   const [bookmarkSearch, setBookmarkSearch] = useState('');
-  const [bookmarkTitle, setBookmarkTitle] = useState('');
-  const [bookmarkUrl, setBookmarkUrl] = useState('');
+  const [addingBookmark, setAddingBookmark] = useState(false);
   const [editingBookmarkId, setEditingBookmarkId] = useState('');
+  const [editBookmarkTitle, setEditBookmarkTitle] = useState('');
+  const [editBookmarkUrl, setEditBookmarkUrl] = useState('');
   const [folderTitle, setFolderTitle] = useState('');
   const [editingFolderId, setEditingFolderId] = useState('');
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
@@ -1074,24 +1076,32 @@ export default function App() {
     finally { externalBrowserMenuLoading.current = false; }
   }
 
-  function saveBookmark(event: React.FormEvent) {
+  function saveBookmarkEdit(event: React.FormEvent) {
     event.preventDefault();
-    const url = bookmarkUrl.trim();
+    const url = editBookmarkUrl.trim();
     if (!url) return;
     const duplicate = findBookmarkByUrl(bookmarks, url);
-    if (duplicate && duplicate.id !== editingBookmarkId) {
+    if (duplicate && (addingBookmark || duplicate.id !== editingBookmarkId)) {
       setMessage('That address is already bookmarked.');
       return;
     }
-    if (editingBookmarkId) {
-      setBookmarks(items => updateBookmarkNode(items, editingBookmarkId, node => node.type === 'bookmark'
-        ? { ...node, title: bookmarkTitle.trim() || url, url }
-        : node));
-    } else {
-      setBookmarks(items => [{ id: crypto.randomUUID(), type: 'bookmark', title: bookmarkTitle.trim() || url, url }, ...items]);
-    }
-    setBookmarkTitle(''); setBookmarkUrl(''); setEditingBookmarkId('');
+    const title = editBookmarkTitle.trim() || url;
+    if (addingBookmark) setBookmarks(items => [{ id: crypto.randomUUID(), type: 'bookmark', title, url }, ...items]);
+    else setBookmarks(items => updateBookmarkNode(items, editingBookmarkId, node => node.type === 'bookmark' ? { ...node, title, url } : node));
+    cancelBookmarkEdit();
     setMessage('');
+  }
+
+  function cancelBookmarkEdit() {
+    setEditingBookmarkId('');
+    setAddingBookmark(false);
+  }
+
+  function startAddBookmark() {
+    setEditingBookmarkId('');
+    setEditBookmarkTitle('');
+    setEditBookmarkUrl('');
+    setAddingBookmark(true);
   }
 
   function openFindPanel() {
@@ -1114,9 +1124,10 @@ export default function App() {
   }
 
   function editBookmark(bookmark: BookmarkLink) {
+    setAddingBookmark(false);
     setEditingBookmarkId(bookmark.id);
-    setBookmarkTitle(bookmark.title);
-    setBookmarkUrl(bookmark.url);
+    setEditBookmarkTitle(bookmark.title);
+    setEditBookmarkUrl(bookmark.url);
   }
 
   function createBookmarkFolder(parentId?: string) {
@@ -1314,6 +1325,11 @@ export default function App() {
   // A dragged folder collapses so its own children are not drop targets.
   if (bookmarkDragOrigin) bookmarkExpanded.delete(bookmarkDragOrigin.id);
   const draggedBookmark = bookmarkDragOrigin ? locateBookmark(bookmarks, bookmarkDragOrigin.id)?.node : undefined;
+  const bookmarkEditForm = <form className="bookmark-form bookmark-inline-form" onSubmit={saveBookmarkEdit} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); cancelBookmarkEdit(); } }}>
+    <AppInput aria-label="Bookmark title" placeholder="Name" autoFocus value={editBookmarkTitle} onChange={event => setEditBookmarkTitle(event.target.value)} />
+    <AppInput aria-label="Bookmark address" placeholder="https://example.com" value={editBookmarkUrl} onChange={event => setEditBookmarkUrl(event.target.value)} />
+    <div className="bookmark-inline-actions"><AppButton type="submit">{addingBookmark ? 'Add' : 'Save'}</AppButton><AppButton type="button" className="cancel-edit" onClick={cancelBookmarkEdit}>Cancel</AppButton></div>
+  </form>;
   const visibleBookmarkRows = flattenBookmarkNodes(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()), bookmarkExpanded);
 
   return (
@@ -1352,24 +1368,20 @@ export default function App() {
           <AppButton className="new-tab" title={`New private tab (${commandKey}+Shift+N)`} onClick={() => void createTab(true)}><EyeOff className="ui-icon" size={16} aria-hidden="true" /> New private tab</AppButton>
         </div>
         </> : sidebarView === 'bookmarks' ? <div className="bookmark-manager">
-          <div className="bookmark-toolbar"><AppInput className="bookmark-search" aria-label="Search bookmarks" placeholder="Find a bookmark" value={bookmarkSearch} onChange={event => setBookmarkSearch(event.target.value)} /><AppButton className="new-folder-button" onClick={() => createBookmarkFolder()}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton></div>
-          <form className="bookmark-form" onSubmit={saveBookmark}>
-            <AppInput aria-label="Bookmark title" placeholder="Name" value={bookmarkTitle} onChange={event => setBookmarkTitle(event.target.value)} />
-            <AppInput aria-label="Bookmark address" placeholder="https://example.com" value={bookmarkUrl} onChange={event => setBookmarkUrl(event.target.value)} />
-            <AppButton type="submit">{editingBookmarkId ? 'Save changes' : 'Add bookmark'}</AppButton>
-            {editingBookmarkId && <AppButton type="button" className="cancel-edit" onClick={() => { setEditingBookmarkId(''); setBookmarkTitle(''); setBookmarkUrl(''); }}>Cancel</AppButton>}
-          </form>
+          <div className="bookmark-toolbar"><AppInput className="bookmark-search" aria-label="Search bookmarks" placeholder="Find a bookmark" value={bookmarkSearch} onChange={event => setBookmarkSearch(event.target.value)} /><AppButton className="new-folder-button" onClick={startAddBookmark}><Plus className="ui-icon" size={14} aria-hidden="true" /> Bookmark</AppButton><AppButton className="new-folder-button" onClick={() => createBookmarkFolder()}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton></div>
+          {addingBookmark && bookmarkEditForm}
           <DndContext sensors={bookmarkSensors} collisionDetection={closestCenter} onDragStart={handleBookmarkDragStart} onDragMove={handleBookmarkDragMove} onDragEnd={handleBookmarkDragEnd} onDragCancel={endBookmarkDrag}>
             <div className={`bookmark-list bookmark-tree bookmark-dnd-list ${bookmarkDragOrigin ? 'is-dragging' : ''}`} role="tree" aria-label="Saved bookmarks">
               {visibleBookmarkRows.length ? <SortableContext items={visibleBookmarkRows.map(item => item.node.id)} strategy={() => null}>
                 {visibleBookmarkRows.map(({ node, depth }) => <BookmarkSortableRow
-                  key={node.id} node={node} depth={depth} expanded={bookmarkExpanded.has(node.id)} dropZone={bookmarkDropTarget?.overId === node.id ? bookmarkDropTarget.zone : undefined}
+                  key={node.id} node={node} depth={depth} expanded={bookmarkExpanded.has(node.id)} dropZone={bookmarkDropTarget?.overId === node.id ? bookmarkDropTarget.zone : undefined} editing={editingBookmarkId === node.id}
                   onToggle={() => setExpandedFolderIds(ids => ids.includes(node.id) ? ids.filter(id => id !== node.id) : [...ids, node.id])}
                   onOpen={url => void openBookmark(url)} onEdit={editBookmark} onDelete={deleteBookmarkNode} onNewFolder={createBookmarkFolder}
                   onRename={folder => { setFolderTitle(folder.title); setEditingFolderId(folder.id); }}
                   onCancelRename={() => { setEditingFolderId(''); setFolderTitle(node.type === 'folder' ? node.title : ''); }}
                   editingFolder={node.type === 'folder' && editingFolderId === node.id} folderTitle={folderTitle} setFolderTitle={setFolderTitle}
                   saveFolderTitle={() => saveFolderTitle(node.id)}
+                  editForm={bookmarkEditForm}
                 />)}
               </SortableContext> : <p className="bookmark-empty">{bookmarks.length === 0 ? 'Your saved pages will appear here.' : 'No matching bookmarks.'}</p>}
             </div>

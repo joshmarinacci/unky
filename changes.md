@@ -29,3 +29,11 @@
 - Collapsed folders auto-expand after hovering 600ms while dragging.
 - Added a keyboard sensor and `treeitem` role/`aria-level` on rows.
 - New `resolveBookmarkDropZone` / `moveBookmarkToDropZone` in `bookmarkTree.ts` with unit tests.
+
+## 2026-10-31 11:27
+
+- Bookmark edit now happens inline: the Edit button replaces that row in the tree with a name/address form (Save, Cancel, Enter to save, Escape to cancel). The top form is add-only and no longer doubles as the edit form.
+
+## 2026-10-31 11:28
+
+- Removed the always-visible add-bookmark form from the top of the Bookmarks view. A new "Bookmark" toolbar button opens the same inline form (Add/Cancel, Enter, Escape) at the top of the list, matching inline editing. The toolbar wraps so the search box keeps full width.

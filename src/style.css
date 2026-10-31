@@ -112,13 +112,18 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .sidebar-context-menu button:hover { background: var(--surface-hover); }
 .sidebar-context-menu button.context-submenu-item { padding-left: 22px; color: var(--muted); }
 .bookmark-manager { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 10px; }
-.bookmark-toolbar .bookmark-search { flex: 1; }
+.bookmark-toolbar { flex-wrap: wrap; }
+.bookmark-toolbar .bookmark-search { flex: 1 1 100%; }
+.bookmark-toolbar .new-folder-button { flex: 1; justify-content: center; }
 .new-folder-button { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); background: var(--surface); font-size: 10px; }
 .new-folder-button:hover { color: var(--text); background: var(--surface-hover); }
 .bookmark-search, .bookmark-form input { width: 100%; min-width: 0; padding: 8px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 10px; }
 .bookmark-form { display: flex; flex-direction: column; gap: 6px; padding: 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
 .bookmark-form button { padding: 7px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--surface-raised); font-size: 10px; }
 .bookmark-form button.cancel-edit { color: var(--muted); }
+.bookmark-inline-form { margin: 2px 0; }
+.bookmark-inline-actions { display: flex; gap: 6px; }
+.bookmark-inline-actions button { flex: 1; }
 .folder-actions { display: flex; opacity: 0; }
 .folder-row:hover .folder-actions, .folder-row:focus-within .folder-actions { opacity: 1; }
 .folder-action { width: 19px; flex-basis: 19px; }
