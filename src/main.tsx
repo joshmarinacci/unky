@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { applyOsTextSizes } from './osTextSizes';
 import './style.css';
 // React Aria's Vanilla CSS starter styles, adapted with a warm orange tint.
 import './react-aria-theme/Button.css';
@@ -17,5 +18,6 @@ const testPluginReady = import.meta.env.MODE === 'desktop-test'
   : Promise.resolve();
 
 void testPluginReady.then(() => {
+  applyOsTextSizes();
   createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);
 });

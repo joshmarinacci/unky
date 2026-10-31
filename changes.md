@@ -68,3 +68,7 @@
 - Tabs view now uses dnd-kit like the bookmarks view: a drop indicator (line before/after, highlight for inside a folder), a drag overlay, folders collapse while dragged, collapsed folders auto-expand after 600ms hover, and keyboard dragging (Space to start, Enter selects the tab). Replaces the React Aria Tree and its visible/hidden drag handles; the stale tree CSS is removed.
 - `src/bookmarkTree.ts` helpers are now generic and shared by the bookmark and tab trees.
 - Native tab drag overlay is pointer-driven (dnd-kit does not start a native drag session): it no longer accepts pasteboard drops and ignores mouse hits. `set_tab_dragging` takes an optional `cancelled`; a split or new-window move happens only when the drag ends with the pointer in an overlay zone and was not cancelled.
+
+## 2026-10-31 11:57
+
+- Browser chrome text now uses size tokens (`--fs-body/callout/sub/foot`, default 13/12/11/10px, one step larger than the old 12/11/10/9px) instead of hard-coded px. `src/osTextSizes.ts` measures the macOS text-style keywords (`-apple-system-body` etc.) at startup and overrides the tokens when the WebView supports them. Start-page and demo styles are unchanged.
