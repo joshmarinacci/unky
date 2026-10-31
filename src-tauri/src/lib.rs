@@ -1636,10 +1636,12 @@ async fn toggle_page_security_popover(
             .get_webview("main")
             .ok_or("Browser window is unavailable")?;
         let (anchor, info) = security_popover_inputs(anchor, info);
+        let inset = titlebar_inset(&main)?;
         let (sender, receiver) = std::sync::mpsc::channel();
         main.with_webview(move |platform| {
-            let shown =
-                unsafe { platforms::security_popover::toggle(platform.inner(), anchor, info) };
+            let shown = unsafe {
+                platforms::security_popover::toggle(platform.inner(), anchor, info, inset)
+            };
             let _ = sender.send(shown);
         })
         .map_err(|error| error.to_string())?;
@@ -1672,10 +1674,12 @@ async fn update_page_security_popover(
             .get_webview("main")
             .ok_or("Browser window is unavailable")?;
         let (anchor, info) = security_popover_inputs(anchor, info);
+        let inset = titlebar_inset(&main)?;
         let (sender, receiver) = std::sync::mpsc::channel();
         main.with_webview(move |platform| {
-            let shown =
-                unsafe { platforms::security_popover::update(platform.inner(), anchor, info) };
+            let shown = unsafe {
+                platforms::security_popover::update(platform.inner(), anchor, info, inset)
+            };
             let _ = sender.send(shown);
         })
         .map_err(|error| error.to_string())?;
@@ -2225,6 +2229,21 @@ fn stop_loading(
     Ok(())
 }
 
+/// Distance between the shell WebView's CSS viewport origin and the window content origin.
+/// AppKit reports it as the WebView's top safe-area inset: the titlebar height in windowed
+/// mode and zero in full screen.
+#[cfg(target_os = "macos")]
+fn titlebar_inset(webview: &tauri::Webview) -> Result<f64, String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    webview
+        .with_webview(move |platform| {
+            let view = unsafe { &*(platform.inner() as *mut objc2_app_kit::NSView) };
+            let _ = sender.send(view.safeAreaInsets().top);
+        })
+        .map_err(|error| error.to_string())?;
+    receiver.recv().map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 fn set_view_bounds(
     webview: tauri::Webview,
@@ -2242,14 +2261,17 @@ fn set_view_bounds(
         return Err("Invalid website view bounds".into());
     }
     #[cfg(target_os = "macos")]
-    let bounds = ViewBounds {
-        x,
+    let bounds = {
         // Child WebViews use the window content origin, offset from the main
         // WebView's CSS viewport on macOS by the native titlebar inset. Extend
         // the height by the same inset so the child still reaches the bottom.
-        y: y + 20.0,
-        width,
-        height: height + 20.0,
+        let inset = titlebar_inset(&webview)?;
+        ViewBounds {
+            x,
+            y: y + inset,
+            width,
+            height: height + inset,
+        }
     };
     #[cfg(not(target_os = "macos"))]
     let bounds = ViewBounds {

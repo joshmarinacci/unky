@@ -187,16 +187,16 @@ fn permission_label(state: &str) -> &str {
     }
 }
 
-unsafe fn positioning_rect(view: &NSView, anchor: AnchorRect) -> NSRect {
+unsafe fn positioning_rect(view: &NSView, anchor: AnchorRect, titlebar_inset: f64) -> NSRect {
     let height = view.bounds().size.height;
-    // Tauri's main WKWebView viewport starts below macOS's unified titlebar inset.
-    const TITLEBAR_INSET: f64 = 20.0;
+    // Tauri's main WKWebView viewport starts below macOS's unified titlebar inset,
+    // which is zero in full screen.
     // DOM client rects use a top-left origin. WKWebView commonly exposes flipped
     // coordinates too, while a plain NSView uses AppKit's bottom-left origin.
     let y = if view.isFlipped() {
-        anchor.y + TITLEBAR_INSET
+        anchor.y + titlebar_inset
     } else {
-        height - anchor.y - anchor.height - TITLEBAR_INSET
+        height - anchor.y - anchor.height - titlebar_inset
     };
     NSRect::new(
         NSPoint::new(anchor.x, y),
@@ -205,7 +205,12 @@ unsafe fn positioning_rect(view: &NSView, anchor: AnchorRect) -> NSRect {
 }
 
 /// Toggle and update the native popover. `main_view` is Tauri's primary WKWebView.
-pub unsafe fn toggle(main_view: *mut c_void, anchor: AnchorRect, info: SecurityInfo) -> bool {
+pub unsafe fn toggle(
+    main_view: *mut c_void,
+    anchor: AnchorRect,
+    info: SecurityInfo,
+    titlebar_inset: f64,
+) -> bool {
     let Some(mtm) = MainThreadMarker::new() else {
         return false;
     };
@@ -219,7 +224,7 @@ pub unsafe fn toggle(main_view: *mut c_void, anchor: AnchorRect, info: SecurityI
             false
         } else {
             state.popover.showRelativeToRect_ofView_preferredEdge(
-                positioning_rect(view, anchor),
+                positioning_rect(view, anchor, titlebar_inset),
                 view,
                 NSRectEdge::MinY,
             );
@@ -229,7 +234,12 @@ pub unsafe fn toggle(main_view: *mut c_void, anchor: AnchorRect, info: SecurityI
 }
 
 /// Refresh visible popover values and report whether AppKit has kept it open.
-pub unsafe fn update(main_view: *mut c_void, anchor: AnchorRect, info: SecurityInfo) -> bool {
+pub unsafe fn update(
+    main_view: *mut c_void,
+    anchor: AnchorRect,
+    info: SecurityInfo,
+    titlebar_inset: f64,
+) -> bool {
     let Some(mtm) = MainThreadMarker::new() else {
         return false;
     };
@@ -242,7 +252,7 @@ pub unsafe fn update(main_view: *mut c_void, anchor: AnchorRect, info: SecurityI
         update_labels(state, &info);
         if state.popover.isShown() {
             state.popover.showRelativeToRect_ofView_preferredEdge(
-                positioning_rect(view, anchor),
+                positioning_rect(view, anchor, titlebar_inset),
                 view,
                 NSRectEdge::MinY,
             );

@@ -57,3 +57,8 @@
 ## 2026-10-31 11:39
 
 - Added the same 1px top border to the sidebar (top padding reduced by 1px so content does not shift).
+
+## 2026-10-31 11:42
+
+- Toolbar spacing no longer changes below 900px wide (removed the `max-width: 900px` toolbar override), so windowed and full-screen padding match.
+- The macOS titlebar inset used to position website views and the security popover is now read from AppKit (the shell WebView's top safe-area inset) instead of a fixed 20px, so it is the real titlebar height in windowed mode and 0 in full screen (`titlebar_inset` in `lib.rs`; the popover takes it as a parameter). The fixed 20px left the page view overlapping the bottom of the toolbar in windowed mode. The frontend re-reports bounds on resize, so entering/leaving full screen re-applies it.
