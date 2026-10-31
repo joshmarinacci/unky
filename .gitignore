@@ -5,3 +5,5 @@ target/
 .DS_Store
 *.log
 test-results/
+src-tauri/gen/schemas/
+.idea/
