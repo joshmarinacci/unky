@@ -12,6 +12,7 @@
     "clean": "rm -rf dist test-results node_modules/.tmp && cargo clean",
     "tauri": "tauri",
     "tauri-release": "npm run tauri -- build --bundles dmg",
+    "sign-mac": "bash scripts/sign-mac.sh",
     "build:installer": "npm run tauri -- build --bundles nsis",
     "test:unit": "node --import tsx --test tests/bookmark-tree.test.ts",
     "test:desktop": "node tests/desktop/run.mjs",

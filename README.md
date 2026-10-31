@@ -31,6 +31,10 @@ Run `npm run clean` to remove build output on both sides: `dist`, `test-results`
 
 `site/index.html` is a standalone, dependency-free download page. To publish it at `/my-browser/`, upload it as that path's `index.html` and place the macOS disk image beside it with the filename `My-Browser.dmg`; the page's relative download link expects that exact name. Build the disk image on macOS with `npm run tauri -- build --bundles dmg`, then copy and rename the `.dmg` from `src-tauri/target/release/bundle/dmg/`. Update the version and architecture text in the page when publishing a different build. The page includes first-launch guidance for this unnotarized build.
 
+### Sign and notarize a macOS release
+
+On macOS, run `npm run sign-mac` to build a Developer ID-signed and Apple-notarized DMG. The script checks that the configured Developer ID Application certificate is installed in the login keychain, then prompts for the Apple Account email and app-specific password used for notarization. The password is hidden while typing and is passed to Tauri only for that build; it is not written to the repository. The resulting DMG is in `src-tauri/target/release/bundle/dmg/`. Run this for each release build. The script currently targets Joshua Marinacci's Developer ID identity and team `EYDSR3DT3F`.
+
 The macOS app icon source is `resources/macos-app-icon.svg`. Regenerate it with `npm run tauri -- icon resources/macos-app-icon.svg --output target/generated-macos-icons`, then copy `target/generated-macos-icons/icon.icns` to `src-tauri/icons/icon.icns`.
 
 ## macOS filtering smoke test
