@@ -102,3 +102,8 @@
 
 - Settings now opens in a dedicated internal browser tab from the toolbar and native menu. Opening Settings again selects the existing Settings tab; closing it closes that tab.
 - Documented the tab-based Settings behavior in the README.
+
+## 2026-11-02
+
+- Clicking inside a website WebView now notifies the trusted browser UI to blur the address field, clearing its focus border. Opening or focusing a tab does not trigger the blur unless the page receives a pointer-down.
+- Documented the address-field focus behavior in the README.

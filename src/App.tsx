@@ -41,6 +41,7 @@ type FilterUpdateProgress = { phase: 'downloading' | 'compiling' | 'complete'; r
 type LaunchRequest = { url: string; private: boolean };
 type SessionTestPhase = 'exercise' | 'restore';
 const tabEvent = 'browser://tabs-changed';
+const pagePointerDownEvent = 'browser://page-pointer-down';
 const settingsEvent = 'browser://open-settings';
 const showHistoryEvent = 'browser://show-history';
 const showDownloadsEvent = 'browser://show-downloads';
@@ -709,6 +710,7 @@ export default function App() {
       setIsTauri(available);
       if (!available) return;
       unlisten = await listen<BrowserSnapshot>(tabEvent, event => applySnapshot(event.payload));
+      const unlistenPagePointerDown = await listen(pagePointerDownEvent, () => addressRef.current?.blur());
       const unlistenSettings = await listen(settingsEvent, () => { void openSettingsPage(); });
       const unlistenShowHistory = await listen(showHistoryEvent, () => { void openHistoryPage(); });
       const unlistenShowDownloads = await listen(showDownloadsEvent, () => setDownloadsPopoverOpen(true));
@@ -760,10 +762,10 @@ export default function App() {
       }
       catch (error) { setMessage(String(error)); }
       if (!cancelled) void runSessionIntegrationTest();
-      if (cancelled) { unlisten(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); }
+      if (cancelled) { unlisten(); unlistenPagePointerDown(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); }
       else {
         const originalUnlisten = unlisten;
-        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); };
+        unlisten = () => { originalUnlisten(); unlistenPagePointerDown(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); };
       }
     })();
     return () => { cancelled = true; unlisten?.(); };

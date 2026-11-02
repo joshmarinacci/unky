@@ -20,6 +20,7 @@ mod platforms;
 const TAB_EVENT: &str = "browser://tabs-changed";
 const SPLIT_EVENT: &str = "browser://split-changed";
 const SPLIT_RESIZE_EVENT: &str = "browser://split-resize";
+const PAGE_POINTER_DOWN_EVENT: &str = "browser://page-pointer-down";
 const OPEN_SETTINGS_EVENT: &str = "browser://open-settings";
 const SHOW_HISTORY_EVENT: &str = "browser://show-history";
 const SHOW_DOWNLOADS_EVENT: &str = "browser://show-downloads";
@@ -677,6 +678,7 @@ fn focus_browser_tab(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     state: tauri::State<'_, BrowserState>,
+    pointer_down: bool,
 ) -> Result<(), String> {
     let tab_id = webview
         .label()
@@ -704,6 +706,9 @@ fn focus_browser_tab(
     emit_snapshot(&app, &tabs);
     drop(tabs);
     persist_session(&state)?;
+    if pointer_down {
+        let _ = app.emit_to(&owner_window, PAGE_POINTER_DOWN_EVENT, ());
+    }
     position_tabs(&app, &state)
 }
 
@@ -1056,15 +1061,15 @@ fn create_page_webview(
         .initialization_script(
             r#"(() => {
               let pending = false;
-              const focusBrowserTab = () => {
-                if (pending) return;
+              const focusBrowserTab = (pointerDown = false) => {
+                if (pending && !pointerDown) return;
                 pending = true;
-                window.__TAURI_INTERNALS__?.invoke('focus_browser_tab')
+                window.__TAURI_INTERNALS__?.invoke('focus_browser_tab', { pointerDown })
                   .catch(() => {})
                   .finally(() => { pending = false; });
               };
               window.addEventListener('focus', focusBrowserTab);
-              document.addEventListener('pointerdown', focusBrowserTab, true);
+              document.addEventListener('pointerdown', () => focusBrowserTab(true), true);
             })();"#,
         )
         .initialization_script(
