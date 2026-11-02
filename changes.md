@@ -91,3 +91,9 @@
 - Added **Help → Show Shortcuts**, which opens an internal keyboard-shortcuts page and reuses its tab when opened again.
 - Tab cycling supports `Ctrl+Tab` / `Ctrl+Shift+Tab`, Chrome's `Ctrl+PageDown` / `Ctrl+PageUp` on Windows, and Chrome/Safari tab-cycling shortcuts on macOS. Updated macOS Back/Forward to `⌘[` / `⌘]` to avoid conflicting with Chrome's tab shortcuts.
 - Documented the shortcut variants in the README and Windows development guide.
+
+## 2026-11-02
+
+- Reordered the tab context menu: Pin, Reload, New tab below, Duplicate, Split submenu, Move to group, and Close tab. Split directions are nested, with **Unsplit from other tab** available for tabs in a split.
+- Added locally persisted pinned-tab state and a pin marker in the tab list. New tabs created from the context menu are inserted below the selected tab.
+- Disabled text selection on tab and folder rows while keeping rename inputs selectable, preventing accidental highlighting during right-clicks and drags.

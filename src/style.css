@@ -82,13 +82,15 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 /* Mouse users drag the whole row; the handle stays in the DOM for keyboard and screen-reader drags and is revealed on focus. */
 .tree-empty-hint { min-width: 0; overflow: hidden; color: var(--subtle); font-size: var(--fs-foot); font-style: italic; text-overflow: ellipsis; white-space: nowrap; }
 .tab-folder-row, .folder-row { position: relative; display: flex; min-width: 0; min-height: 34px; align-items: center; gap: 5px; padding-right: 6px; border-radius: 6px; color: var(--muted); }
+.tab-folder-row { user-select: none; }
 .tab-folder-row:hover, .folder-row:hover, .bookmark-row:hover { background: var(--surface-hover); }
 .tab-folder-toggle, .folder-toggle, .folder-action { display: grid; width: 22px; height: 24px; flex: 0 0 22px; place-items: center; padding: 0; border: 0; border-radius: 5px; color: var(--muted); background: transparent; }
 .tab-folder-toggle, .folder-toggle { font-size: 16px; }
 .tab-folder-icon, .folder-icon, .bookmark-icon { color: var(--muted); font-size: 13px; }
 .tab-folder-title, .folder-title { min-width: 0; flex: 1; overflow: hidden; color: var(--text); font-size: var(--fs-body); text-overflow: ellipsis; white-space: nowrap; }
 .tab-folder-name-input, .tab-rename-input, .folder-title-input { min-width: 0; flex: 1; padding: 5px 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); font-size: var(--fs-body); }
-.tab-row { display: flex; width: 100%; min-width: 0; min-height: 34px; align-items: center; gap: 8px; padding: 0 6px; overflow: hidden; border: 1px solid transparent; border-radius: 7px; color: var(--muted); }
+.tab-row { display: flex; width: 100%; min-width: 0; min-height: 34px; align-items: center; gap: 8px; padding: 0 6px; overflow: hidden; border: 1px solid transparent; border-radius: 7px; color: var(--muted); user-select: none; }
+.tab-rename-input, .tab-folder-name-input { user-select: text; }
 .tab-row.selected { color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--surface-raised)); border-color: color-mix(in srgb, var(--accent) 34%, transparent); }
 .private-tab-indicator { display: inline-flex; flex: 0 0 auto; color: var(--muted); }
 .tab-favicon { display: grid; width: 17px; flex: 0 0 17px; place-items: center; font-size: 13px; }
@@ -109,6 +111,10 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .sidebar-context-menu button { display: block; width: 100%; padding: 7px 9px; border: 0; border-radius: 5px; color: var(--text); background: transparent; font-size: var(--fs-callout); text-align: left; }
 .sidebar-context-menu button:hover { background: var(--surface-hover); }
 .sidebar-context-menu button.context-submenu-item { padding-left: 22px; color: var(--muted); }
+.sidebar-context-menu .sidebar-context-separator { height: 1px; margin: 4px 5px; background: var(--border); }
+.sidebar-context-menu .context-menu-chevron { float: right; margin-top: 2px; color: var(--subtle); }
+.sidebar-context-menu .context-submenu-item { padding-left: 20px; }
+.tab-pin-indicator { color: var(--accent); }
 .bookmark-manager { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 10px; }
 .bookmark-toolbar { flex-wrap: wrap; }
 .tab-toolbar { margin-bottom: 6px; }
