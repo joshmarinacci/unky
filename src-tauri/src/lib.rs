@@ -3222,7 +3222,9 @@ mod tests {
 pub fn run() {
     let initial_launch_request = parse_launch_args(std::env::args());
     let builder =
-        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        tauri::Builder::default()
+            .plugin(tauri_plugin_dialog::init())
+            .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             match parse_launch_args(args) {
                 Ok(request) => {
                     let window_label =
@@ -3310,7 +3312,12 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+,")
                 .build(app)?;
             #[cfg(target_os = "macos")]
+            let about = MenuItemBuilder::with_id("show-about", "About Unky")
+                .build(app)?;
+            #[cfg(target_os = "macos")]
             let app_menu = SubmenuBuilder::new(app, "Unky")
+                .item(&about)
+                .separator()
                 .item(&settings)
                 .separator()
                 .hide()
@@ -3668,6 +3675,17 @@ pub fn run() {
             };
             if event.id().as_ref() == "open-settings" {
                 let _ = app.emit_to(&window_label, OPEN_SETTINGS_EVENT, ());
+            }
+            if event.id().as_ref() == "show-about" {
+                use tauri_plugin_dialog::DialogExt;
+                let text = format!(
+                    "Version {}\nBuild {}\nBuilt {}\nCommit {}",
+                    env!("CARGO_PKG_VERSION"),
+                    option_env!("BUILD_NUMBER").unwrap_or("local"),
+                    option_env!("BUILD_TIMESTAMP").unwrap_or("unknown"),
+                    option_env!("BUILD_COMMIT").unwrap_or("unknown")
+                );
+                app.dialog().message(text).title("About Unky").show(|_| {});
             }
             if event.id().as_ref() == "show-history" {
                 let _ = app.emit_to(&window_label, SHOW_HISTORY_EVENT, ());

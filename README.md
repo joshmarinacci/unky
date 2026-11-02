@@ -162,3 +162,9 @@ The Edit menu also provides the standard Undo, Redo, Cut, Copy, Paste, and Selec
 ## Current status
 
 The browser interface and native website WebViews are implemented for macOS using Tauri's unstable child-WebView API. Production filtering uses WKContentRuleList and the constrained adblock-rust compiler. Windows and Linux interception validation is deferred to a later cross-platform milestone; macOS is the active development platform for now. See [the roadmap](docs/roadmap.md), [filtering details](docs/filtering.md), and [platform matrix](docs/platform-matrix.md). This prototype is not a general-purpose secure browser yet.
+
+### Build metadata
+
+Tauri builds generate `src/build-metadata.json` for the frontend and `src-tauri/build-metadata.env` for the Rust build. The generated Rust environment values are embedded in the binary and shown in the Settings About section and the macOS **Unky → About Unky** menu dialog. The metadata contains the package version, build number, UTC build timestamp, and short commit.
+
+Local builds use the `BUILD_NUMBER` environment variable when set, otherwise `local`. GitHub Actions uses `GITHUB_RUN_NUMBER`. The macOS release workflow generates metadata before packaging and names the DMG with version, build number, timestamp, commit, and architecture. Run `npm run build:metadata` to regenerate metadata manually.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import buildMetadata from './build-metadata.json';
 import { Button as AriaButton, ListBox, ListBoxItem, Popover, Select, SelectValue, Tab, TabList, TabPanel, TabPanels, Tabs } from 'react-aria-components';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Columns2, Download, ExternalLink, EyeOff, Folder, FolderPlus, Globe2, LoaderCircle, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, Terminal, X } from 'lucide-react';
 import { AppButton, AppInput } from './components/ui';
@@ -1672,7 +1673,7 @@ export default function App() {
               <div className="settings-card"><div><strong>Current site</strong><small>{activeSiteDomain ? `Allow requests on ${activeSiteDomain} by disabling filtering for this site.` : 'Open a website to manage its filter exception.'}</small></div><AppButton disabled={filterBusy || !activeSiteDomain} onClick={() => void changeSiteFilterException(!filterSettings?.exceptions.includes(activeSiteDomain))}>{filterSettings?.exceptions.includes(activeSiteDomain) ? 'Enable for site' : 'Disable for site'}</AppButton></div>
               {message && <p className="message" role="status">{message}</p>}
               <h2>About</h2>
-              <div className="settings-card"><div><strong>Unky</strong><small>macOS development build</small></div><span>0.1.0</span></div>
+              <div className="settings-card"><div><strong>Unky</strong><small>Version {buildMetadata.version} · Build {buildMetadata.buildNumber} · Built {new Date(buildMetadata.builtAt).toLocaleString()}</small></div><span>{buildMetadata.version}</span></div>
             </div>
           </section> : historyPageOpen ? <section className="history-page" aria-label="Browsing history">
             <header className="settings-heading"><div><p className="eyebrow">UNKY</p><h1>History</h1></div><AppButton className="settings-close" onClick={() => void closeTab(activeTabId)} aria-label="Close history tab"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>

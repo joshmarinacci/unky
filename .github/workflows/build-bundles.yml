@@ -35,8 +35,16 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Generate build metadata
+        run: npm run build:metadata
+
       - name: Build DMG
-        run: npm run tauri -- build --bundles dmg
+        run: npm run tauri-release
+
+      - name: Rename DMG with build metadata
+        run: |
+          dmg=$(find target/release/bundle/dmg -name '*.dmg' -print -quit)
+          mv "$dmg" "target/release/bundle/dmg/Unky_${BUILD_VERSION}_build-${BUILD_NUMBER}_${BUILD_TIMESTAMP//:/}_${BUILD_COMMIT}_aarch64.dmg"
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4

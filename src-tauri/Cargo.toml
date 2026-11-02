@@ -27,6 +27,7 @@ blocker-core = { path = "../crates/blocker-core" }
 tauri-plugin-wdio = { version = "1", optional = true }
 tauri-plugin-wdio-webdriver = { version = "1", optional = true }
 tauri-plugin-single-instance = "=2.5.3"
+tauri-plugin-dialog = "=2.4.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "=0.39.1"

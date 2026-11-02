@@ -1,6 +1,7 @@
 node_modules/
 dist/
 target/
+src-tauri/build-metadata.env
 .pnpm-store/
 .DS_Store
 *.log
