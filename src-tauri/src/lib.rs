@@ -3349,6 +3349,34 @@ pub fn run() {
             let previous_tab = MenuItemBuilder::with_id("shortcut-previous-tab", "Previous Tab")
                 .accelerator("Ctrl+Shift+Tab")
                 .build(app)?;
+            #[cfg(not(target_os = "macos"))]
+            let next_tab_page = MenuItemBuilder::with_id("shortcut-next-tab-page", "Next Tab")
+                .accelerator("Ctrl+PageDown")
+                .build(app)?;
+            #[cfg(not(target_os = "macos"))]
+            let previous_tab_page =
+                MenuItemBuilder::with_id("shortcut-previous-tab-page", "Previous Tab")
+                    .accelerator("Ctrl+PageUp")
+                    .build(app)?;
+            #[cfg(target_os = "macos")]
+            let next_tab_mac = MenuItemBuilder::with_id("shortcut-next-tab-mac", "Next Tab (Chrome)")
+                .accelerator("CmdOrCtrl+Alt+Right")
+                .build(app)?;
+            #[cfg(target_os = "macos")]
+            let previous_tab_mac =
+                MenuItemBuilder::with_id("shortcut-previous-tab-mac", "Previous Tab (Chrome)")
+                    .accelerator("CmdOrCtrl+Alt+Left")
+                    .build(app)?;
+            #[cfg(target_os = "macos")]
+            let next_tab_safari =
+                MenuItemBuilder::with_id("shortcut-next-tab-safari", "Next Tab (Safari)")
+                    .accelerator("CmdOrCtrl+Shift+]")
+                    .build(app)?;
+            #[cfg(target_os = "macos")]
+            let previous_tab_safari =
+                MenuItemBuilder::with_id("shortcut-previous-tab-safari", "Previous Tab (Safari)")
+                    .accelerator("CmdOrCtrl+Shift+[")
+                    .build(app)?;
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&new_tab)
                 .item(&new_private_tab);
@@ -3359,6 +3387,12 @@ pub fn run() {
                 .item(&reopen_closed_tab)
                 .item(&next_tab)
                 .item(&previous_tab);
+            #[cfg(not(target_os = "macos"))]
+            let file_menu = file_menu.item(&next_tab_page).item(&previous_tab_page);
+            #[cfg(target_os = "macos")]
+            let file_menu = file_menu.item(&next_tab_mac).item(&previous_tab_mac);
+            #[cfg(target_os = "macos")]
+            let file_menu = file_menu.item(&next_tab_safari).item(&previous_tab_safari);
             #[cfg(not(target_os = "macos"))]
             let file_menu = file_menu.separator().item(&settings).separator().quit();
             let file_menu = file_menu.build()?;
@@ -3397,14 +3431,14 @@ pub fn run() {
                 .build(app)?;
             let go_back = MenuItemBuilder::with_id("shortcut-go-back", "Back")
                 .accelerator(if cfg!(target_os = "macos") {
-                    "CmdOrCtrl+Alt+Left"
+                    "CmdOrCtrl+["
                 } else {
                     "Alt+Left"
                 })
                 .build(app)?;
             let go_forward = MenuItemBuilder::with_id("shortcut-go-forward", "Forward")
                 .accelerator(if cfg!(target_os = "macos") {
-                    "CmdOrCtrl+Alt+Right"
+                    "CmdOrCtrl+]"
                 } else {
                     "Alt+Right"
                 })
@@ -3424,6 +3458,11 @@ pub fn run() {
                 .separator()
                 .item(&actual_size)
                 .build()?;
+            let show_shortcuts = MenuItemBuilder::with_id("show-shortcuts", "Show Shortcuts")
+                .build(app)?;
+            let help_menu = SubmenuBuilder::new(app, "Help")
+                .item(&show_shortcuts)
+                .build()?;
             let menu = MenuBuilder::new(app);
             #[cfg(target_os = "macos")]
             let menu = menu.item(&app_menu);
@@ -3431,6 +3470,7 @@ pub fn run() {
                 .item(&file_menu)
                 .item(&edit_menu)
                 .item(&view_menu)
+                .item(&help_menu)
                 .build()?;
             app.set_menu(menu)?;
         }
@@ -3692,6 +3732,9 @@ pub fn run() {
             }
             if event.id().as_ref() == "show-downloads" {
                 let _ = app.emit_to(&window_label, SHOW_DOWNLOADS_EVENT, ());
+            }
+            if event.id().as_ref() == "show-shortcuts" {
+                let _ = app.emit_to(&window_label, "browser://show-shortcuts", ());
             }
             let id = event.id().as_ref();
             if id.starts_with("shortcut-") {

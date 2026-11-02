@@ -25,8 +25,10 @@ into `src-tauri/icons/`.
 
 Windows has File, Edit, and View menus. Browser shortcuts use Ctrl: Ctrl+T,
 Ctrl+Shift+N, Ctrl+W, Ctrl+Shift+T, Ctrl+L, Ctrl+F, Ctrl+R, Ctrl+Tab,
-Ctrl+Shift+Tab, Ctrl+Shift+=, Ctrl+-, and Ctrl+0. Back and forward use Alt+Left
-and Alt+Right. Settings uses Ctrl+,.
+Ctrl+Shift+Tab, Ctrl+PageDown, Ctrl+PageUp, Ctrl+Shift+=, Ctrl+-, and Ctrl+0.
+Ctrl+Tab / Ctrl+PageDown cycle forward; Ctrl+Shift+Tab / Ctrl+PageUp cycle
+backward, matching Chrome's Windows tab-navigation shortcuts. Back and forward
+use Alt+Left and Alt+Right. Settings uses Ctrl+,.
 
 Commands that create native WebViews use `#[tauri::command(async)]` so creation
 does not block the Windows WebView2 IPC callback. Keep this execution mode when

@@ -20,6 +20,8 @@ fn shortcut(key: u32, ctrl: bool, shift: bool, alt: bool) -> Option<&'static str
         (0x52, true, false, false) | (0x74, false, false, false) => Some("reload"),
         (0x09, true, false, false) => Some("next-tab"),
         (0x09, true, true, false) => Some("previous-tab"),
+        (0x22, true, false, false) => Some("next-tab"),
+        (0x21, true, false, false) => Some("previous-tab"),
         (0x25, false, false, true) => Some("go-back"),
         (0x27, false, false, true) => Some("go-forward"),
         (0xbb, true, _, false) | (0x6b, true, false, false) => Some("zoom-in"),

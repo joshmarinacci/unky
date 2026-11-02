@@ -44,6 +44,7 @@ const tabEvent = 'browser://tabs-changed';
 const settingsEvent = 'browser://open-settings';
 const showHistoryEvent = 'browser://show-history';
 const showDownloadsEvent = 'browser://show-downloads';
+const showShortcutsEvent = 'browser://show-shortcuts';
 const shortcutEvent = 'browser://shortcut';
 const historyEvent = 'browser://history-changed';
 const downloadsEvent = 'browser://downloads-changed';
@@ -423,6 +424,8 @@ export default function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historySearch, setHistorySearch] = useState('');
   const [historyTabIds, setHistoryTabIds] = useState<string[]>(initialHistoryTabIds);
+  const [shortcutsTabIds, setShortcutsTabIds] = useState<string[]>([]);
+  const shortcutsTabIdsRef = useRef<string[]>([]);
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [downloadsPopoverOpen, setDownloadsPopoverOpen] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -481,6 +484,7 @@ export default function App() {
     catch { return ''; }
   })();
   const historyPageOpen = historyTabIds.includes(activeTabId);
+  const shortcutsPageOpen = shortcutsTabIds.includes(activeTabId);
   const tabContextMenuWidth = Math.min(200, sidebarWidth - 16);
   useEffect(() => {
     if (import.meta.env.MODE !== 'desktop-test') return;
@@ -582,13 +586,18 @@ export default function App() {
     const openIds = new Set(tabs.map(tab => tab.id));
     setTabNameOverrides(names => Object.fromEntries(Object.entries(names).filter(([id]) => openIds.has(id))));
     setHistoryTabIds(ids => ids.filter(id => openIds.has(id)));
+    setShortcutsTabIds(ids => {
+      const next = ids.filter(id => openIds.has(id));
+      shortcutsTabIdsRef.current = next;
+      return next;
+    });
   }, [tabs, tabsLoaded]);
 
   useEffect(() => {
     if (!isTauri || !tabsLoaded) return;
-    void invoke('set_settings_open', { open: settingsOpen || historyPageOpen })
+    void invoke('set_settings_open', { open: settingsOpen || historyPageOpen || shortcutsPageOpen })
       .catch(error => setMessage(String(error)));
-  }, [isTauri, tabsLoaded, settingsOpen, historyPageOpen]);
+  }, [isTauri, tabsLoaded, settingsOpen, historyPageOpen, shortcutsPageOpen]);
 
   useEffect(() => {
     for (const tab of tabs) {
@@ -672,6 +681,7 @@ export default function App() {
       const unlistenSettings = await listen(settingsEvent, () => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); });
       const unlistenShowHistory = await listen(showHistoryEvent, () => { void openHistoryPage(); });
       const unlistenShowDownloads = await listen(showDownloadsEvent, () => setDownloadsPopoverOpen(true));
+      const unlistenShowShortcuts = await listen(showShortcutsEvent, () => { void openShortcutsPage(); });
       const unlistenHistory = await listen<HistoryEntry[]>(historyEvent, event => setHistory(event.payload));
       const unlistenDownloads = await listen<Download[]>(downloadsEvent, event => setDownloads(event.payload));
       const unlistenLaunchRequest = await listen<LaunchRequest>(launchRequestEvent, event => { void openLaunchRequest(event.payload); });
@@ -706,6 +716,8 @@ export default function App() {
           case 'find': openFindPanel(); break;
           case 'next-tab': void invoke<BrowserSnapshot>('cycle_tab', { backwards: false }).then(applySnapshot).catch(error => setMessage(String(error))); break;
           case 'previous-tab': void invoke<BrowserSnapshot>('cycle_tab', { backwards: true }).then(applySnapshot).catch(error => setMessage(String(error))); break;
+          case 'next-tab-page': case 'next-tab-mac': case 'next-tab-safari': void invoke<BrowserSnapshot>('cycle_tab', { backwards: false }).then(applySnapshot).catch(error => setMessage(String(error))); break;
+          case 'previous-tab-page': case 'previous-tab-mac': case 'previous-tab-safari': void invoke<BrowserSnapshot>('cycle_tab', { backwards: true }).then(applySnapshot).catch(error => setMessage(String(error))); break;
         }
       });
       try {
@@ -717,10 +729,10 @@ export default function App() {
       }
       catch (error) { setMessage(String(error)); }
       if (!cancelled) void runSessionIntegrationTest();
-      if (cancelled) { unlisten(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); }
+      if (cancelled) { unlisten(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); }
       else {
         const originalUnlisten = unlisten;
-        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); };
+        unlisten = () => { originalUnlisten(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); };
       }
     })();
     return () => { cancelled = true; unlisten?.(); };
@@ -936,6 +948,22 @@ export default function App() {
     }
     try { setHistory(await invoke<HistoryEntry[]>('get_history')); }
     catch (error) { setMessage(String(error)); }
+  }
+
+  async function openShortcutsPage() {
+    setSettingsOpen(false);
+    const existingId = [...shortcutsTabIdsRef.current].reverse().find(id => tabsRef.current.some(tab => tab.id === id));
+    if (existingId) { await selectTab(existingId); return; }
+    try {
+      const snapshot = await invoke<BrowserSnapshot>('create_tab');
+      applySnapshot(snapshot);
+      setShortcutsTabIds(ids => {
+        const next = [...ids, snapshot.activeTabId];
+        shortcutsTabIdsRef.current = next;
+        return next;
+      });
+      setTabNameOverrides(names => ({ ...names, [snapshot.activeTabId]: 'Keyboard Shortcuts' }));
+    } catch (error) { setMessage(String(error)); }
   }
 
   async function leaveHistoryTab(tabId: string) {
@@ -1674,6 +1702,19 @@ export default function App() {
               {message && <p className="message" role="status">{message}</p>}
               <h2>About</h2>
               <div className="settings-card"><div><strong>Unky</strong><small>Version {buildMetadata.version} · Build {buildMetadata.buildNumber} · Built {new Date(buildMetadata.builtAt).toLocaleString()}</small></div><span>{buildMetadata.version}</span></div>
+            </div>
+          </section> : shortcutsPageOpen ? <section className="history-page shortcuts-page" aria-label="Keyboard shortcuts">
+            <header className="settings-heading"><div><p className="eyebrow">UNKY HELP</p><h1>Keyboard Shortcuts</h1></div><AppButton className="settings-close" onClick={() => void closeTab(activeTabId)} aria-label="Close shortcuts"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>
+            <div className="history-content">
+              <p className="shortcuts-intro">Use these shortcuts while browsing. Some shortcuts vary by platform.</p>
+              <div className="shortcuts-list">
+                {[
+                  ['New tab', `${commandKey}+T`], ['New private tab', `${commandKey}+Shift+N`], ['Close tab', `${commandKey}+W`], ['Reopen closed tab', `${commandKey}+Shift+T`],
+                  ['Next tab', /Mac|iPhone|iPad/.test(navigator.platform) ? 'Ctrl+Tab · ⌘+Option+→ · ⇧+⌘+]' : 'Ctrl+Tab · Ctrl+PageDown'], ['Previous tab', /Mac|iPhone|iPad/.test(navigator.platform) ? 'Ctrl+Shift+Tab · ⌘+Option+← · ⇧+⌘+[' : 'Ctrl+Shift+Tab · Ctrl+PageUp'], ['Focus address bar', `${commandKey}+L`], ['Find in page', `${commandKey}+F`],
+                  ['Reload page', `${commandKey}+R`], ['Back', /Mac|iPhone|iPad/.test(navigator.platform) ? `${commandKey}+[` : 'Alt+←'], ['Forward', /Mac|iPhone|iPad/.test(navigator.platform) ? `${commandKey}+]` : 'Alt+→'],
+                  ['Zoom in', `${commandKey}+Shift+=`], ['Zoom out', `${commandKey}+-`], ['Reset zoom', `${commandKey}+0`], ['Settings', `${commandKey}+,`],
+                ].map(([label, keys]) => <div className="shortcut-entry" key={label}><span>{label}</span><kbd>{keys}</kbd></div>)}
+              </div>
             </div>
           </section> : historyPageOpen ? <section className="history-page" aria-label="Browsing history">
             <header className="settings-heading"><div><p className="eyebrow">UNKY</p><h1>History</h1></div><AppButton className="settings-close" onClick={() => void closeTab(activeTabId)} aria-label="Close history tab"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>

@@ -86,3 +86,8 @@
 ## 2026-10-31 12:06
 
 - Address box: the shield (page security popover) now sits at the left end where the lock/globe indicator was, and the bookmark star at the right end where the clear-address "x" was. The clear button is removed (the address is still selected on focus). Both leave the toolbar.
+## 2026-11-02
+
+- Added **Help → Show Shortcuts**, which opens an internal keyboard-shortcuts page and reuses its tab when opened again.
+- Tab cycling supports `Ctrl+Tab` / `Ctrl+Shift+Tab`, Chrome's `Ctrl+PageDown` / `Ctrl+PageUp` on Windows, and Chrome/Safari tab-cycling shortcuts on macOS. Updated macOS Back/Forward to `⌘[` / `⌘]` to avoid conflicting with Chrome's tab shortcuts.
+- Documented the shortcut variants in the README and Windows development guide.
