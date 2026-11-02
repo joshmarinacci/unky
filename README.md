@@ -168,3 +168,11 @@ The browser interface and native website WebViews are implemented for macOS usin
 Tauri builds generate `src/build-metadata.json` for the frontend and `src-tauri/build-metadata.env` for the Rust build. The generated Rust environment values are embedded in the binary and shown in the Settings About section and the macOS **Unky → About Unky** menu dialog. The metadata contains the package version, build number, UTC build timestamp, and short commit.
 
 Local builds use the `BUILD_NUMBER` environment variable when set, otherwise `local`. GitHub Actions uses `GITHUB_RUN_NUMBER`. The macOS release workflow generates metadata before packaging and names the DMG with version, build number, timestamp, commit, and architecture. Run `npm run build:metadata` to regenerate metadata manually.
+
+### Release process
+
+1. Update the application version consistently in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` (and refresh `package-lock.json` with `npm install --package-lock-only --legacy-peer-deps`).
+2. Commit and push the release changes. The **Build desktop bundles** GitHub Actions workflow runs on pushes and can also be started with **Run workflow**. Its macOS ARM64 job generates build metadata, builds the DMG, renames it to `Unky_<version>_build-<run>_<UTC timestamp>_<short commit>_aarch64.dmg`, and uploads it as the `my-browser-macos-arm64` artifact. The Windows ARM64 job builds and uploads an NSIS installer as `my-browser-windows-arm64`.
+3. Download the artifact from the completed workflow run. Workflow artifacts are retained for 14 days.
+
+For a local macOS DMG, run `npm ci --legacy-peer-deps` and then `npm run tauri-release`; the bundle is created under `target/release/bundle/dmg/`. Set `BUILD_NUMBER` to label a local build, for example `BUILD_NUMBER=42 npm run tauri-release`. The unsigned local command uses Tauri's default DMG filename. For a signed/notarized macOS build, use `npm run sign-mac`, which prompts for the Apple account email and app-specific password, requires the configured Developer ID certificate in the macOS keychain, and names the resulting DMG with the version, build number, UTC timestamp, commit, and architecture.

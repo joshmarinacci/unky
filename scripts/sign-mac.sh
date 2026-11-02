@@ -29,4 +29,20 @@ export APPLE_TEAM_ID="$team_id"
 export APPLE_SIGNING_IDENTITY="$signing_identity"
 unset apple_password
 
+cd "$(dirname "$0")/.."
+npm run build:metadata
+source src-tauri/build-metadata.env
+export BUILD_NUMBER BUILD_TIMESTAMP BUILD_COMMIT
+
 npm run tauri -- build --bundles dmg
+
+dmg_dir="target/release/bundle/dmg"
+dmg_path=$(find "$dmg_dir" -maxdepth 1 -type f -name '*.dmg' -print -quit)
+if [[ -z "$dmg_path" ]]; then
+  echo "Tauri completed without producing a DMG in $dmg_dir." >&2
+  exit 1
+fi
+
+dmg_name="Unky_${BUILD_VERSION}_build-${BUILD_NUMBER}_${BUILD_TIMESTAMP//:/_}_${BUILD_COMMIT}_aarch64.dmg"
+mv "$dmg_path" "$dmg_dir/$dmg_name"
+echo "Created signed DMG: $dmg_dir/$dmg_name"
