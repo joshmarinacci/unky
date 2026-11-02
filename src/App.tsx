@@ -121,6 +121,13 @@ function initialHistoryTabIds(): string[] {
   } catch { return []; }
 }
 
+function initialSettingsTabIds(): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem('browser.settingsTabs') ?? '[]');
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+  } catch { return []; }
+}
+
 function initialPinnedTabIds(): string[] {
   try {
     const value: unknown = JSON.parse(localStorage.getItem('browser.pinnedTabs') ?? '[]');
@@ -433,6 +440,8 @@ export default function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historySearch, setHistorySearch] = useState('');
   const [historyTabIds, setHistoryTabIds] = useState<string[]>(initialHistoryTabIds);
+  const [settingsTabIds, setSettingsTabIds] = useState<string[]>(initialSettingsTabIds);
+  const settingsTabIdsRef = useRef(settingsTabIds);
   const [shortcutsTabIds, setShortcutsTabIds] = useState<string[]>([]);
   const shortcutsTabIdsRef = useRef<string[]>([]);
   const [downloads, setDownloads] = useState<Download[]>([]);
@@ -450,7 +459,6 @@ export default function App() {
   const [folderTitle, setFolderTitle] = useState('');
   const [editingFolderId, setEditingFolderId] = useState('');
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [filterSettings, setFilterSettings] = useState<FilterSettingsView | null>(null);
   const [filterBusy, setFilterBusy] = useState(false);
   const [filterProgress, setFilterProgress] = useState<FilterUpdateProgress | null>(null);
@@ -493,6 +501,7 @@ export default function App() {
     catch { return ''; }
   })();
   const historyPageOpen = historyTabIds.includes(activeTabId);
+  const settingsPageOpen = settingsTabIds.includes(activeTabId);
   const shortcutsPageOpen = shortcutsTabIds.includes(activeTabId);
   const tabContextMenuWidth = Math.min(200, sidebarWidth - 16);
   useEffect(() => {
@@ -586,6 +595,10 @@ export default function App() {
   }, [historyTabIds]);
 
   useEffect(() => {
+    localStorage.setItem('browser.settingsTabs', JSON.stringify(settingsTabIds));
+  }, [settingsTabIds]);
+
+  useEffect(() => {
     localStorage.setItem('browser.pinnedTabs', JSON.stringify(pinnedTabIds));
   }, [pinnedTabIds]);
 
@@ -599,6 +612,11 @@ export default function App() {
     const openIds = new Set(tabs.map(tab => tab.id));
     setTabNameOverrides(names => Object.fromEntries(Object.entries(names).filter(([id]) => openIds.has(id))));
     setHistoryTabIds(ids => ids.filter(id => openIds.has(id)));
+    setSettingsTabIds(ids => {
+      const next = ids.filter(id => openIds.has(id));
+      settingsTabIdsRef.current = next;
+      return next;
+    });
     setShortcutsTabIds(ids => {
       const next = ids.filter(id => openIds.has(id));
       shortcutsTabIdsRef.current = next;
@@ -608,9 +626,9 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauri || !tabsLoaded) return;
-    void invoke('set_settings_open', { open: settingsOpen || historyPageOpen || shortcutsPageOpen })
+    void invoke('set_settings_open', { open: settingsPageOpen || historyPageOpen || shortcutsPageOpen })
       .catch(error => setMessage(String(error)));
-  }, [isTauri, tabsLoaded, settingsOpen, historyPageOpen, shortcutsPageOpen]);
+  }, [isTauri, tabsLoaded, settingsPageOpen, historyPageOpen, shortcutsPageOpen]);
 
   useEffect(() => {
     for (const tab of tabs) {
@@ -691,7 +709,7 @@ export default function App() {
       setIsTauri(available);
       if (!available) return;
       unlisten = await listen<BrowserSnapshot>(tabEvent, event => applySnapshot(event.payload));
-      const unlistenSettings = await listen(settingsEvent, () => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); });
+      const unlistenSettings = await listen(settingsEvent, () => { void openSettingsPage(); });
       const unlistenShowHistory = await listen(showHistoryEvent, () => { void openHistoryPage(); });
       const unlistenShowDownloads = await listen(showDownloadsEvent, () => setDownloadsPopoverOpen(true));
       const unlistenShowShortcuts = await listen(showShortcutsEvent, () => { void openShortcutsPage(); });
@@ -942,7 +960,6 @@ export default function App() {
   }
 
   async function openHistoryPage() {
-    setSettingsOpen(false);
     const existingHistoryTabId = [...historyTabIds].reverse().find(id => tabs.some(tab => tab.id === id));
     if (existingHistoryTabId) {
       await selectTab(existingHistoryTabId);
@@ -964,7 +981,6 @@ export default function App() {
   }
 
   async function openShortcutsPage() {
-    setSettingsOpen(false);
     const existingId = [...shortcutsTabIdsRef.current].reverse().find(id => tabsRef.current.some(tab => tab.id === id));
     if (existingId) { await selectTab(existingId); return; }
     try {
@@ -979,15 +995,42 @@ export default function App() {
     } catch (error) { setMessage(String(error)); }
   }
 
+  async function openSettingsPage() {
+    const existingId = [...settingsTabIdsRef.current].reverse().find(id => tabsRef.current.some(tab => tab.id === id));
+    if (existingId) { await selectTab(existingId); return; }
+    try {
+      await invoke('set_settings_open', { open: true });
+      const snapshot = await invoke<BrowserSnapshot>('create_tab');
+      applySnapshot(snapshot);
+      setSettingsTabIds(ids => {
+        const next = [...ids, snapshot.activeTabId];
+        settingsTabIdsRef.current = next;
+        return next;
+      });
+      setTabNameOverrides(names => ({ ...names, [snapshot.activeTabId]: 'Settings' }));
+    } catch (error) { setMessage(String(error)); }
+  }
+
   async function leaveHistoryTab(tabId: string) {
-    if (!historyTabIds.includes(tabId)) return;
+    const wasInternalPage = historyTabIds.includes(tabId) || settingsTabIds.includes(tabId) || shortcutsTabIds.includes(tabId);
+    if (!wasInternalPage) return;
     setHistoryTabIds(ids => ids.filter(id => id !== tabId));
+    setSettingsTabIds(ids => {
+      const next = ids.filter(id => id !== tabId);
+      settingsTabIdsRef.current = next;
+      return next;
+    });
+    setShortcutsTabIds(ids => {
+      const next = ids.filter(id => id !== tabId);
+      shortcutsTabIdsRef.current = next;
+      return next;
+    });
     setTabNameOverrides(names => {
       const next = { ...names };
       delete next[tabId];
       return next;
     });
-    try { await invoke('set_settings_open', { open: settingsOpen }); }
+    try { await invoke('set_settings_open', { open: settingsPageOpen || shortcutsPageOpen }); }
     catch (error) { setMessage(String(error)); }
   }
 
@@ -1489,8 +1532,7 @@ export default function App() {
   }
 
   function closeSettings() {
-    setSettingsOpen(false);
-    void invoke('set_settings_open', { open: historyPageOpen }).catch(error => setMessage(String(error)));
+    if (activeTabId) void closeTab(activeTabId);
   }
 
   const bookmarkExpanded = new Set(bookmarkSearch.trim() ? bookmarkFolderIds(filterBookmarkNodes(bookmarks, bookmarkSearch.trim())) : expandedFolderIds);
@@ -1676,7 +1718,7 @@ export default function App() {
           </form> : <AppButton className="toolbar-action" title={`Find in page (${commandKey}+F)`} aria-label="Find in page" onClick={openFindPanel}><Search className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
           <AppButton ref={externalBrowserButtonRef} className="toolbar-action" title="Open in another browser" aria-label="Open in another browser" aria-haspopup="menu" disabled={!isTauri || !activeTab?.url.match(/^https?:\/\//)} onClick={() => void showExternalBrowsers()}><ExternalLink className="ui-icon" size={17} aria-hidden="true" /></AppButton>
           {splitLayout && <AppButton className="toolbar-action" title="Close split view" aria-label="Close split view" onClick={() => void closeSplitView()}><Columns2 className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
-          <AppButton className="toolbar-action" title="Settings" aria-label="Settings" onClick={() => { setSettingsOpen(true); void invoke('set_settings_open', { open: true }); }}><Settings className="ui-icon" size={17} aria-hidden="true" /></AppButton>
+          <AppButton className="toolbar-action" title="Settings" aria-label="Settings" onClick={() => void openSettingsPage()}><Settings className="ui-icon" size={17} aria-hidden="true" /></AppButton>
           <AppButton className="toolbar-action downloads-trigger" title="Recent downloads" aria-label={`Recent downloads${downloads.length ? `, ${downloads.length} items` : ''}`} aria-haspopup="dialog" aria-expanded={downloadsPopoverOpen} aria-controls="downloads-popover" onClick={() => setDownloadsPopoverOpen(open => !open)}><Download className="ui-icon" size={17} aria-hidden="true" />{downloads.length > 0 && <span className="download-count" aria-hidden="true">{downloads.length > 99 ? '99+' : downloads.length}</span>}</AppButton>
           {downloadsPopoverOpen && <section id="downloads-popover" className="downloads-popover" role="dialog" aria-label="Recent downloads">
                 <header className="downloads-popover-heading"><div><h2>{downloads.length === 0 ? 'recent download history' : 'Downloads'}</h2>{downloads.length > 0 && <span>{downloads.length} {downloads.length === 1 ? 'item' : 'items'}</span>}</div></header>
@@ -1691,7 +1733,7 @@ export default function App() {
         </header>
 
         <div className="webview-slot" ref={viewRef}>
-          {settingsOpen ? <section className="settings-page" aria-label="Settings">
+          {settingsPageOpen ? <section className="settings-page" aria-label="Settings">
             <header className="settings-heading"><div><p className="eyebrow">UNKY</p><h1>Settings</h1></div><AppButton className="settings-close" onClick={closeSettings} aria-label="Close settings"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>
             <div className="settings-content">
               <h2>General</h2>

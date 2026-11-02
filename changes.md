@@ -97,3 +97,8 @@
 - Reordered the tab context menu: Pin, Reload, New tab below, Duplicate, Split submenu, Move to group, and Close tab. Split directions are nested, with **Unsplit from other tab** available for tabs in a split.
 - Added locally persisted pinned-tab state and a pin marker in the tab list. New tabs created from the context menu are inserted below the selected tab.
 - Disabled text selection on tab and folder rows while keeping rename inputs selectable, preventing accidental highlighting during right-clicks and drags.
+
+## 2026-11-02
+
+- Settings now opens in a dedicated internal browser tab from the toolbar and native menu. Opening Settings again selects the existing Settings tab; closing it closes that tab.
+- Documented the tab-based Settings behavior in the README.
