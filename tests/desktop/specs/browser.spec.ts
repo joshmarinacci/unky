@@ -21,6 +21,44 @@ async function clickTabContextItem(tabId: string, menuItem: string) {
 }
 
 describe('native Tauri browser', () => {
+  it('intercepts webpage context menus when enabled after startup and navigation', async () => {
+    await browser.waitUntil(async () => (await inspect('tab-1')).readyState === 'complete');
+    type MenuProbe = { contextMenu: { documentId: number; enabled: boolean; prevented: boolean; visibleHosts: number }; errors: string[] };
+    const probe = () => invoke('desktop_test_inspect_page', { tabId: 'tab-1', openContextMenu: true }) as Promise<MenuProbe>;
+    await invoke('set_page_context_menu_enabled', { enabled: true });
+    const initial = await probe();
+    writeFileSync(join(results, 'context-menu.json'), JSON.stringify(initial, null, 2));
+    assert.equal(initial.contextMenu.enabled, true);
+    assert.equal(initial.contextMenu.prevented, true, JSON.stringify(initial.contextMenu));
+    assert.equal(initial.contextMenu.visibleHosts, 1, JSON.stringify(initial.errors));
+    assert.deepEqual(initial.errors, []);
+    await invoke('set_page_context_menu_enabled', { enabled: false });
+    await invoke('navigate', { tabId: 'tab-1', url: 'http://127.0.0.1:4179/two' });
+    await browser.waitUntil(async () => {
+      const page = await inspect('tab-1');
+      return page.url === 'http://127.0.0.1:4179/two' && page.readyState === 'complete';
+    });
+    const disabled = await probe();
+    assert.equal(disabled.contextMenu.enabled, false);
+    assert.equal(disabled.contextMenu.prevented, false);
+    assert.equal(disabled.contextMenu.visibleHosts, 0);
+    await invoke('set_page_context_menu_enabled', { enabled: true });
+    await invoke('reload', { tabId: 'tab-1' });
+    await browser.waitUntil(async () => {
+      const page = await inspect('tab-1');
+      return page.readyState === 'complete' && !page.loading && page.contextMenu.documentId !== disabled.contextMenu.documentId;
+    });
+    const reloaded = await probe();
+    assert.equal(reloaded.contextMenu.enabled, true);
+    assert.equal(reloaded.contextMenu.prevented, true);
+    assert.equal(reloaded.contextMenu.visibleHosts, 1);
+    assert.deepEqual(reloaded.errors, []);
+    await invoke('navigate', { tabId: 'tab-1', url: 'http://127.0.0.1:4179/' });
+    await browser.waitUntil(async () => {
+      const page = await inspect('tab-1');
+      return page.url === 'http://127.0.0.1:4179/' && page.readyState === 'complete';
+    });
+  });
   it('forwards a command-line URL into a private tab in the running browser', async () => {
     type Snapshot = { tabs: Array<{ id: string; url: string; private: boolean }> };
     const url = 'http://127.0.0.1:4179/two';

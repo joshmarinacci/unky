@@ -6,5 +6,5 @@
   "remote": {
     "urls": ["http://*:*/*", "https://*:*/*", "http://127.0.0.1:4179/*"]
   },
-  "permissions": ["allow-open-link-in-new-tab", "allow-sync-page-url", "allow-focus-browser-tab"]
+  "permissions": ["allow-open-link-in-new-tab", "allow-open-link-in-new-window", "allow-sync-page-url", "allow-focus-browser-tab"]
 }

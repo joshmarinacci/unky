@@ -4,6 +4,11 @@ description = "Allows a browser page to request a new tab for a validated HTTP o
 commands.allow = ["open_link_in_new_tab"]
 
 [[permission]]
+identifier = "allow-open-link-in-new-window"
+description = "Allows a browser page to open a validated HTTP or HTTPS link in a browser window with the source tab's private mode."
+commands.allow = ["open_link_in_new_window"]
+
+[[permission]]
 identifier = "allow-sync-page-url"
 description = "Allows a browser page to report same-origin client-side URL changes."
 commands.allow = ["sync_page_url"]
@@ -67,6 +72,7 @@ commands.allow = [
   "reload",
   "stop_loading",
   "set_settings_open",
+  "set_page_context_menu_enabled",
   "set_view_bounds",
   "reopen_closed_tab",
   "set_tab_dragging",

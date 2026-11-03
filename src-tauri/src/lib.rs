@@ -673,6 +673,51 @@ fn open_link_in_new_tab(
     open_url_in_new_tab(&app, &state, &url, private, &owner_window)
 }
 
+#[tauri::command(async)]
+fn open_link_in_new_window(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    url: String,
+) -> Result<(), String> {
+    if !webview.label().starts_with("page-") {
+        return Err("Links can only be opened from a browser page".into());
+    }
+    let private = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .iter()
+        .find(|tab| page_label(&tab.id) == webview.label())
+        .map(|tab| tab.private)
+        .ok_or("That tab no longer exists")?;
+    let parsed = allowed_navigation_url(&url)?;
+    let window_number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+    let destination = format!("browser-window-{window_number}");
+    let browser_window = tauri::WebviewWindowBuilder::new(
+        &app,
+        &destination,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Unky")
+    .inner_size(1200.0, 800.0)
+    .build()
+    .map_err(|error| format!("Could not open a new browser window: {error}"))?;
+    let close_app = app.clone();
+    let close_state = state.inner().clone();
+    let close_label = destination.clone();
+    browser_window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            close_browser_window_tabs(&close_app, &close_state, &close_label);
+        }
+    });
+    if let Err(error) = open_url_in_new_tab(&app, &state, parsed.as_str(), private, &destination) {
+        let _ = browser_window.close();
+        return Err(error);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn focus_browser_tab(
     webview: tauri::Webview,
@@ -795,6 +840,7 @@ struct DesktopPageDiagnostics {
     text: String,
     dom: String,
     errors: Vec<String>,
+    context_menu: serde_json::Value,
 }
 
 #[cfg(all(debug_assertions, feature = "desktop-test"))]
@@ -815,6 +861,7 @@ async fn desktop_test_inspect_page(
     app: tauri::AppHandle,
     state: tauri::State<'_, BrowserState>,
     tab_id: Option<String>,
+    open_context_menu: Option<bool>,
 ) -> Result<DesktopPageDiagnostics, String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Desktop diagnostics are only available to the trusted browser UI".into());
@@ -834,13 +881,25 @@ async fn desktop_test_inspect_page(
     let window_labels = app.windows().keys().cloned().collect();
 
     let page = get_page(&app, &id)?;
+    if open_context_menu == Some(true) {
+        page.eval("window.__MY_BROWSER_CONTEXT_MENU_TEST_EVENT__ = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 100 }); (document.querySelector('a[href]') || document.body).dispatchEvent(window.__MY_BROWSER_CONTEXT_MENU_TEST_EVENT__);")
+            .map_err(|error| error.to_string())?;
+    }
     let script = r#"JSON.stringify((() => ({
       url: location.href,
       title: document.title,
       readyState: document.readyState,
       text: document.body?.innerText ?? '',
       dom: document.documentElement?.outerHTML ?? '',
-      errors: window.__MY_BROWSER_TEST_ERRORS__ ?? []
+      errors: window.__MY_BROWSER_TEST_ERRORS__ ?? [],
+      contextMenu: {
+        documentId: performance.timeOrigin,
+        enabled: window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__,
+        errorsInstalled: Array.isArray(window.__MY_BROWSER_TEST_ERRORS__),
+        prevented: window.__MY_BROWSER_CONTEXT_MENU_TEST_EVENT__?.defaultPrevented,
+        hosts: document.querySelectorAll('div[aria-hidden]').length,
+        visibleHosts: document.querySelectorAll('div[aria-hidden="false"]').length
+      }
     }))())"#;
     let (sender, receiver) = std::sync::mpsc::channel();
     page.eval_with_callback(script, move |result| {
@@ -860,6 +919,7 @@ async fn desktop_test_inspect_page(
         page = serde_json::from_str(json).map_err(|error| error.to_string())?;
     }
     Ok(DesktopPageDiagnostics {
+        context_menu: page["contextMenu"].clone(),
         browser,
         window_labels,
         tab_id: id,
@@ -1129,9 +1189,10 @@ fn create_page_webview(
                   document.documentElement.append(field); field.select(); document.execCommand('copy'); field.remove();
                 }
               };
-              document.addEventListener('contextmenu', event => {
+              window.addEventListener('contextmenu', event => {
                 if (!window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__) return;
                 event.preventDefault();
+                event.stopImmediatePropagation();
                 close();
                 const target = event.target instanceof Element ? event.target : null;
                 const link = target?.closest('a[href]');
@@ -1142,6 +1203,7 @@ fn create_page_webview(
                 const separate = () => { if (items.length && !items[items.length - 1].separator) items.push({ separator: true }); };
                 if (link) {
                   add('Open Link in New Tab', () => window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', { url: link.href }));
+                  add('Open Link in New Window', () => window.__TAURI_INTERNALS__?.invoke('open_link_in_new_window', { url: link.href }));
                   add('Copy Link Address', () => copyText(link.href));
                 }
                 if (image) {
@@ -1237,6 +1299,15 @@ fn create_page_webview(
             }
         })
         .on_page_load(move |webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                let custom_context_menu_enabled = event_app
+                    .state::<BrowserState>()
+                    .page_context_menu_enabled
+                    .load(std::sync::atomic::Ordering::Acquire);
+                let _ = webview.eval(&format!(
+                    "window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__ = {custom_context_menu_enabled};"
+                ));
+            }
             if let Ok(mut tabs) = state_data.lock() {
                 if let Some(tab) = tabs
                     .iter_mut()
@@ -3712,6 +3783,7 @@ pub fn run() {
         cycle_tab,
         reveal_download,
         open_link_in_new_tab,
+        open_link_in_new_window,
         sync_page_url,
         create_tab,
         select_tab,
@@ -3760,6 +3832,7 @@ pub fn run() {
         cycle_tab,
         reveal_download,
         open_link_in_new_tab,
+        open_link_in_new_window,
         sync_page_url,
         create_tab,
         select_tab,
@@ -3808,6 +3881,7 @@ pub fn run() {
         cycle_tab,
         reveal_download,
         open_link_in_new_tab,
+        open_link_in_new_window,
         sync_page_url,
         create_tab,
         select_tab,
