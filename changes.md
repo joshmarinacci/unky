@@ -110,6 +110,7 @@
 
 ## 2026-11-03
 
+- Pinned tabs now move into an icon-only row above the regular tab list. Clicking an icon selects its tab; right-clicking opens the tab context menu, including Unpin. Pin state remains saved across restarts.
 - Split-view tabs now share a sidebar row in pane order, with a shared outline and separate selection, close buttons, and context menus. Their icons are also paired in the collapsed sidebar. The presentation preserves folder membership and restores separate rows on unsplit or close. Added grouping tests and a native layout regression for selection, unsplitting, and closing a split tab.
 - On macOS, Downloads now opens in a native toolbar popover above the website without shrinking the page. It shows live download status and Show in Finder actions, supports the native View menu, and dismisses on outside clicks or Escape. Added a native regression using a disposable download to check popover updates, dismissal, and unchanged page dimensions.
 - Clicking a bookmark folder's name, icon, or row now expands or collapses it. Folder action buttons and the rename field retain their own behavior.

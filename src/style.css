@@ -63,6 +63,15 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 .sidebar.collapsed .brand-mark, .sidebar.collapsed .brand-name, .sidebar.collapsed .sidebar-content, .sidebar.collapsed .sidebar-sizer { display: none; }
 .sidebar-rail { display: flex; min-height: 0; flex: 1; flex-direction: column; align-items: center; gap: 4px; }
 .rail-tabs { display: flex; min-height: 0; flex: 1; flex-direction: column; align-items: center; gap: 2px; width: 100%; overflow-y: auto; }
+.pinned-tabs-row { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 3px; min-width: 0; padding: 5px 2px 7px; margin: 0 0 4px; border-bottom: 1px solid var(--border); }
+.pinned-tab-button { display: grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 7px; color: var(--muted); background: transparent; }
+.pinned-tab-button:hover { color: var(--text); background: var(--surface-hover); }
+.pinned-tab-button.selected { color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--surface-raised)); border-color: color-mix(in srgb, var(--accent) 34%, transparent); }
+.pinned-tab-button:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+.pinned-tab-edit { display: flex; flex: 1 1 100%; min-width: 0; }
+.pinned-tab-edit .tab-rename-input { width: 100%; }
+.pinned-tabs-row-rail { justify-content: center; width: 100%; padding: 2px 0 6px; margin-bottom: 3px; }
+.pinned-tabs-row-rail .rail-button { position: relative; }
 .rail-button { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 7px; color: var(--muted); background: transparent; }
 .rail-button:hover { color: var(--text); background: var(--surface-hover); }
 .rail-button.selected { color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--surface-raised)); border-color: color-mix(in srgb, var(--accent) 34%, transparent); }

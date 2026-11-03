@@ -1568,6 +1568,35 @@ export default function App() {
     return <button key={node.id} type="button" className={`rail-button ${tab.id === activeTabId ? 'selected' : ''}`} title={title} aria-label={title} aria-current={tab.id === activeTabId ? 'page' : undefined} onClick={() => void selectTab(tab.id)} onContextMenu={event => openRailContextMenu(event, tab.id, 'tab')}>{renderTabIcon(tab)}</button>;
   }
 
+  function renderPinnedTab(tab: Tab, compact = false): React.ReactNode {
+    const title = tabNameOverrides[tab.id] || tab.title || 'New Tab';
+    if (editingTabId === tab.id) return <div key={tab.id} className="pinned-tab-edit" title={`Rename ${title}`}>
+      <AppInput
+        className="tab-rename-input"
+        aria-label="Tab name"
+        autoFocus
+        value={tabNameDraft}
+        onChange={event => setTabNameDraft(event.target.value)}
+        onBlur={() => saveTabName(tab.id)}
+        onKeyDown={event => {
+          event.stopPropagation();
+          if (event.key === 'Enter') { event.preventDefault(); saveTabName(tab.id); }
+          if (event.key === 'Escape') setEditingTabId('');
+        }}
+      />
+    </div>;
+    return <button
+      key={tab.id}
+      type="button"
+      className={`${compact ? 'rail-button' : 'pinned-tab-button'} ${tab.id === activeTabId ? 'selected' : ''}`}
+      title={title}
+      aria-label={`Pinned tab: ${title}`}
+      aria-current={tab.id === activeTabId ? 'page' : undefined}
+      onClick={() => void selectTab(tab.id)}
+      onContextMenu={event => openRailContextMenu(event, tab.id, 'tab')}
+    >{renderTabIcon(tab)}</button>;
+  }
+
   function renderTabRow({ node, depth }: FlatNode<TabNode>, compact = false): React.ReactNode {
     const dropZone = tabDropTarget?.overId === node.id ? tabDropTarget.zone : undefined;
     const stopDrag = (event: React.PointerEvent) => event.stopPropagation();
@@ -1641,10 +1670,20 @@ export default function App() {
   // A dragged folder collapses so its own children are not drop targets.
   const expandedTabFolders = new Set(expandedTabFolderIds(tabNodes));
   if (tabDragOrigin) expandedTabFolders.delete(tabDragOrigin.id);
-  const visibleTabRows = flattenBookmarkNodes(tabNodes, expandedTabFolders);
-  const allTabRows = flattenBookmarkNodes(tabNodes, new Set(tabFolders(tabNodes).map(folder => folder.id)));
-  const sidebarTabRows = groupSplitTabRows(visibleTabRows, allTabRows, splitLayout);
+  const unpinnedTabNodes = (nodes: TabNode[]): TabNode[] => nodes.flatMap<TabNode>(node => {
+    if (node.type === 'tab') return pinnedTabIds.includes(node.id) ? [] : [node];
+    return [{ ...node, children: unpinnedTabNodes(node.children) }];
+  });
+  const unpinnedTree = unpinnedTabNodes(tabNodes);
+  const visibleTabRows = flattenBookmarkNodes(unpinnedTree, expandedTabFolders);
+  const allTabRows = flattenBookmarkNodes(unpinnedTree, new Set(tabFolders(unpinnedTree).map(folder => folder.id)));
+  const visibleSplitLayout = splitLayout && !pinnedTabIds.includes(splitLayout.firstTabId) && !pinnedTabIds.includes(splitLayout.secondTabId) ? splitLayout : null;
+  const sidebarTabRows = groupSplitTabRows(visibleTabRows, allTabRows, visibleSplitLayout);
   const displayedTabRows = sidebarTabRows.flatMap(row => row.type === 'single' ? [row.row] : [row.first, row.second]);
+  const pinnedTabs = pinnedTabIds.flatMap(id => {
+    const tab = tabs.find(item => item.id === id);
+    return tab ? [tab] : [];
+  });
   const draggedTabNode = tabDragOrigin ? findTabNode(tabNodes, tabDragOrigin.id) : undefined;
   const bookmarkEditForm = <form className="bookmark-form bookmark-inline-form" onSubmit={saveBookmarkEdit} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); cancelBookmarkEdit(); } }}>
     {addingBookmarkFolderId && <small>New bookmark in {locateBookmark(bookmarks, addingBookmarkFolderId)?.node.title ?? 'folder'}</small>}
@@ -1665,6 +1704,7 @@ export default function App() {
         </div>
         {sidebarCollapsed && <div className="sidebar-rail">
           <button type="button" className="rail-button" title={`New tab (${commandKey}+T)`} aria-label="New tab" onClick={() => void createTab()}><Plus className="ui-icon" size={16} aria-hidden="true" /></button>
+          {pinnedTabs.length > 0 && <div className="pinned-tabs-row pinned-tabs-row-rail" role="group" aria-label="Pinned tabs">{pinnedTabs.map(tab => renderPinnedTab(tab, true))}</div>}
           <div className="rail-tabs">{sidebarTabRows.map(row => row.type === 'single' ? renderRailItem(row.row) : <div className="rail-split-row" role="group" aria-label="Split view" key={`split-${row.first.node.id}-${row.second.node.id}`}>{renderRailItem(row.first)}{renderRailItem(row.second)}</div>)}</div>
           <button type="button" className="rail-button" title="Toggle developer console" aria-label="Toggle developer console" onClick={() => void invoke('toggle_devtools').catch(error => setMessage(String(error)))}><Terminal className="ui-icon" size={16} aria-hidden="true" /></button>
         </div>}
@@ -1681,6 +1721,7 @@ export default function App() {
           <AppButton className="new-folder-button" title={`New tab (${commandKey}+T)`} onClick={() => void createTab()}><Plus className="ui-icon" size={14} aria-hidden="true" /> Tab</AppButton>
           <AppButton className="new-folder-button" title="Create tab folder" aria-label="Create tab folder" onClick={createTabFolder}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
         </div>
+        {pinnedTabs.length > 0 && <div className="pinned-tabs-row" role="group" aria-label="Pinned tabs">{pinnedTabs.map(tab => renderPinnedTab(tab))}</div>}
         <DndContext sensors={tabSensors} collisionDetection={closestCenter} onDragStart={handleTabDragStart} onDragMove={handleTabDragMove} onDragEnd={handleTabDragEnd} onDragCancel={() => finishTabDrag(true)}>
           <div className={`tab-list tab-tree ${tabDragOrigin ? 'is-dragging' : ''}`} role="tree" aria-label="Open tabs">
             <SortableContext items={displayedTabRows.map(row => row.node.id)} strategy={() => null}>
