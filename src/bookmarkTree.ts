@@ -1,4 +1,4 @@
-export type BookmarkLink = { id: string; type: 'bookmark'; title: string; url: string };
+export type BookmarkLink = { id: string; type: 'bookmark'; title: string; url: string; description?: string };
 export type BookmarkFolder = { id: string; type: 'folder'; title: string; children: BookmarkNode[] };
 export type BookmarkNode = BookmarkLink | BookmarkFolder;
 

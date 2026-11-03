@@ -14,6 +14,11 @@ function log(event) {
 const server = createServer((request, response) => {
   const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
   log({ type: 'request', method: request.method, path: pathname });
+  if (pathname === '/download') {
+    response.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="popover-test.txt"' });
+    response.end('Native downloads popover fixture.');
+    return;
+  }
   if (pathname === '/api/status') {
     response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     response.end(JSON.stringify({ ok: true, fixture: 'desktop-testing' }));

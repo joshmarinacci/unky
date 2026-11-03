@@ -1,5 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { groupSplitTabRows } from '../src/splitTabRows.ts';
+import { flattenBookmarkNodes } from '../src/bookmarkTree.ts';
+
+test('split rows use pane order once and restore the original rows when unsplit', () => {
+  const rows = ['a', 'middle', 'b'].map(id => ({ node: { id, type: 'tab' }, depth: 0, parentId: null }));
+  const grouped = groupSplitTabRows(rows, rows, { firstTabId: 'b', secondTabId: 'a' });
+  assert.equal(grouped.length, 2);
+  assert.equal(grouped[0].type, 'split');
+  if (grouped[0].type === 'split') {
+    assert.equal(grouped[0].first.node.id, 'b');
+    assert.equal(grouped[0].second.node.id, 'a');
+  }
+  assert.deepEqual(groupSplitTabRows(rows, rows, null).map(row => row.type === 'single' && row.row.node.id), ['a', 'middle', 'b']);
+  assert.ok(groupSplitTabRows(rows.slice(0, 2), rows.slice(0, 2), { firstTabId: 'a', secondTabId: 'b' }).every(row => row.type === 'single'));
+});
+
+test('split pairs span collapsed folders without mutating folder membership', () => {
+  const all = flattenBookmarkNodes(tree, new Set(['work', 'archive']));
+  const visible = flattenBookmarkNodes(tree, new Set(['work']));
+  const saved = JSON.stringify(tree);
+  const grouped = groupSplitTabRows(visible, all, { firstTabId: 'draft', secondTabId: 'old' });
+  const pair = grouped.find(row => row.type === 'split');
+  assert.ok(pair?.type === 'split');
+  assert.equal(pair.depth, 1);
+  assert.equal(pair.second.parentId, 'archive');
+  assert.equal(JSON.stringify(tree), saved);
+  const collapsed = flattenBookmarkNodes(tree, new Set());
+  assert.ok(groupSplitTabRows(collapsed, all, { firstTabId: 'draft', secondTabId: 'old' }).every(row => row.type === 'single'));
+});
 import { moveBookmarkToDepth, moveBookmarkToDropZone, resolveBookmarkDropDepth, resolveBookmarkDropZone, type BookmarkNode } from '../src/bookmarkTree.ts';
 
 const tree: BookmarkNode[] = [

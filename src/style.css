@@ -67,6 +67,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 .rail-button:hover { color: var(--text); background: var(--surface-hover); }
 .rail-button.selected { color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--surface-raised)); border-color: color-mix(in srgb, var(--accent) 34%, transparent); }
 .rail-button:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+.rail-split-row { display: flex; width: 40px; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.rail-split-row .rail-button { width: 19px; flex-basis: 19px; border-radius: 4px; }
 .sidebar.collapsed .sidebar-collapse-button { width: 28px; height: 26px; flex-basis: 28px; margin-left: 0; }
 .sidebar-content { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .workspace-label { display: flex; align-items: center; margin: 25px 10px 10px; color: var(--subtle); font-size: var(--fs-foot); font-weight: 700; letter-spacing: 1.05px; }
@@ -92,6 +94,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 .tab-row { display: flex; width: 100%; min-width: 0; min-height: 34px; align-items: center; gap: 8px; padding: 0 6px; overflow: hidden; border: 1px solid transparent; border-radius: 7px; color: var(--muted); user-select: none; }
 .tab-rename-input, .tab-folder-name-input { user-select: text; }
 .tab-row.selected { color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--surface-raised)); border-color: color-mix(in srgb, var(--accent) 34%, transparent); }
+.tab-split-row { display: flex; min-width: 0; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-raised); }
+.tab-split-row.split-active { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.tab-split-row > .tab-sortable-item { flex: 1 1 0; min-width: 0; }
+.tab-split-row .tab-row { gap: 4px; padding-right: 2px; }
+.tab-split-row .tab-close { width: 18px; flex-basis: 18px; }
 .private-tab-indicator { display: inline-flex; flex: 0 0 auto; color: var(--muted); }
 .tab-favicon { display: grid; width: 17px; flex: 0 0 17px; place-items: center; font-size: 13px; }
 .tab-favicon img { display: block; width: 16px; height: 16px; object-fit: contain; }
@@ -123,6 +130,12 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .new-folder-button { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); background: var(--surface); font-size: var(--fs-sub); }
 .new-folder-button:hover { color: var(--text); background: var(--surface-hover); }
 .bookmark-search, .bookmark-form input { width: 100%; min-width: 0; padding: 8px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: var(--fs-sub); }
+.bookmark-search-field { position: relative; width: 100%; min-width: 0; }
+.bookmark-search-field .bookmark-search { padding-right: 34px; }
+.bookmark-search::-webkit-search-cancel-button, .bookmark-search::-webkit-search-decoration { -webkit-appearance: none; }
+.bookmark-search-clear { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; color: var(--muted); background: transparent; cursor: pointer; }
+.bookmark-search-clear:hover { background: var(--surface-hover); }
+.bookmark-search-field[data-empty] .bookmark-search-clear { visibility: hidden; }
 .bookmark-form { display: flex; flex-direction: column; gap: 6px; padding: 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
 .bookmark-form button { padding: 7px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--surface-raised); font-size: var(--fs-sub); }
 .bookmark-form button.cancel-edit { color: var(--muted); }
@@ -148,7 +161,9 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .tab-sortable-item.drop-inside > .tab-folder-row, .bookmark-sortable-item.drop-inside > .folder-row { background: color-mix(in srgb, Highlight 18%, transparent); outline: 1px solid Highlight; outline-offset: -1px; }
 .bookmark-drag-overlay { display: flex; max-width: 100%; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface-raised); box-shadow: 0 4px 14px rgb(0 0 0 / 22%); font-size: var(--fs-body); cursor: grabbing; }
 .bookmark-drag-overlay span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bookmark-row { display: flex; min-width: 0; align-items: center; border-radius: 6px; }
+.bookmark-dnd-folder { user-select: none; }
+.folder-title-input { user-select: text; }
+.bookmark-row { display: flex; min-width: 0; align-items: center; border-radius: 6px; user-select: none; }
 .bookmark-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; padding: 8px 4px; overflow: hidden; color: var(--text); text-align: left; }
 .bookmark-open > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .bookmark-open strong, .bookmark-open small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

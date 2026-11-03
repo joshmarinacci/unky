@@ -21,6 +21,89 @@ async function clickTabContextItem(tabId: string, menuItem: string) {
 }
 
 describe('native Tauri browser', () => {
+  it('groups split tabs on one sidebar row and separates them when unsplit', async () => {
+    type Sidebar = { groups: Array<{ first: string; second: string; tabs: Array<{ id: string; x: number; y: number; width: number; selected: boolean }> }>; tabIds: string[] };
+    const created = await invoke('create_tab') as { activeTabId: string };
+    const other = created.activeTabId;
+    const read = () => browserUi('inspect-split-rows') as Promise<Sidebar>;
+    try {
+      await invoke('split_tab', { tabId: other, targetTabId: 'tab-1', side: 'right' });
+      await browser.waitUntil(async () => (await read()).groups.length === 1);
+      const grouped = await read();
+      const pair = grouped.groups[0];
+      assert.deepEqual(pair.tabs.map(tab => tab.id), [pair.first, pair.second]);
+      assert.equal(pair.tabs[0].y, pair.tabs[1].y);
+      assert.ok(pair.tabs[1].x >= pair.tabs[0].x + pair.tabs[0].width);
+      assert.equal(grouped.tabIds.filter(id => id === other).length, 1);
+      captureNativeWindow('split-sidebar-row.png');
+      await invoke('select_tab', { tabId: 'tab-1' });
+      await browser.waitUntil(async () => (await read()).groups[0]?.tabs.some(tab => tab.id === 'tab-1' && tab.selected));
+      await invoke('clear_tab_split');
+      await browser.waitUntil(async () => (await read()).groups.length === 0);
+      assert.ok((await read()).tabIds.includes(other));
+      await invoke('split_tab', { tabId: other, targetTabId: 'tab-1', side: 'bottom' });
+      await browser.waitUntil(async () => (await read()).groups.length === 1);
+      await invoke('close_tab', { tabId: other });
+      await browser.waitUntil(async () => (await read()).groups.length === 0);
+    } finally {
+      await invoke('clear_tab_split');
+      const snapshot = await invoke('get_browser_state') as { tabs: Array<{ id: string }> };
+      if (snapshot.tabs.some(tab => tab.id === other)) await invoke('close_tab', { tabId: other });
+    }
+  });
+  it('shows native downloads above the page without resizing its viewport', async () => {
+    await browser.waitUntil(async () => (await inspect('tab-1')).readyState === 'complete');
+    const before = await inspect('tab-1');
+    const anchor = { x: 1140, y: 24, width: 30, height: 30 };
+    const control = (action: string) => invoke('control_downloads_popover', { action, anchor });
+    try {
+      await browserUi('toggle-downloads');
+      await browser.waitUntil(async () => (await browserUi('inspect-downloads') as { expanded: boolean }).expanded);
+      assert.equal((await browserUi('inspect-downloads') as { htmlPanel: boolean }).htmlPanel, false);
+      assert.equal(await control('update'), true);
+      assert.deepEqual((await inspect('tab-1')).viewport, before.viewport);
+      await invoke('navigate', { tabId: 'tab-1', url: 'http://127.0.0.1:4179/download' });
+      await browser.waitUntil(async () => {
+        const items = await invoke('get_downloads') as Array<{ filename: string; status: string }>;
+        return items.some(item => item.filename === 'download' && item.status === 'completed');
+      });
+      assert.equal(await control('update'), true);
+      captureNativeWindow('downloads-popover.png');
+      assert.deepEqual((await inspect('tab-1')).viewport, before.viewport);
+      assert.equal(await control('close'), false);
+      await browser.waitUntil(async () => !(await browserUi('inspect-downloads') as { expanded: boolean }).expanded);
+      assert.equal(await control('update'), false, 'refresh must not reopen a dismissed popover');
+      await browserUi('toggle-downloads');
+      await browser.waitUntil(async () => (await browserUi('inspect-downloads') as { expanded: boolean }).expanded);
+      await browserUi('toggle-downloads');
+      await browser.waitUntil(async () => !(await browserUi('inspect-downloads') as { expanded: boolean }).expanded);
+    } finally {
+      await control('close');
+      await invoke('navigate', { tabId: 'tab-1', url: 'http://127.0.0.1:4179/' });
+    }
+  });
+  it('opens bookmark links from the trusted UI in new tabs and windows', async () => {
+    type Snapshot = { tabs: Array<{ id: string; url: string; private: boolean; windowLabel: string }>; activeTabId: string };
+    const privateSource = await invoke('create_tab', { private: true }) as Snapshot;
+    const url = 'http://127.0.0.1:4179/two?source=bookmark';
+    await invoke('open_link_in_new_tab', { url });
+    const opened = await invoke('get_browser_state') as Snapshot;
+    const tab = opened.tabs.find(item => item.id === opened.activeTabId);
+    assert.ok(tab);
+    assert.equal(tab.url, url);
+    assert.equal(tab.private, true);
+    await invoke('open_link_in_new_window', { url });
+    await browser.waitUntil(async () => {
+      const page = await inspect(tab.id);
+      return page.browser.tabs.some((item: Snapshot['tabs'][number]) => item.url === url && item.windowLabel !== 'main');
+    });
+    const page = await inspect(tab.id);
+    const windowTab = page.browser.tabs.find((item: Snapshot['tabs'][number]) => item.url === url && item.windowLabel !== 'main');
+    assert.equal(windowTab?.private, true);
+    await assert.rejects(() => invoke('open_link_in_new_window', { url: 'javascript:alert(1)' }));
+    await invoke('close_tab', { tabId: tab.id });
+    await invoke('close_tab', { tabId: privateSource.activeTabId });
+  });
   it('intercepts webpage context menus when enabled after startup and navigation', async () => {
     await browser.waitUntil(async () => (await inspect('tab-1')).readyState === 'complete');
     type MenuProbe = { contextMenu: { documentId: number; enabled: boolean; prevented: boolean; visibleHosts: number }; errors: string[] };

@@ -187,7 +187,7 @@ fn permission_label(state: &str) -> &str {
     }
 }
 
-unsafe fn positioning_rect(view: &NSView, anchor: AnchorRect, titlebar_inset: f64) -> NSRect {
+pub(super) unsafe fn positioning_rect(view: &NSView, anchor: AnchorRect, titlebar_inset: f64) -> NSRect {
     let height = view.bounds().size.height;
     // Tauri's main WKWebView viewport starts below macOS's unified titlebar inset,
     // which is zero in full screen.

@@ -110,6 +110,13 @@
 
 ## 2026-11-03
 
+- Split-view tabs now share a sidebar row in pane order, with a shared outline and separate selection, close buttons, and context menus. Their icons are also paired in the collapsed sidebar. The presentation preserves folder membership and restores separate rows on unsplit or close. Added grouping tests and a native layout regression for selection, unsplitting, and closing a split tab.
+- On macOS, Downloads now opens in a native toolbar popover above the website without shrinking the page. It shows live download status and Show in Finder actions, supports the native View menu, and dismisses on outside clicks or Escape. Added a native regression using a disposable download to check popover updates, dismissal, and unchanged page dimensions.
+- Clicking a bookmark folder's name, icon, or row now expands or collapses it. Folder action buttons and the rename field retain their own behavior.
+- Replaced the bookmark search field with an accessible search input and an inline clear button that appears while a query is entered.
+- Added bookmark-folder context menus with New Bookmark, New Folder, Rename, and Delete Folder. New items are created inside the selected folder; folder deletion uses the existing confirmation for deleting its contents.
+- Fixed spaces in bookmark folder names: renaming now disables row dragging and keeps typing events inside the rename field, preventing Space from starting a keyboard drag.
+- Bookmark clicks now keep the Bookmarks sidebar selected. Added a bookmark context menu for opening links in new tabs or windows and an **Edit** action for changing a bookmark's name, address, and description. Descriptions persist locally and are included in bookmark search. Added a native regression for opening bookmark links from the trusted UI, private-mode preservation, and URL validation.
 - Command-clicking a website link now opens a background tab without changing the selected tab or clearing an existing split view. The new tab preserves the source tab's private mode. Documented the behavior in the README.
 - Fixed missing Tauri permissions for the webpage context-menu setting and opening a link in a new window. The setting previously appeared enabled in the UI while Tauri rejected the command, leaving the native menu active. Added a native WebView regression covering enable, disable, navigation, and reload.
 - Added **Open Link in New Window** to the custom webpage context menu. It opens the link in a separate browser window and preserves private mode.

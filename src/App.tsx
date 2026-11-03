@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import buildMetadata from './build-metadata.json';
-import { Button as AriaButton, ListBox, ListBoxItem, Popover, Select, SelectValue, Tab, TabList, TabPanel, TabPanels, Tabs } from 'react-aria-components';
+import { Button as AriaButton, Input, SearchField, ListBox, ListBoxItem, Popover, Select, SelectValue, Tab, TabList, TabPanel, TabPanels, Tabs } from 'react-aria-components';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Columns2, Download, ExternalLink, EyeOff, Folder, FolderPlus, Globe2, LoaderCircle, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, Terminal, X } from 'lucide-react';
 import { AppButton, AppInput } from './components/ui';
 import { invoke } from '@tauri-apps/api/core';
@@ -13,6 +13,7 @@ import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, closestCenter, 
 import { SortableContext, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable';
 import { flattenBookmarkNodes, locateBookmark, moveBookmarkToDropZone, resolveBookmarkDropZone } from './bookmarkTree';
 import type { FlatNode, BookmarkDropZone, BookmarkFolder, BookmarkLink, BookmarkNode } from './bookmarkTree';
+import { groupSplitTabRows } from './splitTabRows';
 
 type Tab = {
   id: string;
@@ -268,6 +269,7 @@ function normalizeBookmarkNodes(value: unknown): BookmarkNode[] {
         type: 'bookmark',
         title: node.title,
         url: node.url,
+        description: typeof node.description === 'string' ? node.description : '',
       }];
     }
     return [];
@@ -337,7 +339,7 @@ function filterBookmarkNodes(nodes: BookmarkNode[], query: string): BookmarkNode
   if (!query) return nodes;
   const normalized = query.toLowerCase();
   return nodes.flatMap<BookmarkNode>(node => {
-    if (node.type === 'bookmark') return `${node.title} ${node.url}`.toLowerCase().includes(normalized) ? [node] : [];
+    if (node.type === 'bookmark') return `${node.title} ${node.url} ${node.description ?? ''}`.toLowerCase().includes(normalized) ? [node] : [];
     if (node.title.toLowerCase().includes(normalized)) return [node];
     const children = filterBookmarkNodes(node.children, query);
     return children.length ? [{ ...node, children }] : [];
@@ -345,22 +347,23 @@ function filterBookmarkNodes(nodes: BookmarkNode[], query: string): BookmarkNode
 }
 
 function BookmarkSortableRow({
-  node, depth, expanded, dropZone, editing, onToggle, onOpen, onEdit, onDelete, onNewFolder, onRename, onCancelRename, editingFolder, folderTitle, setFolderTitle, saveFolderTitle, editForm,
+  node, depth, expanded, dropZone, editing, onToggle, onOpen, onEdit, onDelete, onNewFolder, onRename, onCancelRename, editingFolder, folderTitle, setFolderTitle, saveFolderTitle, editForm, onContextMenu,
 }: {
   node: BookmarkNode; depth: number; expanded: boolean; dropZone?: BookmarkDropZone; editing: boolean; onToggle: () => void; onOpen: (url: string) => void;
   onEdit: (node: BookmarkLink) => void; onDelete: (node: BookmarkNode) => void; onNewFolder: (id: string) => void;
+  onContextMenu: (event: React.MouseEvent, bookmark: BookmarkNode) => void;
   onRename: (node: BookmarkFolder) => void; onCancelRename: () => void; editingFolder: boolean; folderTitle: string; setFolderTitle: (value: string) => void; saveFolderTitle: () => void; editForm: React.ReactNode;
 }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id: node.id, disabled: editing });
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id: node.id, disabled: editing || editingFolder });
   const style = { opacity: isDragging ? .35 : 1 };
   const itemProps = { ...attributes, role: 'treeitem', 'aria-level': depth + 1, 'aria-expanded': node.type === 'folder' ? expanded : undefined };
   const itemClass = `bookmark-sortable-item ${dropZone ? `drop-${dropZone}` : ''}`;
   const stopDrag = (event: React.PointerEvent) => event.stopPropagation();
   if (node.type === 'folder') return <div ref={setNodeRef} style={style} className={itemClass} {...itemProps} {...listeners}>
-    <div className="folder-row bookmark-dnd-folder" style={{ paddingLeft: depth * 14 }}>
+    <div className="folder-row bookmark-dnd-folder" style={{ paddingLeft: depth * 14 }} onClick={() => { if (!editingFolder) onToggle(); }} onContextMenu={event => onContextMenu(event, node)}>
       <button className="folder-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onToggle(); }}>{expanded ? <ChevronDown className="ui-icon" size={14} aria-hidden="true" /> : <ChevronRight className="ui-icon" size={14} aria-hidden="true" />}</button>
       <span className="bookmark-icon folder-icon" aria-hidden="true"><Folder className="ui-icon" size={14} /></span>
-      {editingFolder ? <AppInput className="folder-title-input" aria-label="Folder name" autoFocus value={folderTitle} onPointerDown={stopDrag} onChange={event => setFolderTitle(event.target.value)} onBlur={saveFolderTitle} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveFolderTitle(); } if (event.key === 'Escape') { event.stopPropagation(); onCancelRename(); } }} /> : <span className="folder-title" title={node.title}>{node.title}</span>}
+      {editingFolder ? <AppInput className="folder-title-input" aria-label="Folder name" autoFocus value={folderTitle} onPointerDown={stopDrag} onChange={event => setFolderTitle(event.target.value)} onBlur={saveFolderTitle} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveFolderTitle(); } if (event.key === 'Escape') { onCancelRename(); } }} /> : <span className="folder-title" title={node.title}>{node.title}</span>}
       {!node.children.length && expanded && <span className="tree-empty-hint">Empty folder</span>}
       <span className="folder-actions">
         <button type="button" className="folder-action" aria-label={`Create subfolder in ${node.title}`} title="New subfolder" onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onNewFolder(node.id); }}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /></button>
@@ -371,7 +374,7 @@ function BookmarkSortableRow({
   </div>;
   if (editing) return <div ref={setNodeRef} className="bookmark-sortable-item" style={{ paddingLeft: depth * 14 }}>{editForm}</div>;
   return <div ref={setNodeRef} style={style} className={itemClass} {...itemProps} {...listeners}>
-    <div className="bookmark-row bookmark-tree-row bookmark-dnd-link" style={{ paddingLeft: depth * 14 }} onClick={() => onOpen(node.url)}>
+    <div className="bookmark-row bookmark-tree-row bookmark-dnd-link" style={{ paddingLeft: depth * 14 }} onClick={() => onOpen(node.url)} onContextMenu={event => onContextMenu(event, node)}>
       <span className="bookmark-open"><span className="bookmark-icon"><Star className="ui-icon" size={14} aria-hidden="true" /></span><span><strong>{node.title}</strong><small>{node.url}</small></span></span>
       <button type="button" className="bookmark-edit" aria-label={`Edit ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onEdit(node); }}><Pencil className="ui-icon" size={14} aria-hidden="true" /></button>
       <button type="button" className="bookmark-delete" aria-label={`Delete ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onDelete(node); }}><X className="ui-icon" size={14} aria-hidden="true" /></button>
@@ -451,6 +454,19 @@ export default function App() {
   const shortcutsTabIdsRef = useRef<string[]>([]);
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [downloadsPopoverOpen, setDownloadsPopoverOpen] = useState(false);
+  const nativeDownloadsPopover = isTauri && /Mac/.test(navigator.platform);
+  const downloadsButtonRef = useRef<HTMLButtonElement>(null);
+  const controlDownloadsPopover = useCallback(async (action: 'show' | 'toggle' | 'update' | 'close') => {
+    const rect = downloadsButtonRef.current?.getBoundingClientRect();
+    if (!rect) return false;
+    return invoke<boolean>('control_downloads_popover', { action, anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } });
+  }, []);
+  const openDownloadsPopover = useCallback(async (toggle = true) => {
+    if (/Mac/.test(navigator.platform) && '__TAURI_INTERNALS__' in window) {
+      try { setDownloadsPopoverOpen(await controlDownloadsPopover(toggle ? 'toggle' : 'show')); }
+      catch (error) { setMessage(String(error)); }
+    } else setDownloadsPopoverOpen(open => toggle ? !open : true);
+  }, [controlDownloadsPopover]);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [findMatches, setFindMatches] = useState<number | null>(null);
@@ -458,9 +474,12 @@ export default function App() {
   const [securityInfo, setSecurityInfo] = useState<PageSecurityInfo | null>(null);
   const [bookmarkSearch, setBookmarkSearch] = useState('');
   const [addingBookmark, setAddingBookmark] = useState(false);
+  const [addingBookmarkFolderId, setAddingBookmarkFolderId] = useState<string | null>(null);
   const [editingBookmarkId, setEditingBookmarkId] = useState('');
   const [editBookmarkTitle, setEditBookmarkTitle] = useState('');
   const [editBookmarkUrl, setEditBookmarkUrl] = useState('');
+  const [editBookmarkDescription, setEditBookmarkDescription] = useState('');
+  const bookmarkContextMenuRef = useRef<Menu | null>(null);
   const [folderTitle, setFolderTitle] = useState('');
   const [editingFolderId, setEditingFolderId] = useState('');
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
@@ -726,7 +745,7 @@ export default function App() {
       const unlistenPagePointerDown = await listen(pagePointerDownEvent, () => addressRef.current?.blur());
       const unlistenSettings = await listen(settingsEvent, () => { void openSettingsPage(); });
       const unlistenShowHistory = await listen(showHistoryEvent, () => { void openHistoryPage(); });
-      const unlistenShowDownloads = await listen(showDownloadsEvent, () => setDownloadsPopoverOpen(true));
+      const unlistenShowDownloads = await listen(showDownloadsEvent, () => void openDownloadsPopover(false));
       const unlistenShowShortcuts = await listen(showShortcutsEvent, () => { void openShortcutsPage(); });
       const unlistenHistory = await listen<HistoryEntry[]>(historyEvent, event => setHistory(event.payload));
       const unlistenDownloads = await listen<Download[]>(downloadsEvent, event => setDownloads(event.payload));
@@ -785,7 +804,25 @@ export default function App() {
   }, [applySnapshot]);
 
   useEffect(() => {
-    if (!downloadsPopoverOpen) return;
+    if (!nativeDownloadsPopover) return;
+    if (!downloadsPopoverOpen) {
+      void controlDownloadsPopover('close').catch(error => setMessage(String(error)));
+      return;
+    }
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const shown = await controlDownloadsPopover('update');
+        if (!cancelled) setDownloadsPopoverOpen(shown);
+      } catch (error) { if (!cancelled) setMessage(String(error)); }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 500);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [nativeDownloadsPopover, downloadsPopoverOpen, downloads, controlDownloadsPopover]);
+
+  useEffect(() => {
+    if (!downloadsPopoverOpen || nativeDownloadsPopover) return;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
@@ -802,7 +839,7 @@ export default function App() {
       document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [downloadsPopoverOpen]);
+  }, [downloadsPopoverOpen, nativeDownloadsPopover]);
 
   async function runSessionIntegrationTest() {
     if (sessionTestStarted.current) return;
@@ -926,7 +963,7 @@ export default function App() {
       // CSS z-index cannot put the toolbar popover above them. Reserve its
       // right-side footprint until it closes, leaving the shell visible there.
       const popoverWidth = Math.min(360, Math.max(0, window.innerWidth - 24));
-      const reservedWidth = downloadsPopoverOpen ? popoverWidth + 20 : 0;
+      const reservedWidth = downloadsPopoverOpen && !nativeDownloadsPopover ? popoverWidth + 20 : 0;
       void invoke('set_view_bounds', {
         x: rect.left,
         y: rect.top,
@@ -940,7 +977,7 @@ export default function App() {
     updateBounds();
     window.addEventListener('resize', updateBounds);
     return () => { observer.disconnect(); window.removeEventListener('resize', updateBounds); };
-  }, [isTauri, downloadsPopoverOpen]);
+  }, [isTauri, downloadsPopoverOpen, nativeDownloadsPopover]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1224,8 +1261,18 @@ export default function App() {
       return;
     }
     const title = editBookmarkTitle.trim() || url;
-    if (addingBookmark) setBookmarks(items => [{ id: crypto.randomUUID(), type: 'bookmark', title, url }, ...items]);
-    else setBookmarks(items => updateBookmarkNode(items, editingBookmarkId, node => node.type === 'bookmark' ? { ...node, title, url } : node));
+    const description = editBookmarkDescription.trim();
+    if (addingBookmark) {
+      if (addingBookmarkFolderId && locateBookmark(bookmarks, addingBookmarkFolderId)?.node.type !== 'folder') {
+        setMessage('The destination folder no longer exists.');
+        return;
+      }
+      const bookmark: BookmarkLink = { id: crypto.randomUUID(), type: 'bookmark', title, url, description };
+      setBookmarks(items => addingBookmarkFolderId
+        ? appendBookmarkToFolder(items, addingBookmarkFolderId, bookmark).nodes
+        : [bookmark, ...items]);
+    }
+    else setBookmarks(items => updateBookmarkNode(items, editingBookmarkId, node => node.type === 'bookmark' ? { ...node, title, url, description } : node));
     cancelBookmarkEdit();
     setMessage('');
   }
@@ -1233,12 +1280,19 @@ export default function App() {
   function cancelBookmarkEdit() {
     setEditingBookmarkId('');
     setAddingBookmark(false);
+    setAddingBookmarkFolderId(null);
   }
 
-  function startAddBookmark() {
+  function startAddBookmark(parentId?: string) {
+    setAddingBookmarkFolderId(parentId ?? null);
+    if (parentId) {
+      setExpandedFolderIds(ids => ids.includes(parentId) ? ids : [...ids, parentId]);
+      setBookmarkSearch('');
+    }
     setEditingBookmarkId('');
     setEditBookmarkTitle('');
     setEditBookmarkUrl('');
+    setEditBookmarkDescription('');
     setAddingBookmark(true);
   }
 
@@ -1263,9 +1317,40 @@ export default function App() {
 
   function editBookmark(bookmark: BookmarkLink) {
     setAddingBookmark(false);
+    setAddingBookmarkFolderId(null);
     setEditingBookmarkId(bookmark.id);
     setEditBookmarkTitle(bookmark.title);
     setEditBookmarkUrl(bookmark.url);
+    setEditBookmarkDescription(bookmark.description ?? '');
+  }
+
+  async function openBookmarkContextMenu(event: React.MouseEvent, bookmark: BookmarkNode) {
+    if (event.target instanceof HTMLElement && event.target.closest('input, textarea')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const position = new LogicalPosition(event.clientX, event.clientY);
+    try {
+      await bookmarkContextMenuRef.current?.close();
+      if (bookmark.type === 'folder') {
+        const menu = await Menu.new({ items: [
+          { text: 'New Bookmark', action: () => startAddBookmark(bookmark.id) },
+          { text: 'New Folder', action: () => { setBookmarkSearch(''); createBookmarkFolder(bookmark.id); } },
+          { text: 'Rename', action: () => { setFolderTitle(bookmark.title); setEditingFolderId(bookmark.id); } },
+          { text: 'Delete Folder', action: () => deleteBookmarkNode(bookmark) },
+        ] });
+        bookmarkContextMenuRef.current = menu;
+        await menu.popup(position);
+        return;
+      }
+      const open = (command: string) => { void invoke(command, { url: bookmark.url }).catch(error => setMessage(String(error))); };
+      const menu = await Menu.new({ items: [
+        { text: 'Open Link in New Tab', action: () => open('open_link_in_new_tab') },
+        { text: 'Open Link in New Window', action: () => open('open_link_in_new_window') },
+        { text: 'Edit', action: () => editBookmark(bookmark) },
+      ] });
+      bookmarkContextMenuRef.current = menu;
+      await menu.popup(position);
+    } catch (error) { setMessage(String(error)); }
   }
 
   function createBookmarkFolder(parentId?: string) {
@@ -1483,7 +1568,7 @@ export default function App() {
     return <button key={node.id} type="button" className={`rail-button ${tab.id === activeTabId ? 'selected' : ''}`} title={title} aria-label={title} aria-current={tab.id === activeTabId ? 'page' : undefined} onClick={() => void selectTab(tab.id)} onContextMenu={event => openRailContextMenu(event, tab.id, 'tab')}>{renderTabIcon(tab)}</button>;
   }
 
-  function renderTabRow({ node, depth }: FlatNode<TabNode>): React.ReactNode {
+  function renderTabRow({ node, depth }: FlatNode<TabNode>, compact = false): React.ReactNode {
     const dropZone = tabDropTarget?.overId === node.id ? tabDropTarget.zone : undefined;
     const stopDrag = (event: React.PointerEvent) => event.stopPropagation();
     if (node.type === 'folder') {
@@ -1524,7 +1609,7 @@ export default function App() {
       onActivate={() => void selectTab(tab.id)}
       onContextMenu={event => { event.preventDefault(); setTabGroupPickerOpen(false); setSplitPickerOpen(false); setTabContextMenu({ id: tab.id, type: 'tab', x: Math.max(8, Math.min(event.clientX, sidebarWidth - tabContextMenuWidth - 8)), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
     >
-      <div className={`tab-row ${tab.id === activeTabId ? 'selected' : ''}`} style={{ paddingLeft: depth * 14 }} data-tab-id={tab.id} onClick={() => void selectTab(tab.id)}>
+      <div className={`tab-row ${tab.id === activeTabId ? 'selected' : ''}`} style={{ paddingLeft: compact ? undefined : depth * 14 }} data-tab-id={tab.id} title={title} onClick={() => void selectTab(tab.id)}>
         {renderTabIcon(tab)}
         {pinnedTabIds.includes(tab.id) && <Pin className="ui-icon tab-pin-indicator" size={12} aria-label="Pinned tab" />}
         {editingTabId === tab.id
@@ -1543,7 +1628,6 @@ export default function App() {
       return;
     }
     void navigateTo(url);
-    setSidebarView('tabs');
   }
 
   function closeSettings() {
@@ -1558,10 +1642,15 @@ export default function App() {
   const expandedTabFolders = new Set(expandedTabFolderIds(tabNodes));
   if (tabDragOrigin) expandedTabFolders.delete(tabDragOrigin.id);
   const visibleTabRows = flattenBookmarkNodes(tabNodes, expandedTabFolders);
+  const allTabRows = flattenBookmarkNodes(tabNodes, new Set(tabFolders(tabNodes).map(folder => folder.id)));
+  const sidebarTabRows = groupSplitTabRows(visibleTabRows, allTabRows, splitLayout);
+  const displayedTabRows = sidebarTabRows.flatMap(row => row.type === 'single' ? [row.row] : [row.first, row.second]);
   const draggedTabNode = tabDragOrigin ? findTabNode(tabNodes, tabDragOrigin.id) : undefined;
   const bookmarkEditForm = <form className="bookmark-form bookmark-inline-form" onSubmit={saveBookmarkEdit} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); cancelBookmarkEdit(); } }}>
+    {addingBookmarkFolderId && <small>New bookmark in {locateBookmark(bookmarks, addingBookmarkFolderId)?.node.title ?? 'folder'}</small>}
     <AppInput aria-label="Bookmark title" placeholder="Name" autoFocus value={editBookmarkTitle} onChange={event => setEditBookmarkTitle(event.target.value)} />
     <AppInput aria-label="Bookmark address" placeholder="https://example.com" value={editBookmarkUrl} onChange={event => setEditBookmarkUrl(event.target.value)} />
+    <AppInput aria-label="Bookmark description" placeholder="Description" value={editBookmarkDescription} onChange={event => setEditBookmarkDescription(event.target.value)} />
     <div className="bookmark-inline-actions"><AppButton type="submit">{addingBookmark ? 'Add' : 'Save'}</AppButton><AppButton type="button" className="cancel-edit" onClick={cancelBookmarkEdit}>Cancel</AppButton></div>
   </form>;
   const visibleBookmarkRows = flattenBookmarkNodes(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()), bookmarkExpanded);
@@ -1576,7 +1665,7 @@ export default function App() {
         </div>
         {sidebarCollapsed && <div className="sidebar-rail">
           <button type="button" className="rail-button" title={`New tab (${commandKey}+T)`} aria-label="New tab" onClick={() => void createTab()}><Plus className="ui-icon" size={16} aria-hidden="true" /></button>
-          <div className="rail-tabs">{visibleTabRows.map(renderRailItem)}</div>
+          <div className="rail-tabs">{sidebarTabRows.map(row => row.type === 'single' ? renderRailItem(row.row) : <div className="rail-split-row" role="group" aria-label="Split view" key={`split-${row.first.node.id}-${row.second.node.id}`}>{renderRailItem(row.first)}{renderRailItem(row.second)}</div>)}</div>
           <button type="button" className="rail-button" title="Toggle developer console" aria-label="Toggle developer console" onClick={() => void invoke('toggle_devtools').catch(error => setMessage(String(error)))}><Terminal className="ui-icon" size={16} aria-hidden="true" /></button>
         </div>}
         <div className="sidebar-content" id="sidebar-content">
@@ -1594,8 +1683,13 @@ export default function App() {
         </div>
         <DndContext sensors={tabSensors} collisionDetection={closestCenter} onDragStart={handleTabDragStart} onDragMove={handleTabDragMove} onDragEnd={handleTabDragEnd} onDragCancel={() => finishTabDrag(true)}>
           <div className={`tab-list tab-tree ${tabDragOrigin ? 'is-dragging' : ''}`} role="tree" aria-label="Open tabs">
-            <SortableContext items={visibleTabRows.map(row => row.node.id)} strategy={() => null}>
-              {visibleTabRows.map(renderTabRow)}
+            <SortableContext items={displayedTabRows.map(row => row.node.id)} strategy={() => null}>
+              {sidebarTabRows.map(row => row.type === 'single' ? renderTabRow(row.row) : <div
+                key={`split-${row.first.node.id}-${row.second.node.id}`}
+                className={`tab-split-row ${[row.first.node.id, row.second.node.id].includes(activeTabId) ? 'split-active' : ''}`}
+                style={{ marginLeft: row.depth * 14 }} role="group" aria-label="Split view"
+                data-split-first={row.first.node.id} data-split-second={row.second.node.id}
+              >{renderTabRow({ ...row.first, depth: row.depth }, true)}{renderTabRow({ ...row.second, depth: row.depth }, true)}</div>)}
             </SortableContext>
           </div>
           <DragOverlay dropAnimation={null}>{draggedTabNode ? <div className="bookmark-drag-overlay">{draggedTabNode.type === 'folder' ? <Folder className="ui-icon" size={14} aria-hidden="true" /> : <Globe2 className="ui-icon" size={14} aria-hidden="true" />}<span>{draggedTabNode.type === 'folder' ? draggedTabNode.title : tabNameOverrides[draggedTabNode.id] || tabs.find(item => item.id === draggedTabNode.id)?.title || 'New Tab'}</span></div> : null}</DragOverlay>
@@ -1604,7 +1698,13 @@ export default function App() {
           <AppButton className="new-tab" title={`New private tab (${commandKey}+Shift+N)`} onClick={() => void createTab(true)}><EyeOff className="ui-icon" size={16} aria-hidden="true" /> New private tab</AppButton>
         </div>
         </> : sidebarView === 'bookmarks' ? <div className="bookmark-manager">
-          <div className="bookmark-toolbar"><AppInput className="bookmark-search" aria-label="Search bookmarks" placeholder="Find a bookmark" value={bookmarkSearch} onChange={event => setBookmarkSearch(event.target.value)} /><AppButton className="new-folder-button" onClick={startAddBookmark}><Plus className="ui-icon" size={14} aria-hidden="true" /> Bookmark</AppButton><AppButton className="new-folder-button" onClick={() => createBookmarkFolder()}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton></div>
+          <div className="bookmark-toolbar">
+            <SearchField className="bookmark-search-field" aria-label="Search bookmarks" value={bookmarkSearch} onChange={setBookmarkSearch}>
+              <Input className="bookmark-search" type="search" placeholder="Find a bookmark" />
+              <AriaButton className="bookmark-search-clear" aria-label="Clear bookmarks search"><X className="ui-icon" size={14} aria-hidden="true" /></AriaButton>
+            </SearchField>
+            <AppButton className="new-folder-button" onClick={() => startAddBookmark()}><Plus className="ui-icon" size={14} aria-hidden="true" /> Bookmark</AppButton><AppButton className="new-folder-button" onClick={() => createBookmarkFolder()}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
+          </div>
           {addingBookmark && bookmarkEditForm}
           <DndContext sensors={bookmarkSensors} collisionDetection={closestCenter} onDragStart={handleBookmarkDragStart} onDragMove={handleBookmarkDragMove} onDragEnd={handleBookmarkDragEnd} onDragCancel={endBookmarkDrag}>
             <div className={`bookmark-list bookmark-tree bookmark-dnd-list ${bookmarkDragOrigin ? 'is-dragging' : ''}`} role="tree" aria-label="Saved bookmarks">
@@ -1613,6 +1713,7 @@ export default function App() {
                   key={node.id} node={node} depth={depth} expanded={bookmarkExpanded.has(node.id)} dropZone={bookmarkDropTarget?.overId === node.id ? bookmarkDropTarget.zone : undefined} editing={editingBookmarkId === node.id}
                   onToggle={() => setExpandedFolderIds(ids => ids.includes(node.id) ? ids.filter(id => id !== node.id) : [...ids, node.id])}
                   onOpen={url => void openBookmark(url)} onEdit={editBookmark} onDelete={deleteBookmarkNode} onNewFolder={createBookmarkFolder}
+                  onContextMenu={(event, bookmark) => void openBookmarkContextMenu(event, bookmark)}
                   onRename={folder => { setFolderTitle(folder.title); setEditingFolderId(folder.id); }}
                   onCancelRename={() => { setEditingFolderId(''); setFolderTitle(node.type === 'folder' ? node.title : ''); }}
                   editingFolder={node.type === 'folder' && editingFolderId === node.id} folderTitle={folderTitle} setFolderTitle={setFolderTitle}
@@ -1734,8 +1835,8 @@ export default function App() {
           <AppButton ref={externalBrowserButtonRef} className="toolbar-action" title="Open in another browser" aria-label="Open in another browser" aria-haspopup="menu" disabled={!isTauri || !activeTab?.url.match(/^https?:\/\//)} onClick={() => void showExternalBrowsers()}><ExternalLink className="ui-icon" size={17} aria-hidden="true" /></AppButton>
           {splitLayout && <AppButton className="toolbar-action" title="Close split view" aria-label="Close split view" onClick={() => void closeSplitView()}><Columns2 className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
           <AppButton className="toolbar-action" title="Settings" aria-label="Settings" onClick={() => void openSettingsPage()}><Settings className="ui-icon" size={17} aria-hidden="true" /></AppButton>
-          <AppButton className="toolbar-action downloads-trigger" title="Recent downloads" aria-label={`Recent downloads${downloads.length ? `, ${downloads.length} items` : ''}`} aria-haspopup="dialog" aria-expanded={downloadsPopoverOpen} aria-controls="downloads-popover" onClick={() => setDownloadsPopoverOpen(open => !open)}><Download className="ui-icon" size={17} aria-hidden="true" />{downloads.length > 0 && <span className="download-count" aria-hidden="true">{downloads.length > 99 ? '99+' : downloads.length}</span>}</AppButton>
-          {downloadsPopoverOpen && <section id="downloads-popover" className="downloads-popover" role="dialog" aria-label="Recent downloads">
+          <AppButton ref={downloadsButtonRef} className="toolbar-action downloads-trigger" title="Recent downloads" aria-label={`Recent downloads${downloads.length ? `, ${downloads.length} items` : ''}`} aria-haspopup="dialog" aria-expanded={downloadsPopoverOpen} aria-controls={nativeDownloadsPopover ? undefined : 'downloads-popover'} onClick={() => void openDownloadsPopover()}><Download className="ui-icon" size={17} aria-hidden="true" />{downloads.length > 0 && <span className="download-count" aria-hidden="true">{downloads.length > 99 ? '99+' : downloads.length}</span>}</AppButton>
+          {downloadsPopoverOpen && !nativeDownloadsPopover && <section id="downloads-popover" className="downloads-popover" role="dialog" aria-label="Recent downloads">
                 <header className="downloads-popover-heading"><div><h2>{downloads.length === 0 ? 'recent download history' : 'Downloads'}</h2>{downloads.length > 0 && <span>{downloads.length} {downloads.length === 1 ? 'item' : 'items'}</span>}</div></header>
                 <ul className="downloads-popover-list">
                   {downloads.slice(0, 8).map(item => <li className="downloads-popover-row" key={item.id}>

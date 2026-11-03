@@ -238,6 +238,11 @@ fn window_bounds(state: &BrowserState, window_label: &str) -> Result<ViewBounds,
 }
 
 fn close_browser_window_tabs(app: &tauri::AppHandle, state: &BrowserState, window_label: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let owner = window_label.to_string();
+        let _ = app.run_on_main_thread(move || unsafe { platforms::downloads_popover::remove(&owner) });
+    }
     if let Ok(mut tabs) = state.data.lock() {
         let closing: Vec<_> = tabs
             .iter()
@@ -435,6 +440,10 @@ fn monitor_download(
 }
 
 fn download_directory(app: &tauri::AppHandle) -> PathBuf {
+    #[cfg(all(debug_assertions, feature = "desktop-test"))]
+    if let Some(profile) = std::env::var_os("MY_BROWSER_PROFILE_DIR") {
+        return PathBuf::from(profile).join("downloads");
+    }
     #[cfg(feature = "macos-session-test")]
     if let Some(path) = std::env::var_os("MY_BROWSER_SESSION_TEST_DOWNLOAD_DIR") {
         return PathBuf::from(path);
@@ -657,6 +666,20 @@ async fn session_test_start_download(
     .map_err(|error| error.to_string())?
 }
 
+fn link_source_context(webview: &tauri::Webview, state: &BrowserState) -> Result<(bool, String), String> {
+    let tabs = state.data.lock().map_err(|_| "Browser state is unavailable")?;
+    if is_trusted_browser_ui(webview.label()) {
+        let owner = browser_window_for_ui(webview.label());
+        let private = tabs.iter().find(|tab| tab.window_label == owner && tab.active)
+            .is_some_and(|tab| tab.private);
+        return Ok((private, owner.to_string()));
+    }
+    tabs.iter()
+        .find(|tab| page_label(&tab.id) == webview.label())
+        .map(|tab| (tab.private, tab.window_label.clone()))
+        .ok_or_else(|| "Links can only be opened from a browser page or the trusted browser UI".into())
+}
+
 // WebView creation must leave the IPC callback on Windows so WebView2 can pump messages.
 #[tauri::command(async)]
 fn open_link_in_new_tab(
@@ -666,17 +689,7 @@ fn open_link_in_new_tab(
     url: String,
     background: Option<bool>,
 ) -> Result<(), String> {
-    if !webview.label().starts_with("page-") {
-        return Err("Links can only be opened from a browser page".into());
-    }
-    let (private, owner_window) = state
-        .data
-        .lock()
-        .map_err(|_| "Browser state is unavailable")?
-        .iter()
-        .find(|tab| page_label(&tab.id) == webview.label())
-        .map(|tab| (tab.private, tab.window_label.clone()))
-        .ok_or("That tab no longer exists")?;
+    let (private, owner_window) = link_source_context(&webview, &state)?;
     open_url_in_new_tab(&app, &state, &url, private, &owner_window, background.unwrap_or(false))
 }
 
@@ -687,17 +700,7 @@ fn open_link_in_new_window(
     state: tauri::State<'_, BrowserState>,
     url: String,
 ) -> Result<(), String> {
-    if !webview.label().starts_with("page-") {
-        return Err("Links can only be opened from a browser page".into());
-    }
-    let private = state
-        .data
-        .lock()
-        .map_err(|_| "Browser state is unavailable")?
-        .iter()
-        .find(|tab| page_label(&tab.id) == webview.label())
-        .map(|tab| tab.private)
-        .ok_or("That tab no longer exists")?;
+    let (private, _) = link_source_context(&webview, &state)?;
     let parsed = allowed_navigation_url(&url)?;
     let window_number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let destination = format!("browser-window-{window_number}");
@@ -848,6 +851,7 @@ struct DesktopPageDiagnostics {
     dom: String,
     errors: Vec<String>,
     context_menu: serde_json::Value,
+    viewport: serde_json::Value,
 }
 
 #[cfg(all(debug_assertions, feature = "desktop-test"))]
@@ -896,6 +900,7 @@ async fn desktop_test_inspect_page(
       url: location.href,
       title: document.title,
       readyState: document.readyState,
+      viewport: { width: innerWidth, height: innerHeight },
       text: document.body?.innerText ?? '',
       dom: document.documentElement?.outerHTML ?? '',
       errors: window.__MY_BROWSER_TEST_ERRORS__ ?? [],
@@ -926,6 +931,7 @@ async fn desktop_test_inspect_page(
         page = serde_json::from_str(json).map_err(|error| error.to_string())?;
     }
     Ok(DesktopPageDiagnostics {
+        viewport: page["viewport"].clone(),
         context_menu: page["contextMenu"].clone(),
         browser,
         window_labels,
@@ -1031,6 +1037,19 @@ async fn desktop_test_browser_ui(
     let script = format!(
         r#"JSON.stringify((() => {{
           const args = {args};
+          if (args.action === 'inspect-split-rows') {{
+            return {{ groups: Array.from(document.querySelectorAll('.tab-split-row')).map(group => ({{
+              first: group.dataset.splitFirst, second: group.dataset.splitSecond,
+              tabs: Array.from(group.querySelectorAll('[data-tab-id]')).map(row => {{ const r = row.getBoundingClientRect(); return {{ id: row.dataset.tabId, x: r.x, y: r.y, width: r.width, selected: row.classList.contains('selected') }}; }})
+            }})), tabIds: Array.from(document.querySelectorAll('[data-tab-id]')).map(row => row.dataset.tabId) }};
+          }}
+          if (args.action === 'toggle-downloads') {{
+            document.querySelector('.downloads-trigger').click();
+            return {{ clicked: true }};
+          }}
+          if (args.action === 'inspect-downloads') {{
+            return {{ expanded: document.querySelector('.downloads-trigger')?.getAttribute('aria-expanded') === 'true', htmlPanel: !!document.querySelector('.downloads-popover') }};
+          }}
           if (args.action === 'open-context-menu') {{
             const row = Array.from(document.querySelectorAll('[data-tab-id]')).find(node => node.dataset.tabId === args.tabId);
             if (!row) return {{ error: `Tab row ${{args.tabId}} was not found` }};
@@ -2070,6 +2089,55 @@ fn cycle_tab(
 }
 
 #[tauri::command]
+async fn control_downloads_popover(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    action: String,
+    anchor: SecurityPopoverAnchor,
+) -> Result<bool, String> {
+    if !is_trusted_browser_ui(webview.label()) { return Err("Downloads are only available to the trusted browser UI".into()); }
+    if !matches!(action.as_str(), "show" | "toggle" | "update" | "close")
+        || ![anchor.x, anchor.y, anchor.width, anchor.height].iter().all(|v| v.is_finite())
+        || anchor.width <= 0.0 || anchor.height <= 0.0 {
+        return Err("Invalid downloads popover request".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use platforms::downloads_popover::{DownloadRow, Reveal};
+        let rows = state.downloads.lock().map_err(|_| "Downloads are unavailable")?
+            .iter().take(8).map(|item| DownloadRow {
+                id: item.id.clone(), filename: item.filename.clone(),
+                completed: item.status == DownloadStatus::Completed,
+                status: match item.status {
+                    DownloadStatus::Completed => "Complete".into(),
+                    DownloadStatus::Failed => "Failed".into(),
+                    _ => format!("Downloading · {} bytes", item.bytes_received),
+                },
+            }).collect();
+        let owner = browser_window_for_ui(webview.label()).to_string();
+        let main = app.get_webview(&owner).ok_or("Browser window is unavailable")?;
+        let inset = titlebar_inset(&main)?;
+        let reveal_app = app.clone();
+        let reveal: Reveal = Arc::new(move |id| {
+            if let Err(error) = reveal_download_file(&reveal_app.state::<BrowserState>(), &id) {
+                eprintln!("could not reveal download: {error}");
+            }
+        });
+        let anchor = platforms::security_popover::AnchorRect { x: anchor.x, y: anchor.y, width: anchor.width, height: anchor.height };
+        let (sender, receiver) = std::sync::mpsc::channel();
+        main.with_webview(move |platform| {
+            let shown = unsafe { platforms::downloads_popover::control(platform.inner(), &owner, &action, anchor, inset, rows, reveal) };
+            let _ = sender.send(shown);
+        }).map_err(|error| error.to_string())?;
+        return tauri::async_runtime::spawn_blocking(move || receiver.recv().map_err(|error| error.to_string()))
+            .await.map_err(|error| error.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    { let _ = (app, state, action, anchor); Err("Native downloads popovers are available on macOS only".into()) }
+}
+
+#[tauri::command]
 fn reveal_download(
     webview: tauri::Webview,
     state: tauri::State<'_, BrowserState>,
@@ -2078,6 +2146,10 @@ fn reveal_download(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Downloads are only available to the trusted browser UI".into());
     }
+    reveal_download_file(&state, &download_id)
+}
+
+fn reveal_download_file(state: &BrowserState, download_id: &str) -> Result<(), String> {
     let path = state
         .downloads
         .lock()
@@ -3804,6 +3876,7 @@ pub fn run() {
         update_page_security_popover,
         cycle_tab,
         reveal_download,
+        control_downloads_popover,
         open_link_in_new_tab,
         open_link_in_new_window,
         sync_page_url,
@@ -3853,6 +3926,7 @@ pub fn run() {
         update_page_security_popover,
         cycle_tab,
         reveal_download,
+        control_downloads_popover,
         open_link_in_new_tab,
         open_link_in_new_window,
         sync_page_url,
@@ -3902,6 +3976,7 @@ pub fn run() {
         update_page_security_popover,
         cycle_tab,
         reveal_download,
+        control_downloads_popover,
         open_link_in_new_tab,
         open_link_in_new_window,
         sync_page_url,
