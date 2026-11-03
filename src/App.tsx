@@ -408,6 +408,10 @@ function initialTheme(): Theme {
   return saved === 'light' || saved === 'dark' ? saved : 'system';
 }
 
+function initialCustomPageContextMenuEnabled() {
+  return localStorage.getItem('browser.customPageContextMenu') !== 'false';
+}
+
 export default function App() {
   if (new URLSearchParams(window.location.search).get('page') === 'tree') return <SortableTreeDemo />;
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -464,6 +468,7 @@ export default function App() {
   const [filterBusy, setFilterBusy] = useState(false);
   const [filterProgress, setFilterProgress] = useState<FilterUpdateProgress | null>(null);
   const [theme, setTheme] = useState<Theme>(initialTheme);
+  const [customPageContextMenuEnabled, setCustomPageContextMenuEnabled] = useState(initialCustomPageContextMenuEnabled);
   const addressRef = useRef<HTMLInputElement>(null);
   const securityButtonRef = useRef<HTMLButtonElement>(null);
   const externalBrowserButtonRef = useRef<HTMLButtonElement>(null);
@@ -657,6 +662,14 @@ export default function App() {
     preference.addEventListener('change', apply);
     return () => preference.removeEventListener('change', apply);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('browser.customPageContextMenu', String(customPageContextMenuEnabled));
+    if (isTauri && tabsLoaded) {
+      void invoke('set_page_context_menu_enabled', { enabled: customPageContextMenuEnabled })
+        .catch(error => setMessage(String(error)));
+    }
+  }, [customPageContextMenuEnabled, isTauri, tabsLoaded]);
 
   useEffect(() => {
     if (!resizingSidebar) return;
@@ -1740,6 +1753,7 @@ export default function App() {
             <div className="settings-content">
               <h2>General</h2>
               <div className="settings-card"><div><strong>Bookmarks</strong><small>Saved locally in this browser profile.</small></div><AppButton onClick={() => { closeSettings(); setSidebarView('bookmarks'); }}>Manage bookmarks</AppButton></div>
+              <div className="settings-card"><div><strong>Webpage context menu</strong><small>Replace the page’s default right-click menu with browser actions.</small></div><label className="settings-toggle"><input type="checkbox" checked={customPageContextMenuEnabled} onChange={event => setCustomPageContextMenuEnabled(event.target.checked)} /><span>{customPageContextMenuEnabled ? 'On' : 'Off'}</span></label></div>
               <h2>Appearance</h2>
               <div className="settings-card"><div><strong>Color scheme</strong><small>Choose the browser interface appearance.</small></div>
                 <Select aria-label="Color scheme" selectedKey={theme} onSelectionChange={key => setTheme(key as Theme)} className="theme-select">

@@ -107,3 +107,8 @@
 
 - Clicking inside a website WebView now notifies the trusted browser UI to blur the address field, clearing its focus border. Opening or focusing a tab does not trigger the blur unless the page receives a pointer-down.
 - Documented the address-field focus behavior in the README.
+
+## 2026-11-03
+
+- Added a custom context menu inside website WebViews with navigation, selection, link, image, and copy actions. The menu is enabled by default and can be turned off in **Settings → Webpage context menu** to restore the WebView's default menu.
+- Documented the webpage context-menu setting and available actions in the README.

@@ -713,6 +713,33 @@ fn focus_browser_tab(
 }
 
 #[tauri::command]
+fn set_page_context_menu_enabled(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    enabled: bool,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Page context-menu settings are only available to the trusted browser UI".into());
+    }
+    state
+        .page_context_menu_enabled
+        .store(enabled, std::sync::atomic::Ordering::Release);
+    let tabs = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?;
+    for tab in tabs.iter() {
+        if let Some(page) = app.get_webview(&page_label(&tab.id)) {
+            let _ = page.eval(&format!(
+                "window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__ = {enabled};"
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn sync_page_url(
     webview: tauri::Webview,
     app: tauri::AppHandle,
@@ -1051,6 +1078,9 @@ fn create_page_webview(
     };
     let navigation_filter_ready = filter_ready.clone();
     let navigation_pending = pending_navigation.clone();
+    let custom_context_menu_enabled = state
+        .page_context_menu_enabled
+        .load(std::sync::atomic::Ordering::Acquire);
     let builder = tauri::webview::WebviewBuilder::new(label, WebviewUrl::External(initial_url))
         .incognito(private)
         .initialization_script(
@@ -1070,6 +1100,82 @@ fn create_page_webview(
               };
               window.addEventListener('focus', focusBrowserTab);
               document.addEventListener('pointerdown', () => focusBrowserTab(true), true);
+            })();"#,
+        )
+        .initialization_script(&format!(
+            "window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__ = {custom_context_menu_enabled};"
+        ))
+        .initialization_script(
+            r#"(() => {
+              const host = document.createElement('div');
+              host.setAttribute('aria-hidden', 'true');
+              const shadow = host.attachShadow({ mode: 'closed' });
+              const style = document.createElement('style');
+              style.textContent = `
+                :host { all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none; color-scheme: light dark; }
+                .menu { position: fixed; min-width: 190px; max-width: 300px; padding: 5px; border: 1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius: 9px; color: CanvasText; background: Canvas; box-shadow: 0 8px 28px #0005; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; pointer-events: auto; }
+                button { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 5px; color: inherit; background: transparent; font: inherit; text-align: left; cursor: default; }
+                button:hover, button:focus-visible { outline: none; background: color-mix(in srgb, Highlight 18%, transparent); }
+                .separator { height: 1px; margin: 4px 5px; background: color-mix(in srgb, CanvasText 14%, transparent); }
+              `;
+              shadow.append(style);
+              let menu;
+              const close = () => { menu?.remove(); menu = undefined; host.setAttribute('aria-hidden', 'true'); };
+              const copyText = async text => {
+                try { await navigator.clipboard.writeText(text); }
+                catch {
+                  const field = document.createElement('textarea');
+                  field.value = text; field.style.position = 'fixed'; field.style.opacity = '0';
+                  document.documentElement.append(field); field.select(); document.execCommand('copy'); field.remove();
+                }
+              };
+              document.addEventListener('contextmenu', event => {
+                if (!window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__) return;
+                event.preventDefault();
+                close();
+                const target = event.target instanceof Element ? event.target : null;
+                const link = target?.closest('a[href]');
+                const image = target?.closest('img');
+                const selectedText = String(window.getSelection()?.toString() || '').trim();
+                const items = [];
+                const add = (label, action) => items.push({ label, action });
+                const separate = () => { if (items.length && !items[items.length - 1].separator) items.push({ separator: true }); };
+                if (link) {
+                  add('Open Link in New Tab', () => window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', { url: link.href }));
+                  add('Copy Link Address', () => copyText(link.href));
+                }
+                if (image) {
+                  if (link) separate();
+                  add('Open Image in New Tab', () => window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', { url: image.currentSrc || image.src }));
+                  add('Copy Image Address', () => copyText(image.currentSrc || image.src));
+                }
+                if (selectedText) {
+                  separate();
+                  add('Copy', () => document.execCommand('copy'));
+                }
+                if (items.length) separate();
+                add('Back', () => history.back());
+                add('Forward', () => history.forward());
+                add('Reload', () => location.reload());
+                separate();
+                add('Select All', () => document.execCommand('selectAll'));
+                menu = document.createElement('div');
+                menu.className = 'menu'; menu.setAttribute('role', 'menu');
+                for (const item of items) {
+                  if (item.separator) { const divider = document.createElement('div'); divider.className = 'separator'; divider.setAttribute('role', 'separator'); menu.append(divider); continue; }
+                  const button = document.createElement('button'); button.type = 'button'; button.textContent = item.label; button.setAttribute('role', 'menuitem');
+                  button.addEventListener('click', () => { const result = item.action(); if (result?.catch) result.catch(() => {}); close(); });
+                  menu.append(button);
+                }
+                shadow.append(menu); host.setAttribute('aria-hidden', 'false');
+                const bounds = menu.getBoundingClientRect();
+                menu.style.left = Math.max(4, Math.min(event.clientX, innerWidth - bounds.width - 4)) + 'px';
+                menu.style.top = Math.max(4, Math.min(event.clientY, innerHeight - bounds.height - 4)) + 'px';
+                menu.querySelector('button')?.focus({ preventScroll: true });
+              }, true);
+              document.addEventListener('pointerdown', event => { if (menu && !host.contains(event.target)) close(); }, true);
+              document.addEventListener('keydown', event => { if (event.key === 'Escape' && menu) { close(); event.stopPropagation(); } }, true);
+              document.documentElement.append(host);
             })();"#,
         )
         .initialization_script(
@@ -3595,6 +3701,7 @@ pub fn run() {
         resize_tab_split,
         move_tab_to_new_window,
         focus_browser_tab,
+        set_page_context_menu_enabled,
         get_history,
         get_downloads,
         find_in_page,
@@ -3642,6 +3749,7 @@ pub fn run() {
         resize_tab_split,
         move_tab_to_new_window,
         focus_browser_tab,
+        set_page_context_menu_enabled,
         get_history,
         get_downloads,
         find_in_page,
@@ -3689,6 +3797,7 @@ pub fn run() {
         resize_tab_split,
         move_tab_to_new_window,
         focus_browser_tab,
+        set_page_context_menu_enabled,
         get_history,
         get_downloads,
         find_in_page,

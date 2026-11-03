@@ -70,6 +70,7 @@ pub enum SplitOrientation {
 #[derive(Clone, Default)]
 pub struct BrowserState {
     pub data: Arc<Mutex<Vec<TabState>>>,
+    pub page_context_menu_enabled: Arc<std::sync::atomic::AtomicBool>,
     pub next_id: Arc<std::sync::atomic::AtomicU64>,
     pub settings_open: Arc<Mutex<std::collections::HashSet<String>>>,
     pub window_bounds: Arc<Mutex<std::collections::HashMap<String, ViewBounds>>>,

@@ -236,6 +236,8 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .filter-update-progress { display: flex; width: min(320px, 60vw); flex-direction: column; gap: 4px; color: var(--muted); font-size: var(--fs-sub); }
 .filter-update-progress progress { width: 100%; height: 4px; accent-color: var(--accent); }
 .settings-card button, .theme-select-trigger { padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--surface-raised); font-size: var(--fs-sub); }
+.settings-toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--fs-sub); cursor: pointer; }
+.settings-toggle input { accent-color: var(--accent); }
 .settings-badge { color: var(--muted) !important; }
 .theme-select { position: relative; }
 .theme-select-trigger { min-width: 104px; padding-right: 26px; text-align: left; }
