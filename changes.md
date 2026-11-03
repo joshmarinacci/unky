@@ -110,6 +110,7 @@
 
 ## 2026-11-03
 
+- Command-clicking a website link now opens a background tab without changing the selected tab or clearing an existing split view. The new tab preserves the source tab's private mode. Documented the behavior in the README.
 - Fixed missing Tauri permissions for the webpage context-menu setting and opening a link in a new window. The setting previously appeared enabled in the UI while Tauri rejected the command, leaving the native menu active. Added a native WebView regression covering enable, disable, navigation, and reload.
 - Added **Open Link in New Window** to the custom webpage context menu. It opens the link in a separate browser window and preserves private mode.
 - Custom webpage context-menu handling now runs at the window capture phase and stops page handlers when enabled, ensuring the browser menu replaces WebKit's native menu.

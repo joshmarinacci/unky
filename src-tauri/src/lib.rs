@@ -453,12 +453,13 @@ fn open_url_in_new_tab(
     input: &str,
     private: bool,
     owner_window: &str,
+    background: bool,
 ) -> Result<(), String> {
     let parsed = allowed_navigation_url(input)?;
     let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let id = format!("tab-{number}");
     let bounds = window_bounds(state, owner_window)?;
-    create_page_webview(
+    create_page_webview_with_focus(
         app,
         state,
         &id,
@@ -466,6 +467,7 @@ fn open_url_in_new_tab(
         bounds,
         private,
         owner_window,
+        !background,
     )?;
     let mut tabs = state
         .data
@@ -475,12 +477,14 @@ fn open_url_in_new_tab(
         .iter_mut()
         .filter(|tab| tab.window_label == owner_window)
     {
-        tab.active = false;
+        if !background {
+            tab.active = false;
+        }
     }
     let mut tab = TabState::new_in_window(
         id,
         parsed.to_string(),
-        true,
+        !background,
         private,
         owner_window.to_string(),
     );
@@ -490,12 +494,14 @@ fn open_url_in_new_tab(
     tabs.push(tab);
     emit_snapshot(app, &tabs);
     drop(tabs);
-    state
-        .split_tabs
-        .lock()
-        .map_err(|_| "Browser state is unavailable")?
-        .remove(owner_window);
-    let _ = app.emit_to(owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
+    if !background {
+        state
+            .split_tabs
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?
+            .remove(owner_window);
+        let _ = app.emit_to(owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
+    }
     persist_session(state)?;
     position_tabs(app, state)
 }
@@ -514,7 +520,7 @@ fn route_webview_new_window_request(
         .find(|tab| tab.id == source_tab_id)
         .map(|tab| (tab.private, tab.window_label.clone()))
         .ok_or("The source tab no longer exists")?;
-    open_url_in_new_tab(app, state, url, private, &owner_window)?;
+    open_url_in_new_tab(app, state, url, private, &owner_window, false)?;
     Ok(owner_window)
 }
 
@@ -658,6 +664,7 @@ fn open_link_in_new_tab(
     app: tauri::AppHandle,
     state: tauri::State<'_, BrowserState>,
     url: String,
+    background: Option<bool>,
 ) -> Result<(), String> {
     if !webview.label().starts_with("page-") {
         return Err("Links can only be opened from a browser page".into());
@@ -670,7 +677,7 @@ fn open_link_in_new_tab(
         .find(|tab| page_label(&tab.id) == webview.label())
         .map(|tab| (tab.private, tab.window_label.clone()))
         .ok_or("That tab no longer exists")?;
-    open_url_in_new_tab(&app, &state, &url, private, &owner_window)
+    open_url_in_new_tab(&app, &state, &url, private, &owner_window, background.unwrap_or(false))
 }
 
 #[tauri::command(async)]
@@ -711,7 +718,7 @@ fn open_link_in_new_window(
             close_browser_window_tabs(&close_app, &close_state, &close_label);
         }
     });
-    if let Err(error) = open_url_in_new_tab(&app, &state, parsed.as_str(), private, &destination) {
+    if let Err(error) = open_url_in_new_tab(&app, &state, parsed.as_str(), private, &destination, false) {
         let _ = browser_window.close();
         return Err(error);
     }
@@ -1100,6 +1107,19 @@ fn create_page_webview(
     private: bool,
     owner_window: &str,
 ) -> Result<(), String> {
+    create_page_webview_with_focus(app, state, id, url, bounds, private, owner_window, true)
+}
+
+fn create_page_webview_with_focus(
+    app: &tauri::AppHandle,
+    state: &BrowserState,
+    id: &str,
+    url: url::Url,
+    bounds: ViewBounds,
+    private: bool,
+    owner_window: &str,
+    focus: bool,
+) -> Result<(), String> {
     let window = app
         .get_window(owner_window)
         .ok_or("Browser window is unavailable")?;
@@ -1143,6 +1163,7 @@ fn create_page_webview(
         .load(std::sync::atomic::Ordering::Acquire);
     let builder = tauri::webview::WebviewBuilder::new(label, WebviewUrl::External(initial_url))
         .incognito(private)
+        .focused(focus)
         .initialization_script(
             r#"window.__MY_BROWSER_TEST_ERRORS__ = [];
               window.addEventListener('error', event => window.__MY_BROWSER_TEST_ERRORS__.push(String(event.message)));
@@ -1243,12 +1264,13 @@ fn create_page_webview(
         .initialization_script(
             r#"document.addEventListener('click', event => {
               window.__MY_BROWSER_LINK_HOOK__ = true;
-              const link = event.target instanceof Element ? event.target.closest('a[target="_blank"][href]') : null;
+              const link = event.target instanceof Element ? event.target.closest('a[href]') : null;
               if (!link) return;
+              if (event.button !== 0 || (!event.metaKey && link.target !== '_blank')) return;
               event.preventDefault();
               event.stopImmediatePropagation();
               window.__MY_BROWSER_LINK_RESULT__ = 'pending';
-              window.__TAURI_INTERNALS__.invoke('open_link_in_new_tab', { url: link.href })
+              window.__TAURI_INTERNALS__.invoke('open_link_in_new_tab', { url: link.href, background: event.metaKey })
                 .then(() => { window.__MY_BROWSER_LINK_RESULT__ = 'opened'; })
                 .catch(error => { window.__MY_BROWSER_LINK_RESULT__ = String(error); console.error(error); });
             }, true);"#,
