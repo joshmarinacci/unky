@@ -33,6 +33,31 @@ Create a `production` Environment and require at least one human reviewer. Add t
 
 The publish workflow is started manually with the candidate run ID and version. It downloads the reviewed artifact, verifies all checksums and the three expected installers, waits for environment approval, creates the GitHub Release, copies installers without overwriting existing versioned files, and atomically replaces the page. It does not sign installers. Do not use it for a production release until the signed candidate pipeline is implemented and the environment is protected.
 
+## macOS CI signing setup
+
+Release-candidate runs require these repository Actions secrets (ordinary push builds do not consume them):
+
+- `APPLE_CERTIFICATE`: base64-encoded Developer ID Application `.p12` export.
+- `APPLE_CERTIFICATE_PASSWORD`: password used to export that `.p12`.
+- `APPLE_ID`: Apple Account email.
+- `APPLE_PASSWORD`: Apple app-specific password.
+- `APPLE_TEAM_ID`: Apple Developer Team ID.
+- `KEYCHAIN_PASSWORD`: a newly generated, unique password used only for the temporary CI keychain.
+
+### Export the signing identity
+
+1. On a Mac that has the signing identity, open **Keychain Access** and select **login → My Certificates**.
+2. Find the `Developer ID Application` certificate and expand it. Confirm its private key is listed beneath it; the certificate without its matching private key cannot sign.
+3. Select the certificate and private key together, then choose **File → Export Items…** and save as a `.p12` file.
+4. When prompted, create a strong, unique export password. This becomes `APPLE_CERTIFICATE_PASSWORD`; it is distinct from Apple credentials and the temporary keychain password.
+5. Convert the file locally with `openssl base64 -A -in certificate.p12` and put the output in `APPLE_CERTIFICATE`. Do not commit or share the `.p12` or its base64 output.
+6. Generate a separate random password for `KEYCHAIN_PASSWORD`. CI uses it only to unlock the temporary keychain it creates on the macOS runner, imports the signing identity there, and deletes that keychain after the build.
+7. Generate an Apple app-specific password for `APPLE_PASSWORD`; use the Apple Account email for `APPLE_ID` and the account Team ID for `APPLE_TEAM_ID`.
+
+Store these as repository Actions secrets because the macOS candidate job must access them before the review/production approval stage. Anyone with both the exported identity and its password can sign software as the developer, so restrict repository access and rotate/revoke the certificate if its private key is exposed. The workflow imports it into an ephemeral keychain, signs and notarizes the DMG, verifies the notarization ticket with `xcrun stapler` and Gatekeeper assessment, then removes the temporary keychain.
+
+Windows NSIS installers are not signed by the current workflow. Do not publish a production release until a Windows signing certificate or managed signing service has been configured and signature verification has been added.
+
 ## Decisions still needed for a live release
 
 - Confirm the canonical public artifact host and site deployment destination/credentials. The public page is confirmed as `https://apps.josh.earth/unky`; CI still needs a dedicated deploy credential with write access limited to this site directory.
