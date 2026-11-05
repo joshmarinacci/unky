@@ -35,7 +35,7 @@ The publish workflow is started manually with the candidate run ID and version. 
 
 ## macOS CI signing setup
 
-Release-candidate runs require these repository Actions secrets (ordinary push builds do not consume them):
+Release-candidate runs require these secrets in the dedicated `macos-signing` GitHub Environment. The macOS packaging job declares this environment; ordinary push builds use the same job without reading the secrets. Keep this environment free of required reviewers so candidate signing does not need a pre-build approval; the separate `production` Environment remains the human publication gate.
 
 - `APPLE_CERTIFICATE`: base64-encoded Developer ID Application `.p12` export.
 - `APPLE_CERTIFICATE_PASSWORD`: password used to export that `.p12`.
@@ -54,7 +54,7 @@ Release-candidate runs require these repository Actions secrets (ordinary push b
 6. Generate a separate random password for `KEYCHAIN_PASSWORD`. CI uses it only to unlock the temporary keychain it creates on the macOS runner, imports the signing identity there, and deletes that keychain after the build.
 7. Generate an Apple app-specific password for `APPLE_PASSWORD`; use the Apple Account email for `APPLE_ID` and the account Team ID for `APPLE_TEAM_ID`.
 
-Store these as repository Actions secrets because the macOS candidate job must access them before the review/production approval stage. Anyone with both the exported identity and its password can sign software as the developer, so restrict repository access and rotate/revoke the certificate if its private key is exposed. The workflow imports it into an ephemeral keychain, signs and notarizes the DMG, verifies the notarization ticket with `xcrun stapler` and Gatekeeper assessment, then removes the temporary keychain.
+Add these as **environment secrets** under **Settings → Environments → macos-signing**. Do not put the Apple credentials in `production`; only the publishing job should receive the site deployment key. Anyone with both the exported identity and its password can sign software as the developer, so restrict who can edit workflows and environment settings, and rotate/revoke the certificate if its private key is exposed. The workflow imports it into an ephemeral keychain, signs and notarizes the DMG, verifies the notarization ticket with `xcrun stapler` and Gatekeeper assessment, then removes the temporary keychain.
 
 Windows NSIS installers are not signed by the current workflow. Do not publish a production release until a Windows signing certificate or managed signing service has been configured and signature verification has been added.
 

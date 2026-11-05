@@ -21,6 +21,10 @@ jobs:
   macos-dmg:
     name: macOS ARM64 DMG
     runs-on: macos-latest
+    environment:
+      name: macos-signing
+      url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    if: github.event_name != 'workflow_dispatch' || inputs.release_version != ''
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
