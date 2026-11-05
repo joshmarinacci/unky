@@ -29,7 +29,7 @@ Run `npm run clean` to remove build output on both sides: `dist`, `test-results`
 
 ## Release download page
 
-`site/index.html` is a standalone, dependency-free download page. To publish it at `/my-browser/`, upload it as that path's `index.html` and place the macOS disk image beside it with the filename `My-Browser.dmg`; the page's relative download link expects that exact name. Build the disk image on macOS with `npm run tauri -- build --bundles dmg`, then copy and rename the `.dmg` from `src-tauri/target/release/bundle/dmg/`. Update the version and architecture text in the page when publishing a different build. The page includes first-launch guidance for this unnotarized build.
+`site/index.html` is a standalone, dependency-free download page published at [apps.josh.earth/unky](https://apps.josh.earth/unky). The existing manual publish scripts target `/sites/apps.josh.earth/my-browser/`; the CI release process should use a dedicated deploy credential restricted to that directory. Release candidates will generate the page and release notes from `CHANGELOG.md`, then update the public page only after human approval. The page includes first-launch guidance for this build.
 
 ### Sign and notarize a macOS release
 
@@ -186,7 +186,7 @@ Local builds use the `BUILD_NUMBER` environment variable when set, otherwise `lo
 ### Release process
 
 1. Update the application version consistently in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` (and refresh `package-lock.json` with `npm install --package-lock-only --legacy-peer-deps`).
-2. Commit and push the release changes. The **Build desktop bundles** GitHub Actions workflow runs on pushes and can also be started with **Run workflow**. Its macOS ARM64 job generates build metadata, builds the DMG, renames it to `Unky_<version>_build-<run>_<UTC timestamp>_<short commit>_aarch64.dmg`, and uploads it as the `my-browser-macos-arm64` artifact. The Windows ARM64 job builds and uploads an NSIS installer as `my-browser-windows-arm64`.
+2. Commit and push the release changes. The **Build desktop bundles** GitHub Actions workflow runs on pushes and can also be started with **Run workflow**. Its macOS ARM64 job generates build metadata, builds the DMG, renames it to `Unky_<version>_build-<run>_<UTC timestamp>_<short commit>_aarch64.dmg`, and uploads it as the `my-browser-macos-arm64` artifact. Windows ARM64 and x64 jobs build and upload NSIS installers as `my-browser-windows-ARM64` and `my-browser-windows-x64` artifacts.
 3. Download the artifact from the completed workflow run. Workflow artifacts are retained for 14 days.
 
 For a local macOS DMG, run `npm ci --legacy-peer-deps` and then `npm run tauri-release`; the bundle is created under `target/release/bundle/dmg/`. Set `BUILD_NUMBER` to label a local build, for example `BUILD_NUMBER=42 npm run tauri-release`. The unsigned local command uses Tauri's default DMG filename. For a signed/notarized macOS build, use `npm run sign-mac`, which prompts for the Apple account email and app-specific password, requires the configured Developer ID certificate in the macOS keychain, and names the resulting DMG with the version, build number, UTC timestamp, commit, and architecture.
