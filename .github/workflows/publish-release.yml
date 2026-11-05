@@ -1,0 +1,89 @@
+name: Publish approved release
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Actions run ID containing the reviewed release-candidate artifact
+        required: true
+        type: string
+      version:
+        description: Release version, for example 0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish approved release
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+
+      - name: Download reviewed candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: release-candidate-${{ inputs.version }}
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+          path: release-candidate
+
+      - name: Validate candidate and checksums
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test -f release-candidate/release.json
+          test -f release-candidate/RELEASE_NOTES.md
+          test -f release-candidate/SHA256SUMS.txt
+          node -e 'const r=require("./release-candidate/release.json"); if(r.version!==process.env.RELEASE_VERSION) process.exit(1)'
+          cd release-candidate
+          sha256sum --check SHA256SUMS.txt
+          shopt -s nullglob
+          installers=(*.dmg *.exe)
+          test "${#installers[@]}" -eq 3
+
+      - name: Configure restricted site SSH access
+        env:
+          DEPLOY_KEY: ${{ secrets.SITE_DEPLOY_KEY }}
+          DEPLOY_HOST: ${{ vars.SITE_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.SITE_DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.SITE_DEPLOY_PATH }}
+          DEPLOY_KNOWN_HOSTS: ${{ vars.SITE_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_KEY" && test -n "$DEPLOY_HOST" && test -n "$DEPLOY_USER" && test -n "$DEPLOY_PATH" && test -n "$DEPLOY_KNOWN_HOSTS"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/release_deploy
+          chmod 600 ~/.ssh/release_deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          printf 'DEPLOY_HOST=%s\nDEPLOY_USER=%s\nDEPLOY_PATH=%s\n' "$DEPLOY_HOST" "$DEPLOY_USER" "$DEPLOY_PATH" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "v${RELEASE_VERSION}" release-candidate/*.dmg release-candidate/*.exe release-candidate/SHA256SUMS.txt \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Unky ${RELEASE_VERSION}" \
+            --notes-file release-candidate/RELEASE_NOTES.md
+
+      - name: Deploy page and immutable installers
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/release_deploy "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH'"
+          rsync -av --ignore-existing -e 'ssh -i ~/.ssh/release_deploy' release-candidate/*.dmg release-candidate/*.exe release-candidate/SHA256SUMS.txt "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+          rsync -av -e 'ssh -i ~/.ssh/release_deploy' release-candidate/index.html "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/index.html.new"
+          ssh -i ~/.ssh/release_deploy "$DEPLOY_USER@$DEPLOY_HOST" "mv '$DEPLOY_PATH/index.html.new' '$DEPLOY_PATH/index.html'"

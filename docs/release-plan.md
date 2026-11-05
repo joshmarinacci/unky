@@ -21,12 +21,24 @@ Automate repeatable desktop release preparation in CI while keeping publication 
 - Publish immutable assets and checksums to GitHub Releases; configure the site deployment target with least-privilege credentials.
 - Add repository setup documentation for GitHub Environment reviewers, secrets, supported architectures, and recovery.
 
+## GitHub production environment setup
+
+Create a `production` Environment and require at least one human reviewer. Add these environment values:
+
+- Secret `SITE_DEPLOY_KEY`: a dedicated SSH private key whose server account can write only to the `/unky` document directory.
+- Variable `SITE_DEPLOY_HOST`: SSH host for `apps.josh.earth` (or the actual deployment host).
+- Variable `SITE_DEPLOY_USER`: the restricted deployment account.
+- Variable `SITE_DEPLOY_PATH`: the document root corresponding to `/unky`.
+- Variable `SITE_DEPLOY_KNOWN_HOSTS`: verified SSH host-key line(s), obtained out of band and pinned; do not generate them with `ssh-keyscan` inside the workflow.
+
+The publish workflow is started manually with the candidate run ID and version. It downloads the reviewed artifact, verifies all checksums and the three expected installers, waits for environment approval, creates the GitHub Release, copies installers without overwriting existing versioned files, and atomically replaces the page. It does not sign installers. Do not use it for a production release until the signed candidate pipeline is implemented and the environment is protected.
+
 ## Decisions still needed for a live release
 
 - Confirm the canonical public artifact host and site deployment destination/credentials. The public page is confirmed as `https://apps.josh.earth/unky`; CI still needs a dedicated deploy credential with write access limited to this site directory.
 - Provide CI signing credentials. The intended Windows release targets are ARM64 and x64; x64 packaging is being added to CI.
-- Configure the GitHub `production` Environment with required reviewers before enabling publication.
+- Configure the GitHub `production` Environment and restricted deployment values listed above before enabling publication.
 
 ## Current implementation status
 
-The repo is beginning with the version/changelog validation and release metadata generation pieces. CI publication and cloud signing require the external configuration listed above.
+Candidate generation and the approval-gated publishing workflow are implemented. CI signing and deployment still require the external configuration listed above.
