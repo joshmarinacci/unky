@@ -6,7 +6,7 @@ use browser::tabs::{
     cycle_active_tab, download_filename, find_script, next_download_path, record_history_entry,
     remember_closed_tab, snapshot, take_recently_closed, update_history_title, BrowserSnapshot,
     BrowserState, DownloadEntry, DownloadStatus, HistoryEntry, PersistedHistory, PersistedSession,
-    SessionTab, SplitLayout, SplitOrientation, TabState, ViewBounds,
+    SessionTab, SplitLayout, SplitOrientation, TabFolderMenuEntry, TabState, ViewBounds,
 };
 use std::sync::{atomic::Ordering, Arc, Mutex, MutexGuard};
 use std::{
@@ -463,7 +463,7 @@ fn open_url_in_new_tab(
     private: bool,
     owner_window: &str,
     background: bool,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let parsed = allowed_navigation_url(input)?;
     let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let id = format!("tab-{number}");
@@ -512,7 +512,8 @@ fn open_url_in_new_tab(
         let _ = app.emit_to(owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
     }
     persist_session(state)?;
-    position_tabs(app, state)
+    position_tabs(app, state)?;
+    Ok(format!("tab-{number}"))
 }
 
 fn route_webview_new_window_request(
@@ -690,7 +691,49 @@ fn open_link_in_new_tab(
     background: Option<bool>,
 ) -> Result<(), String> {
     let (private, owner_window) = link_source_context(&webview, &state)?;
-    open_url_in_new_tab(&app, &state, &url, private, &owner_window, background.unwrap_or(false))
+    open_url_in_new_tab(&app, &state, &url, private, &owner_window, background.unwrap_or(false)).map(|_| ())
+}
+
+async fn tab_folders_for_window(app: &tauri::AppHandle, owner: &str) -> Result<Vec<TabFolderMenuEntry>, String> {
+    let ui = app.get_webview(owner).ok_or("The browser UI is unavailable")?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    ui.eval_with_callback(
+        r#"JSON.stringify((function walk(nodes) {
+          return (Array.isArray(nodes) ? nodes : []).flatMap(node => node?.type === 'folder' && typeof node.id === 'string'
+            ? [{ id: node.id, title: String(node.title || 'Folder') }, ...walk(node.children)]
+            : []);
+        })(JSON.parse(localStorage.getItem('browser.tabTree') || '[]')))"#,
+        move |result| { let _ = sender.send(result); },
+    ).map_err(|error| error.to_string())?;
+    let encoded = tauri::async_runtime::spawn_blocking(move || receiver.recv_timeout(Duration::from_secs(3)).map_err(|error| error.to_string()))
+        .await.map_err(|error| error.to_string())??;
+    let value: serde_json::Value = serde_json::from_str(&encoded).map_err(|error| error.to_string())?;
+    if let Some(json) = value.as_str() {
+        serde_json::from_str(json).map_err(|error| error.to_string())
+    } else {
+        serde_json::from_value(value).map_err(|error| error.to_string())
+    }
+}
+
+#[tauri::command(async)]
+async fn get_tab_folders(webview: tauri::Webview, app: tauri::AppHandle, state: tauri::State<'_, BrowserState>) -> Result<Vec<TabFolderMenuEntry>, String> {
+    let owner = link_source_context(&webview, &state)?.1;
+    tab_folders_for_window(&app, &owner).await
+}
+
+#[tauri::command(async)]
+async fn open_link_in_tab_folder(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    url: String,
+    folder_id: String,
+) -> Result<(), String> {
+    let (private, owner) = link_source_context(&webview, &state)?;
+    let exists = tab_folders_for_window(&app, &owner).await?.iter().any(|folder| folder.id == folder_id);
+    if !exists { return Err("That tab folder no longer exists".into()); }
+    let tab_id = open_url_in_new_tab(&app, &state, &url, private, &owner, false)?;
+    app.emit_to(&owner, "browser://open-tab-in-folder", (tab_id, folder_id)).map_err(|error| error.to_string())
 }
 
 #[tauri::command(async)]
@@ -895,6 +938,9 @@ async fn desktop_test_inspect_page(
     if open_context_menu == Some(true) {
         page.eval("window.__MY_BROWSER_CONTEXT_MENU_TEST_EVENT__ = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 100 }); (document.querySelector('a[href]') || document.body).dispatchEvent(window.__MY_BROWSER_CONTEXT_MENU_TEST_EVENT__);")
             .map_err(|error| error.to_string())?;
+        tauri::async_runtime::spawn_blocking(|| thread::sleep(Duration::from_millis(100)))
+            .await
+            .map_err(|error| error.to_string())?;
     }
     let script = r#"JSON.stringify((() => ({
       url: location.href,
@@ -910,7 +956,8 @@ async fn desktop_test_inspect_page(
         errorsInstalled: Array.isArray(window.__MY_BROWSER_TEST_ERRORS__),
         prevented: window.__MY_BROWSER_CONTEXT_MENU_TEST_EVENT__?.defaultPrevented,
         hosts: document.querySelectorAll('div[aria-hidden]').length,
-        visibleHosts: document.querySelectorAll('div[aria-hidden="false"]').length
+        visibleHosts: document.querySelectorAll('div[aria-hidden="false"]').length,
+        menuItems: JSON.parse(document.querySelector('div[aria-hidden]')?.dataset.menuItems || '[]')
       }
     }))())"#;
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -1037,6 +1084,10 @@ async fn desktop_test_browser_ui(
     let script = format!(
         r#"JSON.stringify((() => {{
           const args = {args};
+          if (args.action === 'seed-tab-folders') {{
+            localStorage.setItem('browser.tabTree', JSON.stringify([{{ id: 'desktop-test-folder', type: 'folder', title: 'Desktop Test Folder', collapsed: false, children: [] }}]));
+            return {{ seeded: true }};
+          }}
           if (args.action === 'inspect-split-rows') {{
             return {{ groups: Array.from(document.querySelectorAll('.tab-split-row')).map(group => ({{
               first: group.dataset.splitFirst, second: group.dataset.splitSecond,
@@ -1209,13 +1260,18 @@ fn create_page_webview_with_focus(
             r#"(() => {
               const host = document.createElement('div');
               host.setAttribute('aria-hidden', 'true');
+              host.dataset.menuItems = '[]';
               const shadow = host.attachShadow({ mode: 'closed' });
               const style = document.createElement('style');
               style.textContent = `
                 :host { all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none; color-scheme: light dark; }
                 .menu { position: fixed; min-width: 190px; max-width: 300px; padding: 5px; border: 1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius: 9px; color: CanvasText; background: Canvas; box-shadow: 0 8px 28px #0005; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; pointer-events: auto; }
+                .submenu { position: fixed; min-width: 190px; max-width: 300px; padding: 5px; border: 1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius: 9px; color: CanvasText; background: Canvas; box-shadow: 0 8px 28px #0005; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; pointer-events: auto; }
+                .submenu[hidden] { display: none; }
                 button { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 5px; color: inherit; background: transparent; font: inherit; text-align: left; cursor: default; }
                 button:hover, button:focus-visible { outline: none; background: color-mix(in srgb, Highlight 18%, transparent); }
+                .submenu-trigger { display: flex; align-items: center; justify-content: space-between; }
+                .submenu-arrow { margin-left: 18px; color: color-mix(in srgb, CanvasText 58%, transparent); }
                 .separator { height: 1px; margin: 4px 5px; background: color-mix(in srgb, CanvasText 14%, transparent); }
               `;
               shadow.append(style);
@@ -1239,6 +1295,9 @@ fn create_page_webview_with_focus(
                 const image = target?.closest('img');
                 const selectedText = String(window.getSelection()?.toString() || '').trim();
                 const items = [];
+                const foldersPromise = link
+                  ? Promise.resolve(window.__TAURI_INTERNALS__?.invoke('get_tab_folders')).then(folders => folders || []).catch(() => [])
+                  : Promise.resolve([]);
                 const add = (label, action) => items.push({ label, action });
                 const separate = () => { if (items.length && !items[items.length - 1].separator) items.push({ separator: true }); };
                 if (link) {
@@ -1269,11 +1328,60 @@ fn create_page_webview_with_focus(
                   button.addEventListener('click', () => { const result = item.action(); if (result?.catch) result.catch(() => {}); close(); });
                   menu.append(button);
                 }
+                const updateMenuItems = () => { host.dataset.menuItems = JSON.stringify(Array.from(menu.querySelectorAll('button')).map(button => button.dataset.label || button.textContent)); };
+                updateMenuItems();
                 shadow.append(menu); host.setAttribute('aria-hidden', 'false');
                 const bounds = menu.getBoundingClientRect();
                 menu.style.left = Math.max(4, Math.min(event.clientX, innerWidth - bounds.width - 4)) + 'px';
                 menu.style.top = Math.max(4, Math.min(event.clientY, innerHeight - bounds.height - 4)) + 'px';
                 menu.querySelector('button')?.focus({ preventScroll: true });
+                const currentMenu = menu;
+                foldersPromise.then(folders => {
+                  if (!folders.length || menu !== currentMenu) return;
+                  const firstItem = currentMenu.querySelector('button');
+                  if (!firstItem) return;
+                  const separator = document.createElement('div');
+                  separator.className = 'separator'; separator.setAttribute('role', 'separator');
+                  const trigger = document.createElement('button');
+                  trigger.type = 'button'; trigger.className = 'submenu-trigger'; trigger.setAttribute('role', 'menuitem');
+                  trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-expanded', 'false');
+                  trigger.textContent = 'Open Link in Tab Folder'; trigger.dataset.label = trigger.textContent;
+                  const arrow = document.createElement('span'); arrow.className = 'submenu-arrow'; arrow.setAttribute('aria-hidden', 'true'); arrow.textContent = '›'; trigger.append(arrow);
+                  const submenu = document.createElement('div'); submenu.className = 'submenu'; submenu.setAttribute('role', 'menu'); submenu.setAttribute('aria-label', 'Open link in tab folder'); submenu.hidden = true;
+                  const positionSubmenu = () => {
+                    submenu.hidden = false;
+                    const triggerBounds = trigger.getBoundingClientRect();
+                    const submenuBounds = submenu.getBoundingClientRect();
+                    const left = triggerBounds.right + submenuBounds.width + 8 <= innerWidth ? triggerBounds.right + 4 : triggerBounds.left - submenuBounds.width - 4;
+                    submenu.style.left = Math.max(4, left) + 'px';
+                    submenu.style.top = Math.max(4, Math.min(triggerBounds.top, innerHeight - submenuBounds.height - 4)) + 'px';
+                  };
+                  trigger.addEventListener('click', () => {
+                    if (submenu.hidden) positionSubmenu();
+                    else submenu.hidden = true;
+                    trigger.setAttribute('aria-expanded', String(!submenu.hidden));
+                  });
+                  trigger.addEventListener('keydown', event => {
+                    if (event.key === 'ArrowRight') { event.preventDefault(); positionSubmenu(); trigger.setAttribute('aria-expanded', 'true'); submenu.querySelector('button')?.focus(); }
+                    if (event.key === 'Escape' && !submenu.hidden) { event.preventDefault(); submenu.hidden = true; trigger.setAttribute('aria-expanded', 'false'); trigger.focus(); }
+                  });
+                  for (const folder of folders) {
+                    const button = document.createElement('button'); button.type = 'button';
+                    button.textContent = 'Open Link in New Tab in “' + folder.title + '”'; button.setAttribute('role', 'menuitem');
+                    button.addEventListener('click', () => {
+                      const result = window.__TAURI_INTERNALS__?.invoke('open_link_in_tab_folder', { url: link.href, folderId: folder.id });
+                      if (result?.catch) result.catch(() => {});
+                      close();
+                    });
+                    submenu.append(button);
+                  }
+                  firstItem.after(separator, trigger);
+                  currentMenu.append(submenu);
+                  updateMenuItems();
+                  const updatedBounds = currentMenu.getBoundingClientRect();
+                  currentMenu.style.left = Math.max(4, Math.min(event.clientX, innerWidth - updatedBounds.width - 4)) + 'px';
+                  currentMenu.style.top = Math.max(4, Math.min(event.clientY, innerHeight - updatedBounds.height - 4)) + 'px';
+                });
               }, true);
               document.addEventListener('pointerdown', event => { if (menu && !host.contains(event.target)) close(); }, true);
               document.addEventListener('keydown', event => { if (event.key === 'Escape' && menu) { close(); event.stopPropagation(); } }, true);
@@ -3878,6 +3986,8 @@ pub fn run() {
         reveal_download,
         control_downloads_popover,
         open_link_in_new_tab,
+        open_link_in_tab_folder,
+        get_tab_folders,
         open_link_in_new_window,
         sync_page_url,
         create_tab,
@@ -3928,6 +4038,8 @@ pub fn run() {
         reveal_download,
         control_downloads_popover,
         open_link_in_new_tab,
+        open_link_in_tab_folder,
+        get_tab_folders,
         open_link_in_new_window,
         sync_page_url,
         create_tab,
@@ -3978,6 +4090,8 @@ pub fn run() {
         reveal_download,
         control_downloads_popover,
         open_link_in_new_tab,
+        open_link_in_tab_folder,
+        get_tab_folders,
         open_link_in_new_window,
         sync_page_url,
         create_tab,

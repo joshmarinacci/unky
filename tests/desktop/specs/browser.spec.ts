@@ -106,14 +106,17 @@ describe('native Tauri browser', () => {
   });
   it('intercepts webpage context menus when enabled after startup and navigation', async () => {
     await browser.waitUntil(async () => (await inspect('tab-1')).readyState === 'complete');
-    type MenuProbe = { contextMenu: { documentId: number; enabled: boolean; prevented: boolean; visibleHosts: number }; errors: string[] };
+    type MenuProbe = { contextMenu: { documentId: number; enabled: boolean; prevented: boolean; visibleHosts: number; menuItems: string[] }; errors: string[] };
     const probe = () => invoke('desktop_test_inspect_page', { tabId: 'tab-1', openContextMenu: true }) as Promise<MenuProbe>;
     await invoke('set_page_context_menu_enabled', { enabled: true });
+    await browserUi('seed-tab-folders');
     const initial = await probe();
     writeFileSync(join(results, 'context-menu.json'), JSON.stringify(initial, null, 2));
     assert.equal(initial.contextMenu.enabled, true);
     assert.equal(initial.contextMenu.prevented, true, JSON.stringify(initial.contextMenu));
     assert.equal(initial.contextMenu.visibleHosts, 1, JSON.stringify(initial.errors));
+    assert.ok(initial.contextMenu.menuItems.includes('Open Link in Tab Folder'), JSON.stringify(initial.contextMenu.menuItems));
+    assert.ok(initial.contextMenu.menuItems.includes('Open Link in New Tab in “Desktop Test Folder”'), JSON.stringify(initial.contextMenu.menuItems));
     assert.deepEqual(initial.errors, []);
     await invoke('set_page_context_menu_enabled', { enabled: false });
     await invoke('navigate', { tabId: 'tab-1', url: 'http://127.0.0.1:4179/two' });

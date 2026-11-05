@@ -62,7 +62,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 .sidebar-collapse-button:hover { background: var(--surface-hover); }
 .sidebar.collapsed .brand-mark, .sidebar.collapsed .brand-name, .sidebar.collapsed .sidebar-content, .sidebar.collapsed .sidebar-sizer { display: none; }
 .sidebar-rail { display: flex; min-height: 0; flex: 1; flex-direction: column; align-items: center; gap: 4px; }
-.rail-tabs { display: flex; min-height: 0; flex: 1; flex-direction: column; align-items: center; gap: 2px; width: 100%; overflow-y: auto; }
+.rail-tabs { display: flex; min-height: 0; flex: 1; flex-direction: column; align-items: center; gap: 2px; width: 100%; overflow-x: hidden; overflow-y: auto; }
 .pinned-tabs-row { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 3px; min-width: 0; padding: 5px 2px 7px; margin: 0 0 4px; border-bottom: 1px solid var(--border); }
 .pinned-tab-button { display: grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 7px; color: var(--muted); background: transparent; }
 .pinned-tab-button:hover { color: var(--text); background: var(--surface-hover); }
@@ -73,11 +73,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 .pinned-tabs-row-rail { justify-content: center; width: 100%; padding: 2px 0 6px; margin-bottom: 3px; }
 .pinned-tabs-row-rail .rail-button { position: relative; }
 .rail-button { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 7px; color: var(--muted); background: transparent; }
+.sidebar.collapsed .rail-button { width: 28px; flex-basis: 28px; }
 .rail-button:hover { color: var(--text); background: var(--surface-hover); }
 .rail-button.selected { color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--surface-raised)); border-color: color-mix(in srgb, var(--accent) 34%, transparent); }
 .rail-button:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
-.rail-split-row { display: flex; width: 40px; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
-.rail-split-row .rail-button { width: 19px; flex-basis: 19px; border-radius: 4px; }
+.rail-split-row { display: flex; width: 28px; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.sidebar.collapsed .rail-split-row .rail-button { width: 13px; flex-basis: 13px; border-radius: 4px; }
+.rail-split-row .ui-icon, .rail-split-row .tab-favicon, .rail-split-row .tab-favicon img { width: 11px; height: 11px; }
+.rail-split-row .tab-favicon { flex-basis: 11px; }
 .sidebar.collapsed .sidebar-collapse-button { width: 28px; height: 26px; flex-basis: 28px; margin-left: 0; }
 .sidebar-content { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .workspace-label { display: flex; align-items: center; margin: 25px 10px 10px; color: var(--subtle); font-size: var(--fs-foot); font-weight: 700; letter-spacing: 1.05px; }
@@ -103,6 +106,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 .tab-row { display: flex; width: 100%; min-width: 0; min-height: 34px; align-items: center; gap: 8px; padding: 0 6px; overflow: hidden; border: 1px solid transparent; border-radius: 7px; color: var(--muted); user-select: none; }
 .tab-rename-input, .tab-folder-name-input { user-select: text; }
 .tab-row.selected { color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--surface-raised)); border-color: color-mix(in srgb, var(--accent) 34%, transparent); }
+.tab-row:not(.selected):hover { color: var(--text); background: var(--surface-hover); }
 .tab-split-row { display: flex; min-width: 0; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-raised); }
 .tab-split-row.split-active { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
 .tab-split-row > .tab-sortable-item { flex: 1 1 0; min-width: 0; }
@@ -114,6 +118,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 .tab-favicon.is-loading { animation: spin 1.1s linear infinite; }
 .tab-title { min-width: 0; flex: 1; overflow: hidden; font-size: var(--fs-body); text-overflow: ellipsis; white-space: nowrap; }
 .tab-close { display: grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; border: 0; border-radius: 5px; color: var(--muted); background: transparent; opacity: 0; }
+.tab-row:not(.selected):not(:hover) .tab-close { display: none; }
 .tab-row:hover .tab-close, .tab-row.selected .tab-close, .tab-close:focus-visible { opacity: 1; }
 .tab-close:hover, .folder-action:hover { background: var(--surface-hover); }
 .tab-actions, .bookmark-toolbar { display: flex; gap: 4px; }

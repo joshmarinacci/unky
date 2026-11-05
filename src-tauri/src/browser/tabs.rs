@@ -89,6 +89,13 @@ pub struct BrowserState {
     pub launch_request: Arc<Mutex<Option<super::launch::LaunchRequest>>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TabFolderMenuEntry {
+    pub id: String,
+    pub title: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
