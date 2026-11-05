@@ -111,10 +111,16 @@ jobs:
 
       - name: Verify signed and notarized DMG
         if: github.event_name == 'workflow_dispatch' && inputs.release_version != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           DMG=$(find target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)
           test -n "$DMG"
+          xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$DMG"
           xcrun stapler validate "$DMG"
           spctl --assess --type open --context context:primary-signature --verbose "$DMG"
 
