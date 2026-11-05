@@ -68,7 +68,7 @@ jobs:
           KEYCHAIN_PATH="$RUNNER_TEMP/release.keychain-db"
           printf '%s' "$APPLE_CERTIFICATE" | tr -d '\r\n ' | openssl base64 -d -A -out "$CERT_PATH"
           test -s "$CERT_PATH"
-          openssl pkcs12 -in "$CERT_PATH" -passin env:APPLE_CERTIFICATE_PASSWORD -noout -info >/dev/null 2>&1
+          openssl pkcs12 -legacy -in "$CERT_PATH" -passin env:APPLE_CERTIFICATE_PASSWORD -noout -info >/dev/null 2>&1
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
