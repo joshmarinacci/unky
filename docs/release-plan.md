@@ -50,7 +50,7 @@ Release-candidate runs require these secrets in the dedicated `macos-signing` Gi
 2. Find the `Developer ID Application` certificate and expand it. Confirm its private key is listed beneath it; the certificate without its matching private key cannot sign.
 3. Select the certificate and private key together, then choose **File → Export Items…** and save as a `.p12` file.
 4. When prompted, create a strong, unique export password. This becomes `APPLE_CERTIFICATE_PASSWORD`; it is distinct from Apple credentials and the temporary keychain password.
-5. Convert the file locally with `openssl base64 -A -in certificate.p12` and put the output in `APPLE_CERTIFICATE`. Do not commit or share the `.p12` or its base64 output.
+5. Convert the file locally with `openssl base64 -A -in certificate.p12` and put the output in `APPLE_CERTIFICATE`. Paste only the base64 text, with no quotes, filename, or Markdown fences. The workflow removes whitespace before decoding. Do not commit or share the `.p12` or its base64 output.
 6. Generate a separate random password for `KEYCHAIN_PASSWORD`. CI uses it only to unlock the temporary keychain it creates on the macOS runner, imports the signing identity there, and deletes that keychain after the build.
 7. Generate an Apple app-specific password for `APPLE_PASSWORD`; use the Apple Account email for `APPLE_ID` and the account Team ID for `APPLE_TEAM_ID`.
 
