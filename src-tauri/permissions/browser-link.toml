@@ -9,6 +9,16 @@ description = "Allows a browser page to open a validated HTTP or HTTPS link in a
 commands.allow = ["open_link_in_new_window"]
 
 [[permission]]
+identifier = "allow-open-link-in-tab-folder"
+description = "Allows a browser page to open a validated HTTP or HTTPS link in a selected tab folder."
+commands.allow = ["open_link_in_tab_folder"]
+
+[[permission]]
+identifier = "allow-get-tab-folders"
+description = "Allows a browser page to read the tab folder names for its owning browser window."
+commands.allow = ["get_tab_folders"]
+
+[[permission]]
 identifier = "allow-sync-page-url"
 description = "Allows a browser page to report same-origin client-side URL changes."
 commands.allow = ["sync_page_url"]

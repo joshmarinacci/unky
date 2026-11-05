@@ -612,6 +612,21 @@ export default function App() {
   }, [tabNodes]);
 
   useEffect(() => {
+    if (!isTauri) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void listen<[string, string]>('browser://open-tab-in-folder', async event => {
+      const [tabId, folderId] = event.payload;
+      try {
+        applySnapshot(await invoke<BrowserSnapshot>('get_browser_state'));
+        const inserted = appendTabNodeToFolder(tabNodesRef.current, folderId, { id: tabId, type: 'tab' });
+        if (inserted.inserted) reorderTabsFromTree(inserted.nodes);
+      } catch (error) { setMessage(String(error)); }
+    }).then(listener => { if (cancelled) listener(); else unlisten = listener; });
+    return () => { cancelled = true; unlisten?.(); };
+  }, [isTauri]);
+
+  useEffect(() => {
     localStorage.setItem('browser.tabNames', JSON.stringify(tabNameOverrides));
   }, [tabNameOverrides]);
 
@@ -1613,7 +1628,7 @@ export default function App() {
         label={`Folder ${node.title}`}
         onContextMenu={event => { event.preventDefault(); setTabGroupPickerOpen(false); setSplitPickerOpen(false); setTabContextMenu({ id: node.id, type: 'folder', x: Math.min(event.clientX, window.innerWidth - 165), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
       >
-        <div className="tab-folder-row" style={{ paddingLeft: depth * 14 }}>
+        <div className="tab-folder-row" style={{ paddingLeft: depth * 14 }} onClick={() => toggleTabFolder(node.id)}>
           <button type="button" className="tab-folder-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); toggleTabFolder(node.id); }}>{expanded ? <ChevronDown className="ui-icon" size={14} aria-hidden="true" /> : <ChevronRight className="ui-icon" size={14} aria-hidden="true" />}</button>
           <span className="tab-folder-icon" aria-hidden="true"><Folder className="ui-icon" size={14} /></span>
           {editingTabFolderId === node.id
@@ -1638,7 +1653,7 @@ export default function App() {
       onActivate={() => void selectTab(tab.id)}
       onContextMenu={event => { event.preventDefault(); setTabGroupPickerOpen(false); setSplitPickerOpen(false); setTabContextMenu({ id: tab.id, type: 'tab', x: Math.max(8, Math.min(event.clientX, sidebarWidth - tabContextMenuWidth - 8)), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
     >
-      <div className={`tab-row ${tab.id === activeTabId ? 'selected' : ''}`} style={{ paddingLeft: compact ? undefined : depth * 14 }} data-tab-id={tab.id} title={title} onClick={() => void selectTab(tab.id)}>
+      <div className={`tab-row ${depth > 0 ? 'nested-tab-row' : ''} ${tab.id === activeTabId ? 'selected' : ''}`} style={compact || depth === 0 ? undefined : { marginLeft: depth * 14 + 7, width: `calc(100% - ${depth * 14 + 7}px)` }} data-tab-id={tab.id} title={title} onClick={() => void selectTab(tab.id)}>
         {renderTabIcon(tab)}
         {pinnedTabIds.includes(tab.id) && <Pin className="ui-icon tab-pin-indicator" size={12} aria-label="Pinned tab" />}
         {editingTabId === tab.id

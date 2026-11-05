@@ -4,11 +4,12 @@
 
 - `src/` is the trusted React/TypeScript browser chrome.
 - `src-tauri/` owns native window and WebView creation, URL validation, and navigation.
-- The `main` UI and `page` website content are separate WebViews. `page` receives no capability file; the only configured capability is scoped to the `main` WebView label.
+- The `main` UI and `page` website content are separate WebViews with separate Tauri capabilities. The trusted UI owns tab-tree storage; website pages receive only narrowly scoped commands for safe link actions, tab-folder lookup, focus, and same-origin URL updates.
 - Rust owns the tab state and a separate native website WebView for each open tab. Only tab metadata is serialized; WebView handles stay in Tauri's registry.
 - The trusted UI can create, select, and close tabs, navigate/search, reload/stop, and move backward or forward through observed page navigations. Website views are moved outside the window when inactive and resized to the content area reported by the trusted UI.
 - Page load and title callbacks send tab snapshots to the trusted UI. The start page and toolbar are React; website pixels are rendered by native child WebViews.
-- The sidebar can switch between tabs and bookmarks, and its width is resizable and persisted in the UI's `localStorage`. Bookmarks are managed in the sidebar and stored locally in that same UI store.
+- The sidebar can switch between tabs and bookmarks, and its width and collapsed state are persisted in the UI's `localStorage`. The tab tree, folders, and custom tab names are stored in that UI store; bookmarks are managed there as well.
+- The custom website context menu reads folder IDs and names from the owning trusted UI's saved tab tree. Opening a link in a selected folder creates the tab in the source window and emits its new tab ID and folder ID back to that UI, which updates the tree and native tab order.
 - The React browser chrome uses React Aria Components for accessible controls, including sidebar tabs, tab and bookmark trees, buttons, text fields, and the appearance selector. Lucide React supplies UI icons. React Aria provides interaction behavior and state attributes, while visual styles remain local in `src/style.css`.
 - Settings can be opened from the app menu (`⌘,`) or toolbar. The interface appearance follows System, Light, or Dark preference. Opening Settings moves website child views out of the visible content area; closing Settings restores the active page view.
 - On macOS, native menu items provide tab, navigation, editing, and zoom shortcuts. `⌘W` closes the active tab, `⌘H` hides the app, and `⌥⌘H` hides other apps. Website zoom is tracked per tab and adjusted from the View menu between 50% and 300%.

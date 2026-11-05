@@ -125,3 +125,9 @@
 - Reapply the saved context-menu setting when a website finishes loading, so the UI preference wins over the default value used while the app starts.
 - Added a custom context menu inside website WebViews with navigation, selection, link, image, and copy actions. The menu is enabled by default and can be turned off in **Settings → Webpage context menu** to restore the WebView's default menu.
 - Documented the webpage context-menu setting and available actions in the README.
+
+## 2026-11-05
+
+- Tab rows now align nested favicons with their folder icons, keep balanced horizontal padding, expand tab titles when the close button is hidden, and highlight on hover. Clicking a tab-folder row toggles its contents.
+- Fixed horizontal overflow in the collapsed sidebar rail, including split-tab icon rows.
+- Added **Open Link in Tab Folder** to the website context menu. Its submenu lists folders from the owning browser window's saved tab tree; choosing one opens the link in a new tab inside that folder and preserves the source tab's private mode. Added page-scoped Tauri permissions and a desktop regression for the submenu and folder item.
