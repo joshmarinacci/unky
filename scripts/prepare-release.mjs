@@ -39,8 +39,8 @@ const files = readdirSync(artifactDir, { withFileTypes: true }).filter((entry) =
 });
 if (!files.length) throw new Error(`No release installers found in ${artifactDir}`);
 const mac = files.find(({ file }) => file.endsWith('_aarch64.dmg'));
-const winX64 = files.find(({ file }) => file.includes('x86_64') && file.endsWith('.exe'));
-const winArm = files.find(({ file }) => file.includes('aarch64') && file.endsWith('.exe'));
+const winX64 = files.find(({ file }) => /(?:^|[_-])(?:x64|x86_64)(?:[_-]|\.|$)/i.test(file) && file.endsWith('.exe'));
+const winArm = files.find(({ file }) => /(?:^|[_-])(?:arm64|aarch64)(?:[_-]|\.|$)/i.test(file) && file.endsWith('.exe'));
 const links = [];
 if (mac) links.push(`<li><a href="./${htmlEscape(mac.file)}">Download macOS (Apple Silicon)</a></li>`);
 if (winX64) links.push(`<li><a href="./${htmlEscape(winX64.file)}">Download Windows (x64)</a></li>`);

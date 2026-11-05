@@ -58,6 +58,15 @@ jobs:
           installers=(*.dmg *.exe)
           test "${#installers[@]}" -eq 3
 
+      - name: Regenerate candidate download page
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          ARTIFACT_DIR: release-candidate
+        run: |
+          set -euo pipefail
+          node scripts/prepare-release.mjs
+          cp release-output/index.html release-candidate/index.html
+
       - name: Configure restricted site SSH access
         env:
           DEPLOY_KEY: ${{ secrets.SITE_DEPLOY_KEY }}
@@ -96,10 +105,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          gh release create "v${RELEASE_VERSION}" release-candidate/*.dmg release-candidate/*.exe release-candidate/SHA256SUMS.txt \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "Unky ${RELEASE_VERSION}" \
-            --notes-file release-candidate/RELEASE_NOTES.md
+          if gh release view "v${RELEASE_VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "GitHub Release v${RELEASE_VERSION} already exists; preserving its assets."
+          else
+            gh release create "v${RELEASE_VERSION}" release-candidate/*.dmg release-candidate/*.exe release-candidate/SHA256SUMS.txt \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "Unky ${RELEASE_VERSION}" \
+              --notes-file release-candidate/RELEASE_NOTES.md
+          fi
 
       - name: Deploy page and immutable installers
         if: ${{ inputs.publish }}
