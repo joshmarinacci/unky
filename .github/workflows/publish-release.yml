@@ -11,6 +11,11 @@ on:
         description: Release version, for example 0.1.0
         required: true
         type: string
+      publish:
+        description: Create the GitHub Release and update the public site (leave false for SSH dry run)
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -75,7 +80,18 @@ jobs:
           ssh-keygen -y -f ~/.ssh/release_deploy >/dev/null
           printf 'DEPLOY_HOST=%s\nDEPLOY_USER=%s\nDEPLOY_PATH=%s\n' "$DEPLOY_HOST" "$DEPLOY_USER" "$DEPLOY_PATH" >> "$GITHUB_ENV"
 
+      - name: Verify restricted deployment access
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/release_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "test -d '$DEPLOY_PATH' && test -w '$DEPLOY_PATH' && printf 'SSH access verified for configured deployment directory\\n'"
+
+      - name: Stop after SSH dry run
+        if: ${{ !inputs.publish }}
+        run: echo "SSH dry run passed; no release or site files were changed."
+
       - name: Create GitHub Release
+        if: ${{ inputs.publish }}
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
@@ -86,6 +102,7 @@ jobs:
             --notes-file release-candidate/RELEASE_NOTES.md
 
       - name: Deploy page and immutable installers
+        if: ${{ inputs.publish }}
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/release_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH'"
