@@ -249,11 +249,19 @@ jobs:
           path: release-artifacts
           merge-multiple: true
 
+      - name: Fetch published release dates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            | jq '[.[][] | {tag_name, published_at}]' > "$RUNNER_TEMP/release-dates.json"
+
       - name: Prepare release preview and checksums
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
           BUILD_NUMBER: ${{ github.run_number }}
           GITHUB_SHA: ${{ github.sha }}
+          RELEASE_DATES_FILE: ${{ runner.temp }}/release-dates.json
         run: |
           echo "BUILD_TIMESTAMP=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
           npm run release:prepare
