@@ -1,4 +1,6 @@
 name: Build desktop bundles
+run-name: >-
+  Build desktop bundles — ${{ github.event_name == 'workflow_dispatch' && inputs.release_version && format('v{0} release candidate', inputs.release_version) || 'CI / no release version' }}
 
 on:
   push:
@@ -18,6 +20,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-summary:
+    name: Record build versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Add build details to run summary
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.release_version || '' }}
+        run: |
+          set -euo pipefail
+          APP_VERSION=$(node -p "require('./package.json').version")
+          {
+            echo "## Build details"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Application version | `$APP_VERSION` |"
+            if [[ -n "$RELEASE_VERSION" ]]; then
+              echo "| Release candidate version | `$RELEASE_VERSION` |"
+              echo "| Candidate artifact | `release-candidate-$RELEASE_VERSION` |"
+            else
+              echo "| Release candidate | None |"
+            fi
+            echo "| Event | `$GITHUB_EVENT_NAME` |"
+            echo "| Source commit | `$GITHUB_SHA` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   macos-dmg:
     name: macOS ARM64 DMG
     runs-on: macos-latest

@@ -72,7 +72,7 @@ jobs:
               and .event == "workflow_dispatch"
               and .status == "completed"
               and .conclusion == "success"
-              and (.path | startswith(".github/workflows/build-bundles.yml@"))
+              and (.path | split("@")[0] == ".github/workflows/build-bundles.yml")
             ' <<< "$RUN" >/dev/null; then
               CANDIDATE_RUN_ID="$RUN_ID"
               break
