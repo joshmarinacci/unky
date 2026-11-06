@@ -137,10 +137,18 @@ jobs:
           installers=(*.dmg *.exe)
           test "${#installers[@]}" -eq 3
 
+      - name: Fetch published release dates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            | jq '[.[][] | {tag_name, published_at}]' > "$RUNNER_TEMP/release-dates.json"
+
       - name: Regenerate candidate download page
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           ARTIFACT_DIR: release-candidate
+          RELEASE_DATES_FILE: ${{ runner.temp }}/release-dates.json
         run: |
           set -euo pipefail
           node scripts/prepare-release.mjs
@@ -192,6 +200,20 @@ jobs:
               --title "Unky ${RELEASE_VERSION}" \
               --notes-file release-candidate/RELEASE_NOTES.md
           fi
+
+      - name: Refresh release history with published dates
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          ARTIFACT_DIR: release-candidate
+          RELEASE_DATES_FILE: ${{ runner.temp }}/release-dates.json
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            | jq '[.[][] | {tag_name, published_at}]' > "$RELEASE_DATES_FILE"
+          node scripts/prepare-release.mjs
+          cp release-output/index.html release-candidate/index.html
 
       - name: Deploy page and immutable installers
         if: ${{ inputs.publish }}
