@@ -48,7 +48,7 @@ jobs:
           fi
 
           ARTIFACT_NAME="release-candidate-$RELEASE_VERSION"
-          ARTIFACT_PAGES=$(gh api --paginate --slurp \
+          ARTIFACT_PAGES=$(gh api --method GET --paginate --slurp \
             "repos/$GITHUB_REPOSITORY/actions/artifacts" \
             -f "name=$ARTIFACT_NAME" \
             -F per_page=100)
