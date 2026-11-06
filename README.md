@@ -183,10 +183,16 @@ Tauri builds generate `src/build-metadata.json` for the frontend and `src-tauri/
 
 Local builds use the `BUILD_NUMBER` environment variable when set, otherwise `local`. GitHub Actions uses `GITHUB_RUN_NUMBER`. The macOS release workflow generates metadata before packaging and names the DMG with version, build number, timestamp, commit, and architecture. Run `npm run build:metadata` to regenerate metadata manually.
 
-### Release process
-
-1. Update the application version consistently in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` (and refresh `package-lock.json` with `npm install --package-lock-only --legacy-peer-deps`).
-2. Commit and push the release changes. The **Build desktop bundles** GitHub Actions workflow runs on pushes and can also be started with **Run workflow**. Its macOS ARM64 job generates build metadata, builds the DMG, renames it to `Unky_<version>_build-<run>_<UTC timestamp>_<short commit>_aarch64.dmg`, and uploads it as the `my-browser-macos-arm64` artifact. Windows ARM64 and x64 jobs build and upload NSIS installers as `my-browser-windows-ARM64` and `my-browser-windows-x64` artifacts.
-3. Download the artifact from the completed workflow run. Workflow artifacts are retained for 14 days.
+### Local macOS DMG builds
 
 For a local macOS DMG, run `npm ci --legacy-peer-deps` and then `npm run tauri-release`; the bundle is created under `target/release/bundle/dmg/`. Set `BUILD_NUMBER` to label a local build, for example `BUILD_NUMBER=42 npm run tauri-release`. The unsigned local command uses Tauri's default DMG filename. For a signed/notarized macOS build, use `npm run sign-mac`, which prompts for the Apple account email and app-specific password, requires the configured Developer ID certificate in the macOS keychain, and names the resulting DMG with the version, build number, UTC timestamp, commit, and architecture.
+
+### Release process
+
+Every public version goes through a version-bump pull request, a candidate build, and an approved publish run. Do not change `main` directly. A dry run is optional and requires a separate publish-workflow run from the real publication.
+
+1. **Prepare the version PR.** Update `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`; run `npm install --package-lock-only --legacy-peer-deps` to refresh `package-lock.json`, and update the `my-browser` package entry in the root `Cargo.lock`. Add user-facing release notes under the matching `## <version>` heading in `CHANGELOG.md`. Keep the package, Tauri, and Cargo versions identical; release preparation rejects mismatches or an empty notes section.
+2. **Build a release candidate.** Merge the PR to `main`. In GitHub Actions, run **Build desktop bundles** from `main` and set `release_version` to that version. The workflow creates a signed and notarized macOS ARM64 DMG and builds Windows x64 and ARM64 NSIS installers. Windows installers are currently unsigned. The final job uploads a `release-candidate-<version>` artifact containing the installers, `release.json`, `RELEASE_NOTES.md`, `SHA256SUMS.txt`, and the generated download-page preview. Candidate artifacts are retained for 14 days.
+3. **Review the candidate.** Open the completed build run and download its `release-candidate-<version>` artifact. Review the installers, release notes, checksums, and generated page before publishing.
+4. **Run a publish dry run.** From `main`, start **Publish approved release** with the same `version` and leave `publish` set to `false`. The workflow automatically selects the newest successful, unexpired candidate artifact for that version from the default branch; no Actions run ID is needed. The production approval links to the selected source run. After approval, the workflow validates the candidate and checks SSH access, then stops without creating a GitHub release or changing the public site.
+5. **Publish for real.** After the dry run succeeds and the candidate is approved, start a new **Publish approved release** run for the same version with `publish` set to `true`. After production approval, it creates the `v<version>` GitHub Release with the installers and generated release notes, then deploys the immutable installers, checksums, and updated download page.
