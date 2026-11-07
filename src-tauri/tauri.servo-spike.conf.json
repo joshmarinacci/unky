@@ -1,0 +1,8 @@
+{
+  "identifier": "dev.example.my-browser.servo-spike",
+  "bundle": {
+    "macOS": {
+      "entitlements": "servo-spike.entitlements.plist"
+    }
+  }
+}

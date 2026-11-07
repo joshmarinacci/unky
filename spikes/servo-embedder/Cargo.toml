@@ -1,0 +1,18 @@
+[package]
+name = "servo-embedder-spike"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+embedder_traits = { package = "servo-embedder-traits", version = "=0.7.0" }
+euclid = "=0.22.14"
+keyboard-types = { version = "=0.8.3", features = ["serde"] }
+rustls = { version = "=0.23.35", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
+servo = { version = "=0.7.0" }
+tracing = "=0.1.44"
+url = "=2.5.8"
+webrender_api = "=0.70.0"
+winit = "=0.30.13"

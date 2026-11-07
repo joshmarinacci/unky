@@ -1,6 +1,8 @@
 mod browser;
 #[cfg(all(feature = "desktop-test", not(debug_assertions)))]
 compile_error!("desktop-test is only supported in debug builds");
+#[cfg(all(feature = "servo-in-tauri-spike", not(debug_assertions)))]
+compile_error!("servo-in-tauri-spike is only supported in debug builds");
 use browser::filtering::{FilterSettings, FilterSettingsView};
 use browser::tabs::{
     cycle_active_tab, download_filename, find_script, next_download_path, record_history_entry,
@@ -238,6 +240,12 @@ fn window_bounds(state: &BrowserState, window_label: &str) -> Result<ViewBounds,
 }
 
 fn close_browser_window_tabs(app: &tauri::AppHandle, state: &BrowserState, window_label: &str) {
+    #[cfg(all(target_os = "macos", feature = "servo-in-tauri-spike"))]
+    if let Ok(tabs) = state.data.lock() {
+        for tab in tabs.iter().filter(|tab| tab.window_label == window_label) {
+            platforms::servo::detach(app, &tab.id);
+        }
+    }
     #[cfg(target_os = "macos")]
     {
         let owner = window_label.to_string();
@@ -1591,13 +1599,17 @@ fn create_page_webview_with_focus(
             }
             _ => true,
         });
-    window
+    let created_page = window
         .add_child(
             builder,
             tauri::LogicalPosition::new(bounds.x, bounds.y),
             tauri::LogicalSize::new(bounds.width.max(1.0), bounds.height.max(1.0)),
         )
         .map_err(|error| error.to_string())?;
+    #[cfg(all(target_os = "macos", feature = "servo-in-tauri-spike"))]
+    platforms::servo::attach(app.clone(), created_page, id.to_string(), url.clone());
+    #[cfg(not(all(target_os = "macos", feature = "servo-in-tauri-spike")))]
+    let _ = created_page;
     #[cfg(target_os = "macos")]
     if filter_enabled {
         platforms::macos::install_filter_for_page(
@@ -2502,6 +2514,8 @@ fn close_tab(
         let _ = app.emit_to(&owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
     }
     if let Some(page) = app.get_webview(&page_label(&tab_id)) {
+        #[cfg(all(target_os = "macos", feature = "servo-in-tauri-spike"))]
+        platforms::servo::detach(&app, &tab_id);
         let _ = page.close();
     }
     if state
@@ -3170,6 +3184,8 @@ fn move_tab_to_new_window(
 
     let previous_page = app.get_webview(&page_label(&tab_id));
     if let Some(page) = previous_page {
+        #[cfg(all(target_os = "macos", feature = "servo-in-tauri-spike"))]
+        platforms::servo::detach(&app, &tab_id);
         page.close().map_err(|error| {
             format!("Could not detach the tab from its current window: {error}")
         })?;

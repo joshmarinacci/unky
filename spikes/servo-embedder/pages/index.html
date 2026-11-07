@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Unky × Servo · Test Lab</title>
+  <style>
+    :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; --ink:#172033; --paper:#f2f5fb; --card:white; --accent:#6558dc; }
+    @media (prefers-color-scheme: dark) { :root { --ink:#edf0ff; --paper:#101521; --card:#1b2434; --accent:#a89fff; } }
+    * { box-sizing:border-box } body { margin:0; color:var(--ink); background:radial-gradient(circle at 85% 0,#d7d2ff,transparent 34rem),var(--paper); }
+    header { padding:clamp(2rem,8vw,6rem) max(1.25rem,calc((100vw - 1100px)/2)); }
+    .eyebrow { color:var(--accent); text-transform:uppercase; letter-spacing:.16em; font-size:.75rem; font-weight:800 }
+    h1 { font-size:clamp(2.6rem,8vw,5.6rem); line-height:.98; letter-spacing:-.06em; max-width:900px; margin:.5rem 0 1rem }
+    header p { max-width:650px; font-size:1.15rem; opacity:.8 }
+    main { max-width:1100px; margin:0 auto 5rem; padding:0 1.25rem }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:1rem }
+    a.card { color:inherit; text-decoration:none; display:flex; flex-direction:column; min-height:220px; padding:1.4rem; border:1px solid #8993aa55; border-radius:20px; background:var(--card); box-shadow:0 12px 34px #242d4512; transition:transform .18s,box-shadow .18s }
+    a.card:hover, a.card:focus-visible { transform:translateY(-4px); box-shadow:0 18px 40px #242d4525; outline:2px solid var(--accent) }
+    .tag { font-size:.72rem; font-weight:800; color:var(--accent); text-transform:uppercase; letter-spacing:.1em }
+    h2 { margin:.6rem 0 .35rem; letter-spacing:-.03em } .card p { margin:0; opacity:.75 }
+    .chips { display:flex; flex-wrap:wrap; gap:.5rem; margin-top:auto; padding-top:1.2rem }
+    .chips span { border:1px solid #8993aa55; border-radius:99px; padding:.2rem .65rem; font-size:.75rem }
+    footer { margin-top:2rem; opacity:.62; font-size:.85rem }
+  </style>
+</head>
+<body>
+  <header><div class="eyebrow">Rendering engine spike</div><h1>Unky × Servo<br>Test Lab</h1><p>A local set of pages for probing real browser work: responsive layout, typography, forms, SVG and canvas, and JavaScript interactions.</p></header>
+  <main><section class="grid" aria-label="Test pages">
+    <a class="card" href="layout.html"><span class="tag">01 · Layout</span><h2>Responsive dashboard</h2><p>Grid and flex sizing, sticky navigation, cards, gradients, and a nested scrolling panel.</p><div class="chips"><span>CSS Grid</span><span>Sticky</span><span>Overflow</span></div></a>
+    <a class="card" href="forms.html"><span class="tag">02 · Controls</span><h2>Forms & validation</h2><p>Native controls, labels, focus states, validation, select menus, and responsive form layout.</p><div class="chips"><span>Inputs</span><span>Validation</span><span>Keyboard</span></div></a>
+    <a class="card" href="graphics.html"><span class="tag">03 · Graphics</span><h2>SVG & canvas</h2><p>Inline vector artwork, gradients, clipping, canvas drawing, and text rendering.</p><div class="chips"><span>SVG</span><span>Canvas 2D</span><span>Fonts</span></div></a>
+    <a class="card" href="interactions.html"><span class="tag">04 · Interaction</span><h2>DOM & browser behavior</h2><p>Buttons, details disclosure, hash navigation, local state, and a dynamic activity log.</p><div class="chips"><span>JavaScript</span><span>History</span><span>DOM</span></div></a>
+  </section><footer>Local fixtures · no external assets or network requests required</footer></main>
+  <script>
+    if (new URLSearchParams(location.search).has('servo-probe')) {
+      const badge = document.createElement('div');
+      badge.textContent = 'SERVO FRAME · rendered by the embedded engine';
+      badge.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:9999;padding:12px 16px;border-radius:10px;background:#153f2e;color:white;font:700 14px system-ui;box-shadow:0 8px 24px #0004';
+      document.body.append(badge);
+    }
+  </script>
+</body>
+</html>
