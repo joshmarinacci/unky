@@ -140,6 +140,26 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
         run: npm run tauri-release
 
+      - name: Capture release screenshot
+        if: github.event_name == 'workflow_dispatch' && inputs.release_version != ''
+        env:
+          DESKTOP_TEST_SHOWCASE: '1'
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          set -euo pipefail
+          npm run test:desktop -- --spec ./tests/desktop/specs/release-screenshot.spec.ts
+          mkdir -p release-artifacts
+          cp test-results/release-screenshot.png "release-artifacts/Unky_${RELEASE_VERSION}_screenshot.png"
+
+      - name: Upload release screenshot
+        if: github.event_name == 'workflow_dispatch' && inputs.release_version != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-browser-release-screenshot
+          path: release-artifacts/Unky_${{ inputs.release_version }}_screenshot.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Verify signed and notarized DMG
         if: github.event_name == 'workflow_dispatch' && inputs.release_version != ''
         env:
@@ -242,7 +262,7 @@ jobs:
         with:
           node-version: 24
 
-      - name: Download candidate installers
+      - name: Download candidate installers and screenshot
         uses: actions/download-artifact@v4
         with:
           pattern: my-browser-*

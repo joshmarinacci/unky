@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Wander · Field Notes</title>
+    <style>
+      :root { color-scheme: light; font: 15px/1.5 -apple-system, BlinkMacSystemFont, sans-serif; color: #26332d; background: #f3f1e9; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; padding: 0 7vw 56px; }
+      header { height: 76px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #dcd9ce; }
+      .brand { font: 600 19px/1 Georgia, serif; letter-spacing: -.04em; }
+      .brand span { color: #bb623c; }
+      nav { display: flex; gap: 28px; color: #6d756d; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+      .account { border: 1px solid #b9b9a8; border-radius: 999px; padding: 8px 14px; font-size: 12px; }
+      main { max-width: 1100px; margin: 35px auto 0; }
+      .eyebrow { margin: 0 0 11px; color: #b65e3a; font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+      h1 { margin: 0; font: 400 clamp(38px, 5vw, 62px)/1.02 Georgia, serif; letter-spacing: -.055em; }
+      .intro { max-width: 530px; margin: 13px 0 24px; color: #74786f; font: 16px/1.55 Georgia, serif; }
+      .hero { position: relative; min-height: 300px; overflow: hidden; border-radius: 9px; background: linear-gradient(180deg, #dfd6bc 0%, #bcc2a5 48%, #596c58 100%); }
+      .sun { position: absolute; top: 34px; right: 17%; width: 82px; aspect-ratio: 1; border-radius: 50%; background: #edc78c; box-shadow: 0 0 55px #edc78c88; }
+      .ridge { position: absolute; right: -4%; bottom: 50px; width: 110%; height: 180px; background: #839078; clip-path: polygon(0 80%, 18% 27%, 30% 55%, 48% 9%, 71% 68%, 87% 30%, 100% 72%, 100% 100%, 0 100%); }
+      .ridge.back { bottom: 20px; background: #526b5b; transform: scaleX(-1); opacity: .9; }
+      .ridge.front { bottom: -34px; background: #304d44; }
+      .hero-caption { position: absolute; right: 20px; bottom: 18px; color: #fff8e9; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; text-shadow: 0 1px 5px #17291d; }
+      .details { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 20px; }
+      .place { font: 400 22px/1.2 Georgia, serif; }
+      .meta { margin-top: 5px; color: #77796f; font-size: 12px; }
+      .read { flex: none; border: 1px solid #526b5b; border-radius: 999px; padding: 10px 17px; color: #354b3e; font-size: 12px; }
+      @media (max-width: 620px) { body { padding: 0 20px 36px; } nav { gap: 12px; font-size: 10px; } nav span:last-child { display: none; } .hero { min-height: 230px; } }
+    </style>
+  </head>
+  <body>
+    <header><div class="brand">Wander<span>·</span></div><nav><span>Discover</span><span>Stories</span><span>Saved places</span></nav><div class="account">Your field guide</div></header>
+    <main>
+      <p class="eyebrow">The quiet collection · No. 08</p>
+      <h1>Find your way<br>back to outside.</h1>
+      <p class="intro">Thoughtful places and slower journeys, gathered for the days you need a little more sky.</p>
+      <section class="hero" aria-label="A sunlit mountain landscape"><div class="sun"></div><div class="ridge"></div><div class="ridge back"></div><div class="ridge front"></div><div class="hero-caption">Eastern Sierra · California</div></section>
+      <div class="details"><div><div class="place">A long weekend in the high country</div><div class="meta">A field guide to alpine lakes, warm light, and the scenic route · 6 min read</div></div><div class="read">Read the story&nbsp; ↗</div></div>
+    </main>
+  </body>
+</html>

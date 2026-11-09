@@ -16,7 +16,12 @@ for (const file of ['network-events.jsonl', 'browser-state.json', 'frontend-erro
 writeFileSync(resolve(profile, 'session.json'), JSON.stringify({
   version: 1,
   activeTabId: 'tab-1',
-  tabs: [{ id: 'tab-1', url: 'http://127.0.0.1:4179/', title: 'Desktop fixture · One', zoom: 1 }],
+  tabs: [{
+    id: 'tab-1',
+    url: process.env.DESKTOP_TEST_SHOWCASE === '1' ? 'http://127.0.0.1:4179/showcase' : 'http://127.0.0.1:4179/',
+    title: process.env.DESKTOP_TEST_SHOWCASE === '1' ? 'Wander · Field Notes' : 'Desktop fixture · One',
+    zoom: 1,
+  }],
   recentlyClosed: [],
 }, null, 2));
 

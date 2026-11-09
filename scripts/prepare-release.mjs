@@ -27,7 +27,12 @@ writeFileSync(join(out, 'RELEASE_NOTES.md'), `${notes}\n`);
 
 const site = read('site/index.html');
 const htmlEscape = (s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+const screenshotFile = `Unky_${version}_screenshot.png`;
+if (process.env.RELEASE_VERSION && !readdirSync(resolve(root, process.env.ARTIFACT_DIR || 'release-artifacts')).includes(screenshotFile)) {
+  throw new Error(`Release screenshot is missing: ${screenshotFile}`);
+}
 const generated = site.replace(/Unky_0\.1\.0_aarch64\.dmg/g, `Unky_${version}_aarch64.dmg`)
+  .replace('Unky_0.1.0_screenshot.png', screenshotFile)
   .replace(/Version 0\.1\.0 · Apple Silicon/g, `Version ${version} · Apple Silicon`)
   .replace(/<section class="notice"/, `<section class="notice" aria-label="Release notes"><h2>Release ${htmlEscape(version)}</h2><p>${htmlEscape(notes).replaceAll('\n', '<br>')}</p></section><section class="notice"`);
 writeFileSync(join(out, 'index.html'), generated);

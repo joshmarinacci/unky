@@ -1,4 +1,5 @@
 {
+  "identifier": "dev.example.my-browser.desktop-test",
   "app": {
     "withGlobalTauri": true,
     "security": {

@@ -130,6 +130,7 @@ jobs:
           test -f release-candidate/release.json
           test -f release-candidate/RELEASE_NOTES.md
           test -f release-candidate/SHA256SUMS.txt
+          test -f "release-candidate/Unky_${RELEASE_VERSION}_screenshot.png"
           node -e 'const r=require("./release-candidate/release.json"); if(r.version!==process.env.RELEASE_VERSION || r.commit!==process.env.CANDIDATE_COMMIT) process.exit(1)'
           cd release-candidate
           sha256sum --check SHA256SUMS.txt
@@ -187,7 +188,7 @@ jobs:
           if gh release view "v${RELEASE_VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             echo "GitHub Release v${RELEASE_VERSION} already exists; preserving its assets."
           else
-            gh release create "v${RELEASE_VERSION}" release-candidate/*.dmg release-candidate/*.exe release-candidate/SHA256SUMS.txt \
+            gh release create "v${RELEASE_VERSION}" release-candidate/*.dmg release-candidate/*.exe release-candidate/*.png release-candidate/SHA256SUMS.txt \
               --repo "${GITHUB_REPOSITORY}" \
               --title "Unky ${RELEASE_VERSION}" \
               --notes-file release-candidate/RELEASE_NOTES.md
@@ -198,6 +199,6 @@ jobs:
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/release_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH'"
-          rsync -av --ignore-existing -e 'ssh -i ~/.ssh/release_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes' release-candidate/*.dmg release-candidate/*.exe release-candidate/SHA256SUMS.txt "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+          rsync -av --ignore-existing -e 'ssh -i ~/.ssh/release_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes' release-candidate/*.dmg release-candidate/*.exe release-candidate/*.png release-candidate/SHA256SUMS.txt "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
           rsync -av -e 'ssh -i ~/.ssh/release_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes' release-candidate/index.html "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/index.html.new"
           ssh -i ~/.ssh/release_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "mv '$DEPLOY_PATH/index.html.new' '$DEPLOY_PATH/index.html'"
