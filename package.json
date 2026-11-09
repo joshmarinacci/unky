@@ -18,6 +18,7 @@
     "build:installer": "npm run tauri -- build --bundles nsis",
     "test:unit": "node --import tsx --test tests/bookmark-tree.test.ts",
     "test:desktop": "node tests/desktop/run.mjs",
+    "test:desktop:real-sites": "MY_BROWSER_REAL_SITE_TESTS=1 node tests/desktop/run.mjs --spec tests/desktop/specs/real-sites.spec.ts",
     "publish-dmg": "scp -i ../deployman_private.key target/release/bundle/dmg/*.dmg deployman@josh.earth:/sites/apps.josh.earth/my-browser/",
     "publish-site": "scp -i ../deployman_private.key -r site/* deployman@josh.earth:/sites/apps.josh.earth/my-browser/"
   },

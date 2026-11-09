@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureDir = resolve(here, 'fixtures');
 const logPath = process.env.DESKTOP_TEST_NETWORK_LOG;
+const serverToken = process.env.DESKTOP_TEST_SERVER_TOKEN ?? '';
 
 function log(event) {
   if (logPath) appendFileSync(logPath, `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`);
@@ -14,6 +15,11 @@ function log(event) {
 const server = createServer((request, response) => {
   const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
   log({ type: 'request', method: request.method, path: pathname });
+  if (pathname === '/health') {
+    response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    response.end(JSON.stringify({ token: serverToken }));
+    return;
+  }
   if (pathname === '/download') {
     response.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="popover-test.txt"' });
     response.end('Native downloads popover fixture.');

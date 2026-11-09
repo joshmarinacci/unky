@@ -10,7 +10,7 @@ mkdirSync(results, { recursive: true });
 rmSync(profile, { recursive: true, force: true });
 rmSync(resolve(results, 'wdio-logs'), { recursive: true, force: true });
 mkdirSync(profile, { recursive: true });
-for (const file of ['network-events.jsonl', 'browser-state.json', 'frontend-errors.json', 'rust-logs.log', 'native-window-inventory.json']) {
+for (const file of ['network-events.jsonl', 'browser-state.json', 'frontend-errors.json', 'rust-logs.log', 'native-window-inventory.json', 'real-site-tracker-results.json']) {
   rmSync(resolve(results, file), { force: true });
 }
 writeFileSync(resolve(profile, 'session.json'), JSON.stringify({
@@ -30,9 +30,10 @@ if (process.platform !== 'darwin') throw new Error('Desktop tests require macOS 
 run('npm', ['run', 'tauri', '--', 'build', '--debug', '--no-bundle', '--features', 'desktop-test', '--config', 'src-tauri/tauri.desktop-test.conf.json']);
 
 const networkLog = resolve(results, 'network-events.jsonl');
+const fixtureToken = `desktop-test-${process.pid}-${Date.now()}`;
 const server = spawn(process.execPath, [resolve(root, 'tests/desktop/serve-fixtures.mjs')], {
   cwd: root,
-  env: { ...process.env, DESKTOP_TEST_NETWORK_LOG: networkLog },
+  env: { ...process.env, DESKTOP_TEST_NETWORK_LOG: networkLog, DESKTOP_TEST_SERVER_TOKEN: fixtureToken },
   stdio: ['ignore', 'inherit', 'inherit'],
 });
 await new Promise((resolveReady, reject) => {
@@ -40,8 +41,9 @@ await new Promise((resolveReady, reject) => {
   const poll = async () => {
     try {
       const response = await fetch('http://127.0.0.1:4179/health');
-      if (response.ok) return resolveReady();
+      if (response.ok && (await response.json()).token === fixtureToken) return resolveReady();
     } catch {}
+    if (server.exitCode !== null) return reject(new Error(`Fixture server exited with ${server.exitCode}`));
     if (Date.now() > deadline) return reject(new Error('Fixture server did not start'));
     setTimeout(poll, 100);
   };
