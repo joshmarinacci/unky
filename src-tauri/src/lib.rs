@@ -689,8 +689,33 @@ fn open_link_in_new_tab(
     state: tauri::State<'_, BrowserState>,
     url: String,
     background: Option<bool>,
+    other_split: Option<bool>,
 ) -> Result<(), String> {
     let (private, owner_window) = link_source_context(&webview, &state)?;
+    if other_split.unwrap_or(false) {
+        let source_id = webview.label().strip_prefix("page-")
+            .ok_or("Open in other split is only available from a browser page")?;
+        let target_id = {
+            let splits = state.split_tabs.lock().map_err(|_| "Split state is unavailable")?;
+            let split = splits.get(&owner_window).ok_or("This tab is not in a split view")?;
+            if split.first_tab_id == source_id { split.second_tab_id.clone() }
+            else if split.second_tab_id == source_id { split.first_tab_id.clone() }
+            else { return Err("This tab is not in a split view".into()); }
+        };
+        let parsed = allowed_navigation_url(&url)?;
+        let page = app.get_webview(&page_label(&target_id)).ok_or("The other split has no page")?;
+        {
+            let mut tabs = state.data.lock().map_err(|_| "Browser state is unavailable")?;
+            let tab = tabs.iter_mut().find(|tab| tab.id == target_id && tab.window_label == owner_window)
+                .ok_or("The other split tab no longer exists")?;
+            tab.url = parsed.to_string();
+            tab.loading = true;
+            emit_snapshot(&app, &tabs);
+        }
+        persist_session(&state)?;
+        position_tabs(&app, &state)?;
+        return page.navigate(parsed).map_err(|error| error.to_string());
+    }
     open_url_in_new_tab(&app, &state, &url, private, &owner_window, background.unwrap_or(false)).map(|_| ())
 }
 
@@ -1309,6 +1334,9 @@ fn create_page_webview_with_focus(
                 const add = (label, action) => items.push({ label, action });
                 const separate = () => { if (items.length && !items[items.length - 1].separator) items.push({ separator: true }); };
                 if (link) {
+                  add('Open Link in Other Split', async () => {
+                    await window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', { url: link.href, otherSplit: true });
+                  });
                   add('Open Link in New Tab', () => window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', { url: link.href }));
                   add('Open Link in New Window', () => window.__TAURI_INTERNALS__?.invoke('open_link_in_new_window', { url: link.href }));
                   add('Copy Link Address', () => copyText(link.href));
@@ -1333,7 +1361,14 @@ fn create_page_webview_with_focus(
                 for (const item of items) {
                   if (item.separator) { const divider = document.createElement('div'); divider.className = 'separator'; divider.setAttribute('role', 'separator'); menu.append(divider); continue; }
                   const button = document.createElement('button'); button.type = 'button'; button.textContent = item.label; button.setAttribute('role', 'menuitem');
-                  button.addEventListener('click', () => { const result = item.action(); if (result?.catch) result.catch(() => {}); close(); });
+                  button.addEventListener('click', () => {
+                    const result = item.action();
+                    if (result?.then) result.then(close).catch(error => {
+                      button.textContent = `Failed: ${String(error)}`;
+                      button.style.whiteSpace = 'normal';
+                    });
+                    else close();
+                  });
                   menu.append(button);
                 }
                 const updateMenuItems = () => { host.dataset.menuItems = JSON.stringify(Array.from(menu.querySelectorAll('button')).map(button => button.dataset.label || button.textContent)); };
@@ -2640,7 +2675,20 @@ fn navigate(
     }
     let parsed = allowed_navigation_url(&url)?;
     let owner_window = browser_window_for_ui(webview.label()).to_string();
-    let page = get_page_for_window(&app, &state, webview.label(), &tab_id)?;
+    let tab_id = if tab_id == "__other_split__" {
+        let source_id = webview.label().strip_prefix("page-")
+            .ok_or("Open in other split is only available from a browser page")?;
+        let splits = state.split_tabs.lock().map_err(|_| "Split state is unavailable")?;
+        let tabs = state.data.lock().map_err(|_| "Browser state is unavailable")?;
+        let source = tabs.iter().find(|tab| page_label(&tab.id) == webview.label())
+            .ok_or("The source tab no longer exists")?;
+        let split = splits.get(&source.window_label).ok_or("The tab is not in a split view")?;
+        let target_id = if split.first_tab_id == source_id { &split.second_tab_id }
+            else if split.second_tab_id == source_id { &split.first_tab_id }
+            else { return Err("The tab is not in a split view".into()); };
+        target_id.clone()
+    } else { tab_id };
+    let page = get_page_for_window(&app, &state, &owner_window, &tab_id)?;
     {
         let mut tabs = state
             .data
