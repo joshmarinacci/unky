@@ -1,5 +1,9 @@
 # Repository guidance
 
+## GitHub Actions workflows
+
+- Workflows must only run when manually triggered from the GitHub Actions web interface. Use `workflow_dispatch` as the sole trigger; do not add automatic triggers such as `push`, `pull_request`, or scheduled events.
+
 ## macOS desktop browser tests
 
 - For changes that affect the browser UI, website tabs, navigation, or native WebView behavior, run `npm run test:desktop` on macOS.
