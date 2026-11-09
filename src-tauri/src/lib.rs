@@ -2161,6 +2161,7 @@ fn cycle_tab(
     app: tauri::AppHandle,
     state: tauri::State<'_, BrowserState>,
     backwards: bool,
+    ordered_tab_ids: Option<Vec<String>>,
 ) -> Result<BrowserSnapshot, String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Tabs can only be cycled from the trusted browser UI".into());
@@ -2175,6 +2176,22 @@ fn cycle_tab(
         .filter(|tab| tab.window_label == owner_window)
         .cloned()
         .collect();
+    if let Some(ordered_ids) = ordered_tab_ids {
+        let mut ordered = Vec::with_capacity(local.len());
+        for id in ordered_ids {
+            if let Some(index) = local.iter().position(|tab| tab.id == id) {
+                if !ordered.iter().any(|tab: &TabState| tab.id == id) {
+                    ordered.push(local[index].clone());
+                }
+            }
+        }
+        for tab in &local {
+            if !ordered.iter().any(|existing| existing.id == tab.id) {
+                ordered.push(tab.clone());
+            }
+        }
+        local = ordered;
+    }
     cycle_active_tab(&mut local, if backwards { -1 } else { 1 });
     let active_id = local
         .iter()

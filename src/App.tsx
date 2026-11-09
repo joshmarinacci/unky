@@ -498,6 +498,13 @@ export default function App() {
   const activeTabIdRef = useRef(activeTabId);
   const tabsRef = useRef(tabs);
   const tabNodesRef = useRef(tabNodes);
+  const pinnedTabIdsRef = useRef(pinnedTabIds);
+  pinnedTabIdsRef.current = pinnedTabIds;
+  const cycleTabs = (backwards: boolean) => {
+    const openIds = new Set(tabsRef.current.map(tab => tab.id));
+    const ids = [...pinnedTabIdsRef.current, ...flattenBookmarkNodes(tabNodesRef.current, new Set(tabFolders(tabNodesRef.current).map(folder => folder.id))).map(row => row.id)].filter(id => openIds.has(id));
+    return invoke<BrowserSnapshot>('cycle_tab', { backwards, orderedTabIds: ids.length ? ids : null }).then(applySnapshot).catch(error => setMessage(String(error)));
+  };
   const faviconRequests = useRef(new Set<string>());
   const sessionTestStarted = useRef(false);
   const activeTab = tabs.find(tab => tab.id === activeTabId);
@@ -794,10 +801,8 @@ export default function App() {
           case 'go-back': void runNavigationCommand('go_back'); break;
           case 'go-forward': void runNavigationCommand('go_forward'); break;
           case 'find': openFindPanel(); break;
-          case 'next-tab': void invoke<BrowserSnapshot>('cycle_tab', { backwards: false }).then(applySnapshot).catch(error => setMessage(String(error))); break;
-          case 'previous-tab': void invoke<BrowserSnapshot>('cycle_tab', { backwards: true }).then(applySnapshot).catch(error => setMessage(String(error))); break;
-          case 'next-tab-page': case 'next-tab-mac': case 'next-tab-safari': void invoke<BrowserSnapshot>('cycle_tab', { backwards: false }).then(applySnapshot).catch(error => setMessage(String(error))); break;
-          case 'previous-tab-page': case 'previous-tab-mac': case 'previous-tab-safari': void invoke<BrowserSnapshot>('cycle_tab', { backwards: true }).then(applySnapshot).catch(error => setMessage(String(error))); break;
+          case 'next-tab': case 'next-tab-page': case 'next-tab-mac': case 'next-tab-safari': void cycleTabs(false); break;
+          case 'previous-tab': case 'previous-tab-page': case 'previous-tab-mac': case 'previous-tab-safari': void cycleTabs(true); break;
         }
       });
       try {
@@ -1013,7 +1018,7 @@ export default function App() {
       if (key === 'n' && event.shiftKey) { event.preventDefault(); void createTab(true); }
       if (key === 'w' && activeTabId) { event.preventDefault(); void closeTab(activeTabId); }
       if (key === 'r' && activeTabId) { event.preventDefault(); void runNavigationCommand('reload'); }
-      if (event.ctrlKey && key === 'tab') { event.preventDefault(); void invoke<BrowserSnapshot>('cycle_tab', { backwards: event.shiftKey }).then(applySnapshot).catch(error => setMessage(String(error))); }
+      if (event.ctrlKey && key === 'tab') { event.preventDefault(); void cycleTabs(event.shiftKey); }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
