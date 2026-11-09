@@ -43,7 +43,7 @@
         color: var(--foreground);
         background: var(--background);
       }
-      main { width: min(100%, 560px); }
+      main { width: min(100%, 760px); }
       .eyebrow {
         margin: 0 0 18px;
         color: var(--muted);
@@ -89,6 +89,9 @@
         line-height: 1.55;
       }
       .build-info { margin: 12px 0 0; }
+      .app-preview { margin: 44px 0 0; }
+      .app-preview img { display: block; width: 100%; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 24px 70px #17171624; }
+      .app-preview figcaption { margin-top: 10px; color: var(--muted); font-size: 12px; text-align: center; }
       .notice { margin: 34px 0 0; padding-top: 18px; border-top: 1px solid var(--border); }
       .notice h2 { margin: 0 0 8px; color: var(--foreground); font-size: 14px; font-weight: 600; }
       .notice p { margin: 0 0 10px; }
@@ -117,6 +120,10 @@
         Download for macOS
       </a>
       <p class="build-info">Version 0.1.0 · Apple Silicon</p>
+      <figure class="app-preview">
+        <img src="./Unky_0.1.0_screenshot.png" alt="Unky browser window showing a Field Notes travel story">
+        <figcaption>A closer look at Unky</figcaption>
+      </figure>
       <section class="notice" aria-labelledby="macos-first-launch">
         <h2 id="macos-first-launch">First launch on macOS</h2>
         <p>This early build is not notarized, so macOS may ask you to approve it before opening.</p>
