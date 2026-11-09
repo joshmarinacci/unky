@@ -73,7 +73,7 @@ fn get_external_browsers(
     webview: tauri::Webview,
     app: tauri::AppHandle,
 ) -> Result<Vec<browser::external::ExternalBrowser>, String> {
-    if !is_trusted_browser_ui(webview.label()) {
+    if !is_trusted_browser_ui(webview.label()) && !webview.label().starts_with("page-") {
         return Err("Browser discovery is only available to the trusted browser UI".into());
     }
     browser::external::installed_browsers(&app.config().identifier)
@@ -84,25 +84,31 @@ async fn open_in_external_browser(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     state: tauri::State<'_, BrowserState>,
-    tab_id: String,
+    tab_id: Option<String>,
     browser_id: String,
+    url: Option<String>,
 ) -> Result<(), String> {
-    if !is_trusted_browser_ui(webview.label()) {
-        return Err("Only the trusted browser UI can open another browser".into());
-    }
+    let page_tab_id = webview.label().strip_prefix("page-");
+    let tab_id = tab_id.or_else(|| page_tab_id.map(str::to_string))
+        .ok_or("The source tab could not be identified")?;
     {
         let tabs = state
             .data
             .lock()
             .map_err(|_| "Browser state is unavailable")?;
-        if !tabs.iter().any(|tab| {
-            tab.id == tab_id && tab.window_label == browser_window_for_ui(webview.label())
-        }) {
+        if !tabs.iter().any(|tab| tab.id == tab_id && (
+            (is_trusted_browser_ui(webview.label()) && tab.window_label == browser_window_for_ui(webview.label()))
+                || page_tab_id == Some(tab.id.as_str())
+        )) {
             return Err("The requested tab does not belong to this browser window".into());
         }
     }
     // Read the actual WebView location, not editable address-bar text or a caller-supplied URL.
-    let url = browser::external::current_page_url(&get_page(&app, &tab_id)?).await?;
+    let url = if let Some(url) = url {
+        allowed_navigation_url(&url)?
+    } else {
+        browser::external::current_page_url(&get_page(&app, &tab_id)?).await?
+    };
     let browser = browser::external::installed_browsers(&app.config().identifier)?
         .into_iter()
         .find(|browser| browser.id == browser_id)
@@ -681,6 +687,16 @@ fn link_source_context(webview: &tauri::Webview, state: &BrowserState) -> Result
         .ok_or_else(|| "Links can only be opened from a browser page or the trusted browser UI".into())
 }
 
+fn split_partner_id<'a>(split: &'a SplitLayout, source_id: &str) -> Option<&'a str> {
+    if split.first_tab_id == source_id {
+        Some(&split.second_tab_id)
+    } else if split.second_tab_id == source_id {
+        Some(&split.first_tab_id)
+    } else {
+        None
+    }
+}
+
 // WebView creation must leave the IPC callback on Windows so WebView2 can pump messages.
 #[tauri::command(async)]
 fn open_link_in_new_tab(
@@ -698,9 +714,8 @@ fn open_link_in_new_tab(
         let target_id = {
             let splits = state.split_tabs.lock().map_err(|_| "Split state is unavailable")?;
             let split = splits.get(&owner_window).ok_or("This tab is not in a split view")?;
-            if split.first_tab_id == source_id { split.second_tab_id.clone() }
-            else if split.second_tab_id == source_id { split.first_tab_id.clone() }
-            else { return Err("This tab is not in a split view".into()); }
+            split_partner_id(split, source_id).map(str::to_string)
+                .ok_or("This tab is not in a split view")?
         };
         let parsed = allowed_navigation_url(&url)?;
         let page = app.get_webview(&page_label(&target_id)).ok_or("The other split has no page")?;
@@ -1331,6 +1346,9 @@ fn create_page_webview_with_focus(
                 const foldersPromise = link
                   ? Promise.resolve(window.__TAURI_INTERNALS__?.invoke('get_tab_folders')).then(folders => folders || []).catch(() => [])
                   : Promise.resolve([]);
+                const browsersPromise = link
+                  ? Promise.resolve(window.__TAURI_INTERNALS__?.invoke('get_external_browsers')).then(browsers => browsers || []).catch(() => [])
+                  : Promise.resolve([]);
                 const add = (label, action) => items.push({ label, action });
                 const separate = () => { if (items.length && !items[items.length - 1].separator) items.push({ separator: true }); };
                 if (link) {
@@ -1424,6 +1442,31 @@ fn create_page_webview_with_focus(
                   const updatedBounds = currentMenu.getBoundingClientRect();
                   currentMenu.style.left = Math.max(4, Math.min(event.clientX, innerWidth - updatedBounds.width - 4)) + 'px';
                   currentMenu.style.top = Math.max(4, Math.min(event.clientY, innerHeight - updatedBounds.height - 4)) + 'px';
+                });
+                browsersPromise.then(browsers => {
+                  if (!browsers.length || menu !== currentMenu) return;
+                  const trigger = document.createElement('button');
+                  trigger.type = 'button'; trigger.className = 'submenu-trigger'; trigger.setAttribute('role', 'menuitem');
+                  trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-expanded', 'false');
+                  trigger.textContent = 'Open Link in Another Browser'; trigger.dataset.label = trigger.textContent;
+                  const arrow = document.createElement('span'); arrow.className = 'submenu-arrow'; arrow.setAttribute('aria-hidden', 'true'); arrow.textContent = '›'; trigger.append(arrow);
+                  const submenu = document.createElement('div'); submenu.className = 'submenu'; submenu.setAttribute('role', 'menu'); submenu.setAttribute('aria-label', 'Open link in another browser'); submenu.hidden = true;
+                  for (const browser of browsers) {
+                    const button = document.createElement('button'); button.type = 'button'; button.textContent = browser.name; button.setAttribute('role', 'menuitem');
+                    button.addEventListener('click', async () => {
+                      try {
+                        await window.__TAURI_INTERNALS__?.invoke('open_in_external_browser', { browserId: browser.id, url: link.href });
+                        close();
+                      } catch (error) {
+                        button.textContent = `Failed: ${String(error)}`;
+                        button.style.whiteSpace = 'normal';
+                      }
+                    });
+                    submenu.append(button);
+                  }
+                  trigger.addEventListener('click', () => { submenu.hidden = !submenu.hidden; trigger.setAttribute('aria-expanded', String(!submenu.hidden)); });
+                  currentMenu.append(trigger, submenu);
+                  updateMenuItems();
                 });
               }, true);
               document.addEventListener('pointerdown', event => { if (menu && !host.contains(event.target)) close(); }, true);
@@ -2675,19 +2718,6 @@ fn navigate(
     }
     let parsed = allowed_navigation_url(&url)?;
     let owner_window = browser_window_for_ui(webview.label()).to_string();
-    let tab_id = if tab_id == "__other_split__" {
-        let source_id = webview.label().strip_prefix("page-")
-            .ok_or("Open in other split is only available from a browser page")?;
-        let splits = state.split_tabs.lock().map_err(|_| "Split state is unavailable")?;
-        let tabs = state.data.lock().map_err(|_| "Browser state is unavailable")?;
-        let source = tabs.iter().find(|tab| page_label(&tab.id) == webview.label())
-            .ok_or("The source tab no longer exists")?;
-        let split = splits.get(&source.window_label).ok_or("The tab is not in a split view")?;
-        let target_id = if split.first_tab_id == source_id { &split.second_tab_id }
-            else if split.second_tab_id == source_id { &split.first_tab_id }
-            else { return Err("The tab is not in a split view".into()); };
-        target_id.clone()
-    } else { tab_id };
     let page = get_page_for_window(&app, &state, &owner_window, &tab_id)?;
     {
         let mut tabs = state
@@ -3547,7 +3577,7 @@ fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), Str
 mod tests {
     use super::{
         allowed_navigation_url, parse_launch_args, persist_session, read_session,
-        validated_session_tab,
+        split_partner_id, validated_session_tab, SplitLayout, SplitOrientation,
     };
     use crate::browser::tabs::{BrowserState, SessionTab, TabState};
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -3573,6 +3603,26 @@ mod tests {
     fn navigation_accepts_http_and_https() {
         assert!(allowed_navigation_url("http://example.com/").is_ok());
         assert!(allowed_navigation_url("https://example.com/path").is_ok());
+    }
+
+    #[test]
+    fn split_context_menu_resolves_only_the_opposite_split_tab() {
+        let split = SplitLayout {
+            first_tab_id: "tab-left".into(),
+            second_tab_id: "tab-right".into(),
+            orientation: SplitOrientation::Horizontal,
+            first_pane_percent: 50,
+        };
+        assert_eq!(split_partner_id(&split, "tab-left"), Some("tab-right"));
+        assert_eq!(split_partner_id(&split, "tab-right"), Some("tab-left"));
+        assert_eq!(split_partner_id(&split, "tab-outside"), None);
+    }
+
+    #[test]
+    fn external_browser_context_action_accepts_only_safe_link_urls() {
+        assert!(allowed_navigation_url("https://example.com/link").is_ok());
+        assert!(allowed_navigation_url("javascript:alert(1)").is_err());
+        assert!(allowed_navigation_url("https://user:pass@example.com/").is_err());
     }
 
     #[test]

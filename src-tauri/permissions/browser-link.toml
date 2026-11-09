@@ -4,6 +4,16 @@ description = "Allows a browser page to request a new tab for a validated HTTP o
 commands.allow = ["open_link_in_new_tab"]
 
 [[permission]]
+identifier = "allow-get-external-browsers"
+description = "Allows browser pages to list installed browsers for an explicit open-in-browser action."
+commands.allow = ["get_external_browsers"]
+
+[[permission]]
+identifier = "allow-open-in-external-browser"
+description = "Allows a browser page to open its own current URL in a selected external browser."
+commands.allow = ["open_in_external_browser"]
+
+[[permission]]
 identifier = "allow-open-link-in-new-window"
 description = "Allows a browser page to open a validated HTTP or HTTPS link in a browser window with the source tab's private mode."
 commands.allow = ["open_link_in_new_window"]

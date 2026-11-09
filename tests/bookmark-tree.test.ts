@@ -2,6 +2,24 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { groupSplitTabRows } from '../src/splitTabRows.ts';
 import { flattenBookmarkNodes } from '../src/bookmarkTree.ts';
+import { externalBrowserMenuItems, selectInputText } from '../src/tabUiActions.ts';
+
+test('tab and folder rename focus selects the existing input text', () => {
+  let selected = false;
+  selectInputText({ select: () => { selected = true; } });
+  assert.equal(selected, true);
+});
+
+test('external browser submenu lists each browser and targets the external-open command', () => {
+  assert.deepEqual(externalBrowserMenuItems([
+    { id: 'firefox', name: 'Firefox' },
+    { id: 'safari', name: 'Safari' },
+  ]), [
+    { id: 'firefox', label: 'Firefox', command: 'open_in_external_browser' },
+    { id: 'safari', label: 'Safari', command: 'open_in_external_browser' },
+  ]);
+  assert.deepEqual(externalBrowserMenuItems([]), []);
+});
 
 test('split rows use pane order once and restore the original rows when unsplit', () => {
   const rows = ['a', 'middle', 'b'].map(id => ({ node: { id, type: 'tab' }, depth: 0, parentId: null }));
