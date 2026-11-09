@@ -1,9 +1,12 @@
 //! WKContentRuleList integration for production macOS filtering and its fixture test.
 
 use block2::RcBlock;
-use objc2::{rc::Retained, MainThreadMarker};
-use objc2_foundation::{NSError, NSString};
-use objc2_web_kit::{WKContentRuleList, WKContentRuleListStore, WKUserContentController};
+use objc2::{rc::Retained, runtime::AnyObject, MainThreadMarker};
+use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep};
+use objc2_foundation::{NSData, NSError, NSString};
+use objc2_web_kit::{
+    WKContentRuleList, WKContentRuleListStore, WKUserContentController, WKWebView,
+};
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
@@ -11,6 +14,281 @@ use std::{
     time::Duration,
 };
 use tauri::{AppHandle, Manager};
+
+const MAX_CAPTURE_HEIGHT_CSS_PX: u32 = 30_000;
+const MAX_CAPTURE_PIXELS: u64 = 100_000_000;
+
+/// Capture a complete webpage by scrolling its real WKWebView and stitching native viewport
+/// snapshots. The original scroll position is restored even when one of the captures fails.
+pub async fn capture_full_page_png(
+    page: tauri::Webview,
+    mut on_progress: impl FnMut(u32, u32),
+) -> Result<Vec<u8>, String> {
+    let metrics = evaluate_page_json(&page, "JSON.stringify([window.innerWidth, Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0), window.innerHeight, window.scrollX, window.scrollY])").await?;
+    let metrics: Vec<f64> = serde_json::from_str(&metrics)
+        .map_err(|error| format!("could not read webpage dimensions: {error}"))?;
+    if metrics.len() != 5
+        || metrics
+            .iter()
+            .any(|value| !value.is_finite() || *value < 0.0)
+    {
+        return Err("the webpage returned invalid dimensions".into());
+    }
+    let width_css = metrics[0].ceil() as u32;
+    let height_css = metrics[1].ceil() as u32;
+    let viewport_css = metrics[2].floor().max(1.0) as u32;
+    let original_x = metrics[3];
+    let original_y = metrics[4];
+    if width_css == 0 || height_css == 0 || height_css > MAX_CAPTURE_HEIGHT_CSS_PX {
+        return Err(format!(
+            "page height must be between 1 and {MAX_CAPTURE_HEIGHT_CSS_PX} CSS pixels to capture"
+        ));
+    }
+
+    let original_alpha = set_webview_alpha(&page, 0.0).await?;
+    let capture_id = format!("{}", std::process::id());
+
+    let max_scroll_y = height_css.saturating_sub(viewport_css);
+    let mut offsets = Vec::new();
+    let mut next_y = 0_u32;
+    loop {
+        let capture_y = next_y.min(max_scroll_y);
+        if offsets.last().copied() == Some(capture_y) {
+            break;
+        }
+        offsets.push(capture_y);
+        if capture_y == max_scroll_y {
+            break;
+        }
+        next_y = capture_y.saturating_add(viewport_css);
+    }
+    let total = offsets.len() as u32;
+    on_progress(0, total);
+
+    let result = async {
+        let mut chunks = Vec::new();
+        for (index, target_y) in offsets.into_iter().enumerate() {
+            evaluate_page_json(
+                &page,
+                &format!(
+                    "window.scrollTo({{left: 0, top: {target_y}, behavior: 'instant'}}); 'ok'"
+                ),
+            )
+            .await?;
+            tokio_delay().await;
+            chunks.push((target_y, capture_viewport_png(page.clone()).await?));
+            on_progress(index as u32 + 1, total);
+            if target_y == 0 {
+                set_sticky_elements_hidden(&page, &capture_id, true).await?;
+            }
+        }
+        stitch_png_chunks(chunks, width_css, height_css)
+    }
+    .await;
+
+    let _ = evaluate_page_json(
+        &page,
+        &format!(
+            "window.scrollTo({{left: {original_x}, top: {original_y}, behavior: 'instant'}}); 'ok'"
+        ),
+    )
+    .await;
+    let _ = set_sticky_elements_hidden(&page, &capture_id, false).await;
+    let _ = set_webview_alpha(&page, original_alpha).await;
+    result
+}
+
+async fn set_webview_alpha(page: &tauri::Webview, alpha: f64) -> Result<f64, String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    page.with_webview(move |native| unsafe {
+        let webview = &*(native.inner() as *mut WKWebView);
+        let original = webview.alphaValue();
+        webview.setAlphaValue(alpha);
+        let _ = sender.send(original);
+    })
+    .map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || receiver.recv_timeout(Duration::from_secs(5)))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
+
+async fn set_sticky_elements_hidden(
+    page: &tauri::Webview,
+    capture_id: &str,
+    hidden: bool,
+) -> Result<(), String> {
+    let key = format!("data-unky-shot-{capture_id}");
+    let script = if hidden {
+        format!(
+            "(() => {{ const key = '{key}'; const style = document.createElement('style'); style.dataset.unKyShot = '{capture_id}'; style.textContent = '[' + key + '=\"1\"] {{ visibility: hidden !important; }}'; document.documentElement.appendChild(style); for (const element of document.querySelectorAll('*')) {{ const position = getComputedStyle(element).position; if (position === 'fixed' || position === 'sticky') element.setAttribute(key, '1'); }} return 'ok'; }})()"
+        )
+    } else {
+        format!(
+            "(() => {{ const key = '{key}'; for (const element of document.querySelectorAll('[' + key + '=\"1\"]')) element.removeAttribute(key); document.querySelector('style[data-un-ky-shot=\"{capture_id}\"]')?.remove(); return 'ok'; }})()"
+        )
+    };
+    evaluate_page_json(page, &script).await.map(|_| ())
+}
+
+async fn tokio_delay() {
+    tauri::async_runtime::spawn_blocking(|| std::thread::sleep(Duration::from_millis(100)))
+        .await
+        .ok();
+}
+
+async fn evaluate_page_json(page: &tauri::Webview, script: &str) -> Result<String, String> {
+    let script = script.to_string();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    page.with_webview(move |native| unsafe {
+        let webview = &*(native.inner() as *mut WKWebView);
+        let script = NSString::from_str(&script);
+        let completion = block2::RcBlock::new(move |value: *mut AnyObject, error: *mut NSError| {
+            let value = if !error.is_null() {
+                Err("WebKit could not read the webpage dimensions".to_string())
+            } else if value.is_null() {
+                Err("WebKit returned no webpage dimensions".to_string())
+            } else {
+                Ok((&*(value as *mut NSString)).to_string())
+            };
+            let _ = sender.send(value);
+        });
+        webview.evaluateJavaScript_completionHandler(&script, Some(&completion));
+    })
+    .map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || receiver.recv_timeout(Duration::from_secs(10)))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?
+}
+
+async fn capture_viewport_png(page: tauri::Webview) -> Result<Vec<u8>, String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    page.with_webview(move |native| unsafe {
+        let webview = &*(native.inner() as *mut WKWebView);
+        let completion = block2::RcBlock::new(
+            move |image: *mut objc2_app_kit::NSImage, error: *mut NSError| {
+                let result = if !error.is_null() || image.is_null() {
+                    Err("WebKit could not capture this part of the webpage".to_string())
+                } else {
+                    let tiff = (&*image).TIFFRepresentation();
+                    tiff.and_then(|data| NSBitmapImageRep::imageRepWithData(&data))
+                        .and_then(|rep| {
+                            rep.representationUsingType_properties(
+                                NSBitmapImageFileType::PNG,
+                                &objc2_foundation::NSDictionary::new(),
+                            )
+                        })
+                        .map(|data| nsdata_to_vec(&data))
+                        .ok_or_else(|| {
+                            "WebKit could not encode the webpage screenshot as PNG".to_string()
+                        })
+                };
+                let _ = sender.send(result);
+            },
+        );
+        webview.takeSnapshotWithConfiguration_completionHandler(None, &completion);
+    })
+    .map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || receiver.recv_timeout(Duration::from_secs(30)))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?
+}
+
+fn nsdata_to_vec(data: &NSData) -> Vec<u8> {
+    let mut bytes = vec![0; data.length() as usize];
+    if !bytes.is_empty() {
+        unsafe {
+            data.getBytes_length(
+                std::ptr::NonNull::new_unchecked(bytes.as_mut_ptr().cast()),
+                bytes.len() as _,
+            )
+        };
+    }
+    bytes
+}
+
+fn stitch_png_chunks(
+    chunks: Vec<(u32, Vec<u8>)>,
+    page_width_css: u32,
+    page_height_css: u32,
+) -> Result<Vec<u8>, String> {
+    use image::{ImageFormat, RgbaImage};
+    use std::io::Cursor;
+    if chunks.is_empty() {
+        return Err("the webpage produced no screenshot".into());
+    }
+    let decoded: Vec<(u32, RgbaImage)> = chunks
+        .into_iter()
+        .map(|(y, bytes)| {
+            image::load_from_memory_with_format(&bytes, ImageFormat::Png)
+                .map(|image| (y, image.into_rgba8()))
+                .map_err(|error| format!("could not decode a webpage screenshot: {error}"))
+        })
+        .collect::<Result<_, _>>()?;
+    let width = decoded[0].1.width();
+    let scale = f64::from(width) / f64::from(page_width_css);
+    let height = (page_height_css as f64 * scale).ceil() as u32;
+    if u64::from(width) * u64::from(height) > MAX_CAPTURE_PIXELS {
+        return Err("the webpage is too tall to capture as one PNG image".into());
+    }
+    let mut output = RgbaImage::new(width, height);
+    for (y_css, chunk) in &decoded {
+        if chunk.width() != width {
+            return Err("the webpage changed width while it was being captured".into());
+        }
+        let y_out = (*y_css as f64 * scale).round() as u32;
+        if y_out < height {
+            image::imageops::replace(&mut output, chunk, 0, i64::from(y_out));
+        }
+    }
+    let mut bytes = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(output)
+        .write_to(&mut bytes, ImageFormat::Png)
+        .map_err(|error| format!("could not encode full-page screenshot: {error}"))?;
+    Ok(bytes.into_inner())
+}
+
+#[cfg(test)]
+mod screenshot_tests {
+    use super::stitch_png_chunks;
+    use image::{ImageFormat, Rgba, RgbaImage};
+    use std::io::Cursor;
+
+    fn solid_png(width: u32, height: u32, color: Rgba<u8>) -> Vec<u8> {
+        let image = RgbaImage::from_pixel(width, height, color);
+        let mut bytes = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut bytes, ImageFormat::Png)
+            .expect("fixture PNG should encode");
+        bytes.into_inner()
+    }
+
+    #[test]
+    fn stitches_viewports_at_document_positions_and_clips_the_last_overlap() {
+        let red = Rgba([255, 0, 0, 255]);
+        let green = Rgba([0, 255, 0, 255]);
+        // Each screenshot is 4x4 pixels for a 2x2 CSS-pixel viewport (scale 2).
+        // The second starts at CSS y=1, overlapping the first by half a viewport;
+        // the document is only 3 CSS pixels tall, so the final image is 4x6.
+        let png = stitch_png_chunks(
+            vec![(0, solid_png(4, 4, red)), (1, solid_png(4, 4, green))],
+            2,
+            3,
+        )
+        .expect("viewport screenshots should stitch");
+        let image = image::load_from_memory_with_format(&png, ImageFormat::Png)
+            .expect("stitched PNG should decode")
+            .into_rgba8();
+
+        assert_eq!((image.width(), image.height()), (4, 6));
+        assert_eq!(image.get_pixel(0, 0), &red);
+        assert_eq!(image.get_pixel(0, 1), &red);
+        assert_eq!(image.get_pixel(0, 2), &green);
+        assert_eq!(image.get_pixel(0, 5), &green);
+    }
+}
 
 type RuleListCompletion = Arc<Mutex<Option<Box<dyn FnOnce(Option<usize>) + Send>>>>;
 static PENDING_RULE_LISTS: OnceLock<Mutex<HashMap<String, Vec<RuleListCompletion>>>> =
