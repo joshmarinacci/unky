@@ -3,8 +3,6 @@ run-name: >-
   Build desktop bundles — ${{ github.event_name == 'workflow_dispatch' && inputs.release_version && format('v{0} release candidate', inputs.release_version) || 'CI / no release version' }}
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
     inputs:
       release_version:
