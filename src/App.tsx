@@ -14,6 +14,7 @@ import { SortableContext, sortableKeyboardCoordinates, useSortable } from '@dnd-
 import { flattenBookmarkNodes, locateBookmark, moveBookmarkToDropZone, resolveBookmarkDropZone } from './bookmarkTree';
 import type { FlatNode, BookmarkDropZone, BookmarkFolder, BookmarkLink, BookmarkNode } from './bookmarkTree';
 import { groupSplitTabRows } from './splitTabRows';
+import { selectInputText } from './tabUiActions';
 
 type Tab = {
   id: string;
@@ -498,6 +499,13 @@ export default function App() {
   const activeTabIdRef = useRef(activeTabId);
   const tabsRef = useRef(tabs);
   const tabNodesRef = useRef(tabNodes);
+  const pinnedTabIdsRef = useRef(pinnedTabIds);
+  pinnedTabIdsRef.current = pinnedTabIds;
+  const cycleTabs = (backwards: boolean) => {
+    const openIds = new Set(tabsRef.current.map(tab => tab.id));
+    const ids = [...pinnedTabIdsRef.current, ...flattenBookmarkNodes(tabNodesRef.current, new Set(tabFolders(tabNodesRef.current).map(folder => folder.id))).map(row => row.node.id)].filter(id => openIds.has(id));
+    return invoke<BrowserSnapshot>('cycle_tab', { backwards, orderedTabIds: ids.length ? ids : null }).then(applySnapshot).catch(error => setMessage(String(error)));
+  };
   const faviconRequests = useRef(new Set<string>());
   const sessionTestStarted = useRef(false);
   const activeTab = tabs.find(tab => tab.id === activeTabId);
@@ -794,10 +802,8 @@ export default function App() {
           case 'go-back': void runNavigationCommand('go_back'); break;
           case 'go-forward': void runNavigationCommand('go_forward'); break;
           case 'find': openFindPanel(); break;
-          case 'next-tab': void invoke<BrowserSnapshot>('cycle_tab', { backwards: false }).then(applySnapshot).catch(error => setMessage(String(error))); break;
-          case 'previous-tab': void invoke<BrowserSnapshot>('cycle_tab', { backwards: true }).then(applySnapshot).catch(error => setMessage(String(error))); break;
-          case 'next-tab-page': case 'next-tab-mac': case 'next-tab-safari': void invoke<BrowserSnapshot>('cycle_tab', { backwards: false }).then(applySnapshot).catch(error => setMessage(String(error))); break;
-          case 'previous-tab-page': case 'previous-tab-mac': case 'previous-tab-safari': void invoke<BrowserSnapshot>('cycle_tab', { backwards: true }).then(applySnapshot).catch(error => setMessage(String(error))); break;
+          case 'next-tab': case 'next-tab-page': case 'next-tab-mac': case 'next-tab-safari': void cycleTabs(false); break;
+          case 'previous-tab': case 'previous-tab-page': case 'previous-tab-mac': case 'previous-tab-safari': void cycleTabs(true); break;
         }
       });
       try {
@@ -1013,7 +1019,7 @@ export default function App() {
       if (key === 'n' && event.shiftKey) { event.preventDefault(); void createTab(true); }
       if (key === 'w' && activeTabId) { event.preventDefault(); void closeTab(activeTabId); }
       if (key === 'r' && activeTabId) { event.preventDefault(); void runNavigationCommand('reload'); }
-      if (event.ctrlKey && key === 'tab') { event.preventDefault(); void invoke<BrowserSnapshot>('cycle_tab', { backwards: event.shiftKey }).then(applySnapshot).catch(error => setMessage(String(error))); }
+      if (event.ctrlKey && key === 'tab') { event.preventDefault(); void cycleTabs(event.shiftKey); }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -1591,6 +1597,7 @@ export default function App() {
         aria-label="Tab name"
         autoFocus
         value={tabNameDraft}
+        onFocus={event => selectInputText(event.currentTarget)}
         onChange={event => setTabNameDraft(event.target.value)}
         onBlur={() => saveTabName(tab.id)}
         onKeyDown={event => {
@@ -1632,7 +1639,7 @@ export default function App() {
           <button type="button" className="tab-folder-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); toggleTabFolder(node.id); }}>{expanded ? <ChevronDown className="ui-icon" size={14} aria-hidden="true" /> : <ChevronRight className="ui-icon" size={14} aria-hidden="true" />}</button>
           <span className="tab-folder-icon" aria-hidden="true"><Folder className="ui-icon" size={14} /></span>
           {editingTabFolderId === node.id
-            ? <AppInput className="tab-folder-name-input" aria-label="Tab folder name" autoFocus value={tabFolderTitle} onPointerDown={stopDrag} onChange={event => setTabFolderTitle(event.target.value)} onBlur={() => saveTabFolderTitle(node.id)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveTabFolderTitle(node.id); } if (event.key === 'Escape') { setEditingTabFolderId(''); setTabFolderTitle(node.title); } }} />
+            ? <AppInput className="tab-folder-name-input" aria-label="Tab folder name" autoFocus value={tabFolderTitle} onFocus={event => selectInputText(event.currentTarget)} onPointerDown={stopDrag} onChange={event => setTabFolderTitle(event.target.value)} onBlur={() => saveTabFolderTitle(node.id)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveTabFolderTitle(node.id); } if (event.key === 'Escape') { setEditingTabFolderId(''); setTabFolderTitle(node.title); } }} />
             : <span className="tab-folder-title">{node.title}</span>}
           {!node.children.length && expanded && <span className="tree-empty-hint">Drop tabs here</span>}
         </div>
@@ -1657,7 +1664,7 @@ export default function App() {
         {renderTabIcon(tab)}
         {pinnedTabIds.includes(tab.id) && <Pin className="ui-icon tab-pin-indicator" size={12} aria-label="Pinned tab" />}
         {editingTabId === tab.id
-          ? <AppInput className="tab-rename-input" aria-label="Tab name" value={tabNameDraft} autoFocus onPointerDown={stopDrag} onClick={event => event.stopPropagation()} onChange={event => setTabNameDraft(event.target.value)} onBlur={() => saveTabName(tab.id)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveTabName(tab.id); } if (event.key === 'Escape') { setEditingTabId(''); } }} />
+          ? <AppInput className="tab-rename-input" aria-label="Tab name" value={tabNameDraft} autoFocus onFocus={event => selectInputText(event.currentTarget)} onPointerDown={stopDrag} onClick={event => event.stopPropagation()} onChange={event => setTabNameDraft(event.target.value)} onBlur={() => saveTabName(tab.id)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveTabName(tab.id); } if (event.key === 'Escape') { setEditingTabId(''); } }} />
           : <span className="tab-title">{title}</span>}
         {tab.private && <span className="private-tab-indicator" title="Private tab" aria-label="Private tab"><EyeOff className="ui-icon" size={13} aria-hidden="true" /></span>}
         <button type="button" className="tab-close" aria-label={`Close ${title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); void closeTab(tab.id); }}><X className="ui-icon" size={14} aria-hidden="true" /></button>

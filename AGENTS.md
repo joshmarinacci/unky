@@ -19,3 +19,15 @@
 - Dropping a tab on “New window” creates a `browser-window-*` shell window and reattaches that tab’s child WebView to it. Keep tab snapshots, navigation commands, and window teardown scoped to each tab’s owning window.
 - Menu accelerators are app-wide on macOS. Route shortcut, settings, and zoom actions to the focused browser window; do not hard-code the `main` label for these actions.
 - For split or window-lifecycle changes, the desktop suite exercises horizontal and vertical split state and moving a child tab to another native browser window. Inspect `test-results/split-view.png` and `test-results/vertical-split.png` alongside the usual browser state and diagnostic artifacts.
+
+## Tab context menu and rename behavior
+
+- The page custom context menu's “Open Link in Other Split” action must route through the page-authorized `open_link_in_new_tab` command with `otherSplit: true`; website child WebViews cannot invoke trusted-UI commands such as `navigate`.
+- New and renamed tab and tab-folder names are selected on input focus so typing replaces the current name.
+
+## Tab UI behavior and tests
+
+- Tab cycling follows pinned-tab order followed by tab-tree order; filter persisted IDs against tabs open in the current window before sending the order to `cycle_tab`.
+- Rename inputs for tabs and tab folders select their current text on focus. Keep the shared selection helper covered by the frontend unit suite.
+- The webpage context menu can open a link in the opposite split pane or in an installed external browser. Page WebViews may use only explicitly granted commands: browser discovery and external-browser opening are listed in `browser-pages.json` and described in `permissions/browser-link.toml`. Validate page identity and URL in Rust.
+- Unit tests cover tab cycling, split partner selection, rename input selection, external-browser submenu choices, and safe URLs. Use `npm run test:unit` and `cargo test --manifest-path src-tauri/Cargo.toml`.
