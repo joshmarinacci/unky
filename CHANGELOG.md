@@ -4,6 +4,7 @@ Release notes are written under an `## <version>` heading. Candidate generation 
 
 ## 0.1.2
 
+- Fix release candidate preparation failing on a duplicate HTML escaping helper.
 - Fix restored tab URLs after navigation inside a page frame.
 - Add dated release notes and screenshots to the download page and release candidate.
 

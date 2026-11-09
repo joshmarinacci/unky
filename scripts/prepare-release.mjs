@@ -55,7 +55,6 @@ writeFileSync(join(out, 'release.json'), `${JSON.stringify(metadata, null, 2)}\n
 writeFileSync(join(out, 'RELEASE_NOTES.md'), `${notes}\n`);
 
 const site = read('site/index.html');
-const htmlEscape = (s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 const screenshotFile = `Unky_${version}_screenshot.png`;
 if (process.env.RELEASE_VERSION && !readdirSync(resolve(root, process.env.ARTIFACT_DIR || 'release-artifacts')).includes(screenshotFile)) {
   throw new Error(`Release screenshot is missing: ${screenshotFile}`);
