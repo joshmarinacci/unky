@@ -19,3 +19,8 @@
 - Dropping a tab on “New window” creates a `browser-window-*` shell window and reattaches that tab’s child WebView to it. Keep tab snapshots, navigation commands, and window teardown scoped to each tab’s owning window.
 - Menu accelerators are app-wide on macOS. Route shortcut, settings, and zoom actions to the focused browser window; do not hard-code the `main` label for these actions.
 - For split or window-lifecycle changes, the desktop suite exercises horizontal and vertical split state and moving a child tab to another native browser window. Inspect `test-results/split-view.png` and `test-results/vertical-split.png` alongside the usual browser state and diagnostic artifacts.
+
+## Tab context menu and rename behavior
+
+- The page custom context menu's “Open Link in Other Split” action must route through the page-authorized `open_link_in_new_tab` command with `otherSplit: true`; website child WebViews cannot invoke trusted-UI commands such as `navigate`.
+- New and renamed tab and tab-folder names are selected on input focus so typing replaces the current name.

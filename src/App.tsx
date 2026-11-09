@@ -1596,6 +1596,7 @@ export default function App() {
         aria-label="Tab name"
         autoFocus
         value={tabNameDraft}
+        onFocus={event => event.currentTarget.select()}
         onChange={event => setTabNameDraft(event.target.value)}
         onBlur={() => saveTabName(tab.id)}
         onKeyDown={event => {
@@ -1637,7 +1638,7 @@ export default function App() {
           <button type="button" className="tab-folder-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); toggleTabFolder(node.id); }}>{expanded ? <ChevronDown className="ui-icon" size={14} aria-hidden="true" /> : <ChevronRight className="ui-icon" size={14} aria-hidden="true" />}</button>
           <span className="tab-folder-icon" aria-hidden="true"><Folder className="ui-icon" size={14} /></span>
           {editingTabFolderId === node.id
-            ? <AppInput className="tab-folder-name-input" aria-label="Tab folder name" autoFocus value={tabFolderTitle} onPointerDown={stopDrag} onChange={event => setTabFolderTitle(event.target.value)} onBlur={() => saveTabFolderTitle(node.id)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveTabFolderTitle(node.id); } if (event.key === 'Escape') { setEditingTabFolderId(''); setTabFolderTitle(node.title); } }} />
+            ? <AppInput className="tab-folder-name-input" aria-label="Tab folder name" autoFocus value={tabFolderTitle} onFocus={event => event.currentTarget.select()} onPointerDown={stopDrag} onChange={event => setTabFolderTitle(event.target.value)} onBlur={() => saveTabFolderTitle(node.id)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveTabFolderTitle(node.id); } if (event.key === 'Escape') { setEditingTabFolderId(''); setTabFolderTitle(node.title); } }} />
             : <span className="tab-folder-title">{node.title}</span>}
           {!node.children.length && expanded && <span className="tree-empty-hint">Drop tabs here</span>}
         </div>
@@ -1662,7 +1663,7 @@ export default function App() {
         {renderTabIcon(tab)}
         {pinnedTabIds.includes(tab.id) && <Pin className="ui-icon tab-pin-indicator" size={12} aria-label="Pinned tab" />}
         {editingTabId === tab.id
-          ? <AppInput className="tab-rename-input" aria-label="Tab name" value={tabNameDraft} autoFocus onPointerDown={stopDrag} onClick={event => event.stopPropagation()} onChange={event => setTabNameDraft(event.target.value)} onBlur={() => saveTabName(tab.id)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveTabName(tab.id); } if (event.key === 'Escape') { setEditingTabId(''); } }} />
+          ? <AppInput className="tab-rename-input" aria-label="Tab name" value={tabNameDraft} autoFocus onFocus={event => event.currentTarget.select()} onPointerDown={stopDrag} onClick={event => event.stopPropagation()} onChange={event => setTabNameDraft(event.target.value)} onBlur={() => saveTabName(tab.id)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveTabName(tab.id); } if (event.key === 'Escape') { setEditingTabId(''); } }} />
           : <span className="tab-title">{title}</span>}
         {tab.private && <span className="private-tab-indicator" title="Private tab" aria-label="Private tab"><EyeOff className="ui-icon" size={13} aria-hidden="true" /></span>}
         <button type="button" className="tab-close" aria-label={`Close ${title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); void closeTab(tab.id); }}><X className="ui-icon" size={14} aria-hidden="true" /></button>
