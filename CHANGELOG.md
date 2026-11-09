@@ -1,6 +1,6 @@
 # Changelog
 
-Release notes are written under an `## <version>` heading. The first section is used by release candidate generation.
+Release notes are written under an `## <version>` heading. Candidate generation uses that version's full section for its GitHub release notes. The website shows the five newest sections, with dates taken from each GitHub Release's publication date and displayed in UTC; an unpublished candidate is marked pending.
 
 ## 0.1.1
 
