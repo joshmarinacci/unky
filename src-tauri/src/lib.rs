@@ -1424,8 +1424,6 @@ fn create_page_webview_with_focus(
             })();"#,
         )
         .on_navigation({
-            let state_data = state_data.clone();
-            let navigation_tab_id = navigation_tab_id.clone();
             move |target| {
                 if !matches!(target.scheme(), "http" | "https") {
                     return false;
@@ -1436,14 +1434,9 @@ fn create_page_webview_with_focus(
                     }
                     return false;
                 }
-                if let Ok(mut tabs) = state_data.lock() {
-                    if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == navigation_tab_id) {
-                        tab.loading = true;
-                        if tab.url != target.as_str() {
-                            tab.url = target.to_string();
-                        }
-                    }
-                }
+                // WKWebView invokes this policy callback for subframe loads too.
+                // A third-party iframe URL must not replace the browser tab's URL;
+                // the page-load callback below tracks top-level navigation.
                 true
             }
         })
