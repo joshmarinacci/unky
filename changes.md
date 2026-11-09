@@ -131,3 +131,8 @@
 - Tab rows now align nested favicons with their folder icons, keep balanced horizontal padding, expand tab titles when the close button is hidden, and highlight on hover. Clicking a tab-folder row toggles its contents.
 - Fixed horizontal overflow in the collapsed sidebar rail, including split-tab icon rows.
 - Added **Open Link in Tab Folder** to the website context menu. Its submenu lists folders from the owning browser window's saved tab tree; choosing one opens the link in a new tab inside that folder and preserves the source tab's private mode. Added page-scoped Tauri permissions and a desktop regression for the submenu and folder item.
+
+## 2026-11-09
+
+- Fixed tab URL restoration after navigation inside a page frame.
+- Added dated release notes and a release screenshot to the download page and release candidate.

@@ -2,6 +2,11 @@
 
 Release notes are written under an `## <version>` heading. Candidate generation uses that version's full section for its GitHub release notes. The website shows the five newest sections, with dates taken from each GitHub Release's publication date and displayed in UTC; an unpublished candidate is marked pending.
 
+## 0.1.2
+
+- Fix restored tab URLs after navigation inside a page frame.
+- Add dated release notes and screenshots to the download page and release candidate.
+
 ## 0.1.1
 
 - Improve tab-folder organization with aligned nested icons, clearer folder controls, and better hover feedback.
