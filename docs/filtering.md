@@ -31,4 +31,14 @@ Input is capped at 8 MiB and 80,000 lines; compiled output is capped at 50,000 n
 - The Settings progress indicator reports EasyList download progress only; rule compilation is shown as a separate phase without a percentage.
 - Windows and Linux interception remain deferred; the current pipeline is macOS-tested only.
 
+## Live-site regression check
+
+On macOS, run `npm run test:desktop:real-sites` to compare observed tracker hosts on CNN, Forbes, and eight pop-culture wikis hosted by Fandom: Wookieepedia, Harry Potter Wiki, Marvel Database, DC Comics Database, Memory Alpha, Doctor Who Wiki, Simpsons Wiki, and Pokémon Wiki. WhoTracks.Me reports advertising and analytics trackers across Fandom subpages ([Fandom tracker profile](https://www.ghostery.com/whotracksme/websites/fandom.com)). The command builds the debug desktop-test app and requires an internet connection. It temporarily allows the selected pages' tracker requests in the disposable test profile during the disabled-filter baseline, then restores filtering and returns the tab to the local fixture.
+
+The test records WebKit `PerformanceResourceTiming` resource URLs and compares them against a known ad and analytics host inventory. The inventory includes Fandom-observed providers even when the starter filter does not yet include a rule for them, so hosts that persist with filtering enabled expose coverage gaps. Its report is `test-results/real-site-tracker-results.json`. Pages that fail to load are recorded per site and excluded from the comparison, so one unavailable wiki does not prevent the remaining pages from being measured. A host observed with filtering disabled and absent when filtering is enabled is evidence consistent with a blocked request. WebKit does not expose a native per-request content-rule callback to this app, so this is comparative evidence rather than a definitive blocked-request event or a complete ad-block score. Publisher content, consent prompts, network availability, and tracker behavior change over time; a run with no baseline tracker hosts is inconclusive and fails with the report path.
+
+The 2026-11-08 run loaded all ten pages in both states. It recorded 167 baseline host/page observations, 26 known-host observations with filtering enabled, and 145 baseline observations absent in the enabled run (87%). These counts vary by site content and region; the generated JSON report is the detailed result for each run.
+
+The regular `npm run test:desktop` suite skips this network-dependent test. The dedicated command opts in through `MY_BROWSER_REAL_SITE_TESTS=1` and targets only `tests/desktop/specs/real-sites.spec.ts`.
+
 The pinned upstream crate is licensed MPL-2.0. Review its notice and source-disclosure terms before distributing a product that includes or modifies it. See the [upstream project and license](https://github.com/brave/adblock-rust).

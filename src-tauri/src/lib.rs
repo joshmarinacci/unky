@@ -890,6 +890,7 @@ struct DesktopPageDiagnostics {
     url: String,
     title: String,
     ready_state: String,
+    resource_urls: Vec<String>,
     text: String,
     dom: String,
     errors: Vec<String>,
@@ -946,6 +947,7 @@ async fn desktop_test_inspect_page(
       url: location.href,
       title: document.title,
       readyState: document.readyState,
+      resourceUrls: performance.getEntriesByType('resource').map(entry => entry.name),
       viewport: { width: innerWidth, height: innerHeight },
       text: document.body?.innerText ?? '',
       dom: document.documentElement?.outerHTML ?? '',
@@ -987,6 +989,12 @@ async fn desktop_test_inspect_page(
         url: page["url"].as_str().unwrap_or_default().to_string(),
         title: page["title"].as_str().unwrap_or_default().to_string(),
         ready_state: page["readyState"].as_str().unwrap_or_default().to_string(),
+        resource_urls: page["resourceUrls"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|resource| resource.as_str().map(str::to_string))
+            .collect(),
         text: page["text"]
             .as_str()
             .unwrap_or_default()
