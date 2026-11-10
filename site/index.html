@@ -186,18 +186,16 @@
 
         .download-links {
             display: grid;
-            justify-items: start;
+            width: min(220px, 100%);
             gap: 10px;
         }
 
-        .platform-download {
-            color: #b8b8ae;
-            font-size: 12px;
-            text-underline-offset: 3px;
+        .download-links .button {
+            width: 100%;
         }
 
-        .platform-download:hover {
-            color: white;
+        .platform-download {
+            justify-content: center;
         }
 
         .text-link {
@@ -787,9 +785,6 @@
                 padding: 32px 25px;
             }
 
-            .download-section .button {
-                width: fit-content;
-            }
         }
 
         @media (max-width: 420px) {
@@ -1125,12 +1120,12 @@
                         <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v3h14v-3"/>
                     </svg>
                 </a>
-                <a class="platform-download"
-                   href="https://github.com/joshmarinacci/my-browser/releases/latest">Windows
-                    · x64</a>
-                <a class="platform-download"
-                   href="https://github.com/joshmarinacci/my-browser/releases/latest">Windows
-                    · ARM64</a>
+                <a class="button platform-download"
+                   href="https://github.com/joshmarinacci/my-browser/releases/latest">Download
+                    for Windows · x64</a>
+                <a class="button platform-download"
+                   href="https://github.com/joshmarinacci/my-browser/releases/latest">Download
+                    for Windows · ARM64</a>
             </div>
         </div>
     </section>

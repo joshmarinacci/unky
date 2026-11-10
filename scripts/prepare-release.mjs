@@ -76,8 +76,8 @@ const winX64 = files.find(({ file }) => /(?:^|[_-])(?:x64|x86_64)(?:[_-]|\.|$)/i
 const winArm = files.find(({ file }) => /(?:^|[_-])(?:arm64|aarch64)(?:[_-]|\.|$)/i.test(file) && file.endsWith('.exe'));
 const links = [];
 if (mac) links.push(`<a class="button" href="./${htmlEscape(mac.file)}" download>Download for macOS <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v3h14v-3"/></svg></a>`);
-if (winX64) links.push(`<a class="platform-download" href="./${htmlEscape(winX64.file)}" download>Windows · x64</a>`);
-if (winArm) links.push(`<a class="platform-download" href="./${htmlEscape(winArm.file)}" download>Windows · ARM64</a>`);
+if (winX64) links.push(`<a class="button platform-download" href="./${htmlEscape(winX64.file)}" download>Download for Windows · x64</a>`);
+if (winArm) links.push(`<a class="button platform-download" href="./${htmlEscape(winArm.file)}" download>Download for Windows · ARM64</a>`);
 const downloadLinks = `<div class="download-links">${links.join('')}</div>`;
 const page = generated.replace(/<div id="download-links">[\s\S]*?<\/div>/, downloadLinks);
 writeFileSync(join(out, 'index.html'), page);
