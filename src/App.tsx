@@ -51,6 +51,8 @@ const showShortcutsEvent = 'browser://show-shortcuts';
 const shortcutEvent = 'browser://shortcut';
 const historyEvent = 'browser://history-changed';
 const downloadsEvent = 'browser://downloads-changed';
+const captureStatusEvent = 'browser://capture-status';
+const captureProgressEvent = 'browser://capture-progress';
 const filterUpdateProgressEvent = 'browser://filter-update-progress';
 const launchRequestEvent = 'browser://launch-request';
 const splitEvent = 'browser://split-changed';
@@ -436,6 +438,7 @@ export default function App() {
   const [splitPickerOpen, setSplitPickerOpen] = useState(false);
   const [address, setAddress] = useState('');
   const [message, setMessage] = useState('');
+  const [captureProgress, setCaptureProgress] = useState<{ completed: number; total: number } | null>(null);
   const [isTauri, setIsTauri] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialSidebarCollapsed);
@@ -772,6 +775,11 @@ export default function App() {
       const unlistenShowShortcuts = await listen(showShortcutsEvent, () => { void openShortcutsPage(); });
       const unlistenHistory = await listen<HistoryEntry[]>(historyEvent, event => setHistory(event.payload));
       const unlistenDownloads = await listen<Download[]>(downloadsEvent, event => setDownloads(event.payload));
+      const unlistenCaptureStatus = await listen<string>(captureStatusEvent, event => {
+        setMessage(event.payload);
+        if (event.payload !== 'Capturing full page…') setCaptureProgress(null);
+      });
+      const unlistenCaptureProgress = await listen<{ completed: number; total: number }>(captureProgressEvent, event => setCaptureProgress(event.payload));
       const unlistenLaunchRequest = await listen<LaunchRequest>(launchRequestEvent, event => { void openLaunchRequest(event.payload); });
       const unlistenFilterProgress = await listen<FilterUpdateProgress>(filterUpdateProgressEvent, event => {
         if (event.payload.phase === 'complete') {
@@ -804,6 +812,15 @@ export default function App() {
           case 'find': openFindPanel(); break;
           case 'next-tab': case 'next-tab-page': case 'next-tab-mac': case 'next-tab-safari': void cycleTabs(false); break;
           case 'previous-tab': case 'previous-tab-page': case 'previous-tab-mac': case 'previous-tab-safari': void cycleTabs(true); break;
+          case 'capture-full-page': {
+            const tabId = activeTabIdRef.current;
+            if (!tabId) break;
+            setMessage('Capturing full page…');
+            void invoke<boolean>('save_full_page_screenshot', { tabId })
+              .then(saved => setMessage(saved ? 'Full page screenshot saved.' : 'Screenshot cancelled.'))
+              .catch(error => setMessage(String(error)));
+            break;
+          }
         }
       });
       try {
@@ -815,10 +832,10 @@ export default function App() {
       }
       catch (error) { setMessage(String(error)); }
       if (!cancelled) void runSessionIntegrationTest();
-      if (cancelled) { unlisten(); unlistenPagePointerDown(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); }
+      if (cancelled) { unlisten(); unlistenPagePointerDown(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenCaptureStatus(); unlistenCaptureProgress(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); }
       else {
         const originalUnlisten = unlisten;
-        unlisten = () => { originalUnlisten(); unlistenPagePointerDown(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); };
+        unlisten = () => { originalUnlisten(); unlistenPagePointerDown(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenCaptureStatus(); unlistenCaptureProgress(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); };
       }
     })();
     return () => { cancelled = true; unlisten?.(); };
@@ -1980,7 +1997,15 @@ export default function App() {
             {message && <p className="message" role="status">{message}</p>}
             <div className="quick-links"><AppButton onClick={() => void navigateTo('https://www.google.com')}>Google</AppButton><AppButton onClick={() => void navigateTo('https://wikipedia.org')}>Wikipedia</AppButton><AppButton onClick={() => void navigateTo('https://github.com')}>GitHub</AppButton></div>
           </div>}
-          {message && activeTab?.url && <div className="toast" role="status">{message}</div>}
+          {message && activeTab?.url && <div className={`toast${captureProgress ? ' toast-with-progress' : ''}`} role="status">
+            <span>{message}</span>
+            {captureProgress && <div className="capture-progress-row">
+              <div className="capture-progress-track" role="progressbar" aria-label="Full page screenshot progress" aria-valuemin={0} aria-valuemax={captureProgress.total} aria-valuenow={captureProgress.completed}>
+                <div className="capture-progress-fill" style={{ width: `${captureProgress.total ? Math.round(captureProgress.completed / captureProgress.total * 100) : 0}%` }} />
+              </div>
+              <span className="capture-progress-percent">{captureProgress.total ? Math.round(captureProgress.completed / captureProgress.total * 100) : 0}%</span>
+            </div>}
+          </div>}
         </div>
       </section>
     </main>

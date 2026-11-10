@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "tauri-dev": "npm run tauri -- dev",
+    "tauri-dev": "npm run tauri -- dev --config src-tauri/tauri.dev.conf.json",
     "build": "tsc -b && vite build",
     "check": "npm run build && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
     "preview": "vite preview",
