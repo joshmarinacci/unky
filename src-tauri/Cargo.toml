@@ -36,6 +36,7 @@ windows = { version = "=0.62.2", features = ["Win32_UI_Input_KeyboardAndMouse"] 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "=0.6.2"
 objc2 = "=0.6.5"
-objc2-app-kit = { version = "=0.3.2", features = ["NSPopover", "NSView", "NSViewController", "NSTextField", "NSResponder", "NSControl", "NSCell", "NSDragging", "NSPasteboard", "NSWindow", "NSColor", "NSBezierPath", "NSEvent"] }
-objc2-foundation = { version = "=0.3.2", features = ["NSString", "NSError", "NSGeometry", "NSTimer", "NSDate", "block2"] }
-objc2-web-kit = { version = "=0.3.2", features = ["WKContentRuleList", "WKContentRuleListStore", "WKUserContentController", "WKWebView", "block2"] }
+objc2-app-kit = { version = "=0.3.2", features = ["NSPopover", "NSView", "NSViewController", "NSTextField", "NSResponder", "NSControl", "NSCell", "NSDragging", "NSPasteboard", "NSWindow", "NSColor", "NSBezierPath", "NSEvent", "NSBitmapImageRep", "NSImageRep"] }
+objc2-foundation = { version = "=0.3.2", features = ["NSString", "NSError", "NSData", "NSDictionary", "NSGeometry", "NSTimer", "NSDate", "block2"] }
+objc2-web-kit = { version = "=0.3.2", features = ["WKContentRuleList", "WKContentRuleListStore", "WKUserContentController", "WKWebView", "WKSnapshotConfiguration", "block2"] }
+image = { version = "=0.25.10", default-features = false, features = ["png"] }

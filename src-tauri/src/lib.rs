@@ -24,6 +24,8 @@ const PAGE_POINTER_DOWN_EVENT: &str = "browser://page-pointer-down";
 const OPEN_SETTINGS_EVENT: &str = "browser://open-settings";
 const SHOW_HISTORY_EVENT: &str = "browser://show-history";
 const SHOW_DOWNLOADS_EVENT: &str = "browser://show-downloads";
+const CAPTURE_STATUS_EVENT: &str = "browser://capture-status";
+const CAPTURE_PROGRESS_EVENT: &str = "browser://capture-progress";
 const SHORTCUT_EVENT: &str = "browser://shortcut";
 const HISTORY_EVENT: &str = "browser://history-changed";
 const DOWNLOADS_EVENT: &str = "browser://downloads-changed";
@@ -89,17 +91,20 @@ async fn open_in_external_browser(
     url: Option<String>,
 ) -> Result<(), String> {
     let page_tab_id = webview.label().strip_prefix("page-");
-    let tab_id = tab_id.or_else(|| page_tab_id.map(str::to_string))
+    let tab_id = tab_id
+        .or_else(|| page_tab_id.map(str::to_string))
         .ok_or("The source tab could not be identified")?;
     {
         let tabs = state
             .data
             .lock()
             .map_err(|_| "Browser state is unavailable")?;
-        if !tabs.iter().any(|tab| tab.id == tab_id && (
-            (is_trusted_browser_ui(webview.label()) && tab.window_label == browser_window_for_ui(webview.label()))
-                || page_tab_id == Some(tab.id.as_str())
-        )) {
+        if !tabs.iter().any(|tab| {
+            tab.id == tab_id
+                && ((is_trusted_browser_ui(webview.label())
+                    && tab.window_label == browser_window_for_ui(webview.label()))
+                    || page_tab_id == Some(tab.id.as_str()))
+        }) {
             return Err("The requested tab does not belong to this browser window".into());
         }
     }
@@ -247,7 +252,8 @@ fn close_browser_window_tabs(app: &tauri::AppHandle, state: &BrowserState, windo
     #[cfg(target_os = "macos")]
     {
         let owner = window_label.to_string();
-        let _ = app.run_on_main_thread(move || unsafe { platforms::downloads_popover::remove(&owner) });
+        let _ =
+            app.run_on_main_thread(move || unsafe { platforms::downloads_popover::remove(&owner) });
     }
     if let Ok(mut tabs) = state.data.lock() {
         let closing: Vec<_> = tabs
@@ -673,18 +679,28 @@ async fn session_test_start_download(
     .map_err(|error| error.to_string())?
 }
 
-fn link_source_context(webview: &tauri::Webview, state: &BrowserState) -> Result<(bool, String), String> {
-    let tabs = state.data.lock().map_err(|_| "Browser state is unavailable")?;
+fn link_source_context(
+    webview: &tauri::Webview,
+    state: &BrowserState,
+) -> Result<(bool, String), String> {
+    let tabs = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?;
     if is_trusted_browser_ui(webview.label()) {
         let owner = browser_window_for_ui(webview.label());
-        let private = tabs.iter().find(|tab| tab.window_label == owner && tab.active)
+        let private = tabs
+            .iter()
+            .find(|tab| tab.window_label == owner && tab.active)
             .is_some_and(|tab| tab.private);
         return Ok((private, owner.to_string()));
     }
     tabs.iter()
         .find(|tab| page_label(&tab.id) == webview.label())
         .map(|tab| (tab.private, tab.window_label.clone()))
-        .ok_or_else(|| "Links can only be opened from a browser page or the trusted browser UI".into())
+        .ok_or_else(|| {
+            "Links can only be opened from a browser page or the trusted browser UI".into()
+        })
 }
 
 fn split_partner_id<'a>(split: &'a SplitLayout, source_id: &str) -> Option<&'a str> {
@@ -709,19 +725,34 @@ fn open_link_in_new_tab(
 ) -> Result<(), String> {
     let (private, owner_window) = link_source_context(&webview, &state)?;
     if other_split.unwrap_or(false) {
-        let source_id = webview.label().strip_prefix("page-")
+        let source_id = webview
+            .label()
+            .strip_prefix("page-")
             .ok_or("Open in other split is only available from a browser page")?;
         let target_id = {
-            let splits = state.split_tabs.lock().map_err(|_| "Split state is unavailable")?;
-            let split = splits.get(&owner_window).ok_or("This tab is not in a split view")?;
-            split_partner_id(split, source_id).map(str::to_string)
+            let splits = state
+                .split_tabs
+                .lock()
+                .map_err(|_| "Split state is unavailable")?;
+            let split = splits
+                .get(&owner_window)
+                .ok_or("This tab is not in a split view")?;
+            split_partner_id(split, source_id)
+                .map(str::to_string)
                 .ok_or("This tab is not in a split view")?
         };
         let parsed = allowed_navigation_url(&url)?;
-        let page = app.get_webview(&page_label(&target_id)).ok_or("The other split has no page")?;
+        let page = app
+            .get_webview(&page_label(&target_id))
+            .ok_or("The other split has no page")?;
         {
-            let mut tabs = state.data.lock().map_err(|_| "Browser state is unavailable")?;
-            let tab = tabs.iter_mut().find(|tab| tab.id == target_id && tab.window_label == owner_window)
+            let mut tabs = state
+                .data
+                .lock()
+                .map_err(|_| "Browser state is unavailable")?;
+            let tab = tabs
+                .iter_mut()
+                .find(|tab| tab.id == target_id && tab.window_label == owner_window)
                 .ok_or("The other split tab no longer exists")?;
             tab.url = parsed.to_string();
             tab.loading = true;
@@ -731,11 +762,24 @@ fn open_link_in_new_tab(
         position_tabs(&app, &state)?;
         return page.navigate(parsed).map_err(|error| error.to_string());
     }
-    open_url_in_new_tab(&app, &state, &url, private, &owner_window, background.unwrap_or(false)).map(|_| ())
+    open_url_in_new_tab(
+        &app,
+        &state,
+        &url,
+        private,
+        &owner_window,
+        background.unwrap_or(false),
+    )
+    .map(|_| ())
 }
 
-async fn tab_folders_for_window(app: &tauri::AppHandle, owner: &str) -> Result<Vec<TabFolderMenuEntry>, String> {
-    let ui = app.get_webview(owner).ok_or("The browser UI is unavailable")?;
+async fn tab_folders_for_window(
+    app: &tauri::AppHandle,
+    owner: &str,
+) -> Result<Vec<TabFolderMenuEntry>, String> {
+    let ui = app
+        .get_webview(owner)
+        .ok_or("The browser UI is unavailable")?;
     let (sender, receiver) = std::sync::mpsc::channel();
     ui.eval_with_callback(
         r#"JSON.stringify((function walk(nodes) {
@@ -745,9 +789,15 @@ async fn tab_folders_for_window(app: &tauri::AppHandle, owner: &str) -> Result<V
         })(JSON.parse(localStorage.getItem('browser.tabTree') || '[]')))"#,
         move |result| { let _ = sender.send(result); },
     ).map_err(|error| error.to_string())?;
-    let encoded = tauri::async_runtime::spawn_blocking(move || receiver.recv_timeout(Duration::from_secs(3)).map_err(|error| error.to_string()))
-        .await.map_err(|error| error.to_string())??;
-    let value: serde_json::Value = serde_json::from_str(&encoded).map_err(|error| error.to_string())?;
+    let encoded = tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv_timeout(Duration::from_secs(3))
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let value: serde_json::Value =
+        serde_json::from_str(&encoded).map_err(|error| error.to_string())?;
     if let Some(json) = value.as_str() {
         serde_json::from_str(json).map_err(|error| error.to_string())
     } else {
@@ -756,7 +806,11 @@ async fn tab_folders_for_window(app: &tauri::AppHandle, owner: &str) -> Result<V
 }
 
 #[tauri::command(async)]
-async fn get_tab_folders(webview: tauri::Webview, app: tauri::AppHandle, state: tauri::State<'_, BrowserState>) -> Result<Vec<TabFolderMenuEntry>, String> {
+async fn get_tab_folders(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<Vec<TabFolderMenuEntry>, String> {
     let owner = link_source_context(&webview, &state)?.1;
     tab_folders_for_window(&app, &owner).await
 }
@@ -770,10 +824,16 @@ async fn open_link_in_tab_folder(
     folder_id: String,
 ) -> Result<(), String> {
     let (private, owner) = link_source_context(&webview, &state)?;
-    let exists = tab_folders_for_window(&app, &owner).await?.iter().any(|folder| folder.id == folder_id);
-    if !exists { return Err("That tab folder no longer exists".into()); }
+    let exists = tab_folders_for_window(&app, &owner)
+        .await?
+        .iter()
+        .any(|folder| folder.id == folder_id);
+    if !exists {
+        return Err("That tab folder no longer exists".into());
+    }
     let tab_id = open_url_in_new_tab(&app, &state, &url, private, &owner, false)?;
-    app.emit_to(&owner, "browser://open-tab-in-folder", (tab_id, folder_id)).map_err(|error| error.to_string())
+    app.emit_to(&owner, "browser://open-tab-in-folder", (tab_id, folder_id))
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command(async)]
@@ -787,15 +847,12 @@ fn open_link_in_new_window(
     let parsed = allowed_navigation_url(&url)?;
     let window_number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let destination = format!("browser-window-{window_number}");
-    let browser_window = tauri::WebviewWindowBuilder::new(
-        &app,
-        &destination,
-        WebviewUrl::App("index.html".into()),
-    )
-    .title("Unky")
-    .inner_size(1200.0, 800.0)
-    .build()
-    .map_err(|error| format!("Could not open a new browser window: {error}"))?;
+    let browser_window =
+        tauri::WebviewWindowBuilder::new(&app, &destination, WebviewUrl::App("index.html".into()))
+            .title("Unky")
+            .inner_size(1200.0, 800.0)
+            .build()
+            .map_err(|error| format!("Could not open a new browser window: {error}"))?;
     let close_app = app.clone();
     let close_state = state.inner().clone();
     let close_label = destination.clone();
@@ -804,7 +861,9 @@ fn open_link_in_new_window(
             close_browser_window_tabs(&close_app, &close_state, &close_label);
         }
     });
-    if let Err(error) = open_url_in_new_tab(&app, &state, parsed.as_str(), private, &destination, false) {
+    if let Err(error) =
+        open_url_in_new_tab(&app, &state, parsed.as_str(), private, &destination, false)
+    {
         let _ = browser_window.close();
         return Err(error);
     }
@@ -858,7 +917,9 @@ fn set_page_context_menu_enabled(
     enabled: bool,
 ) -> Result<(), String> {
     if !is_trusted_browser_ui(webview.label()) {
-        return Err("Page context-menu settings are only available to the trusted browser UI".into());
+        return Err(
+            "Page context-menu settings are only available to the trusted browser UI".into(),
+        );
     }
     state
         .page_context_menu_enabled
@@ -2300,27 +2361,42 @@ async fn control_downloads_popover(
     action: String,
     anchor: SecurityPopoverAnchor,
 ) -> Result<bool, String> {
-    if !is_trusted_browser_ui(webview.label()) { return Err("Downloads are only available to the trusted browser UI".into()); }
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Downloads are only available to the trusted browser UI".into());
+    }
     if !matches!(action.as_str(), "show" | "toggle" | "update" | "close")
-        || ![anchor.x, anchor.y, anchor.width, anchor.height].iter().all(|v| v.is_finite())
-        || anchor.width <= 0.0 || anchor.height <= 0.0 {
+        || ![anchor.x, anchor.y, anchor.width, anchor.height]
+            .iter()
+            .all(|v| v.is_finite())
+        || anchor.width <= 0.0
+        || anchor.height <= 0.0
+    {
         return Err("Invalid downloads popover request".into());
     }
     #[cfg(target_os = "macos")]
     {
         use platforms::downloads_popover::{DownloadRow, Reveal};
-        let rows = state.downloads.lock().map_err(|_| "Downloads are unavailable")?
-            .iter().take(8).map(|item| DownloadRow {
-                id: item.id.clone(), filename: item.filename.clone(),
+        let rows = state
+            .downloads
+            .lock()
+            .map_err(|_| "Downloads are unavailable")?
+            .iter()
+            .take(8)
+            .map(|item| DownloadRow {
+                id: item.id.clone(),
+                filename: item.filename.clone(),
                 completed: item.status == DownloadStatus::Completed,
                 status: match item.status {
                     DownloadStatus::Completed => "Complete".into(),
                     DownloadStatus::Failed => "Failed".into(),
                     _ => format!("Downloading · {} bytes", item.bytes_received),
                 },
-            }).collect();
+            })
+            .collect();
         let owner = browser_window_for_ui(webview.label()).to_string();
-        let main = app.get_webview(&owner).ok_or("Browser window is unavailable")?;
+        let main = app
+            .get_webview(&owner)
+            .ok_or("Browser window is unavailable")?;
         let inset = titlebar_inset(&main)?;
         let reveal_app = app.clone();
         let reveal: Reveal = Arc::new(move |id| {
@@ -2328,17 +2404,39 @@ async fn control_downloads_popover(
                 eprintln!("could not reveal download: {error}");
             }
         });
-        let anchor = platforms::security_popover::AnchorRect { x: anchor.x, y: anchor.y, width: anchor.width, height: anchor.height };
+        let anchor = platforms::security_popover::AnchorRect {
+            x: anchor.x,
+            y: anchor.y,
+            width: anchor.width,
+            height: anchor.height,
+        };
         let (sender, receiver) = std::sync::mpsc::channel();
         main.with_webview(move |platform| {
-            let shown = unsafe { platforms::downloads_popover::control(platform.inner(), &owner, &action, anchor, inset, rows, reveal) };
+            let shown = unsafe {
+                platforms::downloads_popover::control(
+                    platform.inner(),
+                    &owner,
+                    &action,
+                    anchor,
+                    inset,
+                    rows,
+                    reveal,
+                )
+            };
             let _ = sender.send(shown);
-        }).map_err(|error| error.to_string())?;
-        return tauri::async_runtime::spawn_blocking(move || receiver.recv().map_err(|error| error.to_string()))
-            .await.map_err(|error| error.to_string())?;
+        })
+        .map_err(|error| error.to_string())?;
+        return tauri::async_runtime::spawn_blocking(move || {
+            receiver.recv().map_err(|error| error.to_string())
+        })
+        .await
+        .map_err(|error| error.to_string())?;
     }
     #[cfg(not(target_os = "macos"))]
-    { let _ = (app, state, action, anchor); Err("Native downloads popovers are available on macOS only".into()) }
+    {
+        let _ = (app, state, action, anchor);
+        Err("Native downloads popovers are available on macOS only".into())
+    }
 }
 
 #[tauri::command]
@@ -2806,6 +2904,120 @@ fn reload(
     get_page_for_window(&app, &state, webview.label(), &tab_id)?
         .reload()
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_full_page_screenshot(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    tab_id: String,
+) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        if !is_trusted_browser_ui(webview.label()) {
+            return Err(
+                "Full-page screenshots are only available from the trusted browser UI".into(),
+            );
+        }
+        save_full_page_screenshot_for_tab(&app, &state, webview.label(), &tab_id).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (webview, app, state, tab_id);
+        Err("Full-page screenshots are currently available on macOS only".into())
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn save_full_page_screenshot_for_tab(
+    app: &tauri::AppHandle,
+    state: &BrowserState,
+    ui_label: &str,
+    tab_id: &str,
+) -> Result<bool, String> {
+    let page = get_page_for_window(app, state, ui_label, tab_id)?;
+    let (title, source_url) = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .iter()
+        .find(|tab| tab.id == tab_id)
+        .map(|tab| (tab.title.clone(), tab.url.clone()))
+        .unwrap_or_default();
+    let stem: String = title
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .chars()
+        .take(80)
+        .collect();
+    let filename = format!("{}.png", if stem.is_empty() { "webpage" } else { &stem });
+    let progress_app = app.clone();
+    let progress_owner = ui_label.to_string();
+    let png = platforms::macos::capture_full_page_png(page, move |completed, total| {
+        let _ = progress_app.emit_to(
+            &progress_owner,
+            CAPTURE_PROGRESS_EVENT,
+            serde_json::json!({ "completed": completed, "total": total }),
+        );
+    })
+    .await?;
+
+    use tauri_plugin_dialog::DialogExt;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .add_filter("PNG image", &["png"])
+        .set_file_name(filename)
+        .save_file(move |path| {
+            let _ = sender.send(path);
+        });
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        receiver.recv_timeout(Duration::from_secs(300))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())?;
+    let Some(path) = selected else {
+        return Ok(false);
+    };
+    let path = path.into_path().map_err(|error| error.to_string())?;
+    std::fs::write(&path, png).map_err(|error| error.to_string())?;
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("webpage.png")
+        .to_string();
+    let bytes_received = std::fs::metadata(&path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    let number = state.next_download_id.fetch_add(1, Ordering::Relaxed) + 1;
+    let entry = DownloadEntry {
+        id: format!("download-{number}"),
+        url: source_url,
+        filename,
+        path,
+        status: DownloadStatus::Completed,
+        bytes_received,
+    };
+    let downloads = {
+        let mut items = state
+            .downloads
+            .lock()
+            .map_err(|_| "Downloads are unavailable")?;
+        items.insert(0, entry);
+        items.clone()
+    };
+    let _ = app.emit_to(ui_label, DOWNLOADS_EVENT, downloads);
+    Ok(true)
 }
 
 #[tauri::command]
@@ -3576,8 +3788,8 @@ fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::{
-        allowed_navigation_url, parse_launch_args, persist_session, read_session,
-        split_partner_id, validated_session_tab, SplitLayout, SplitOrientation,
+        allowed_navigation_url, parse_launch_args, persist_session, read_session, split_partner_id,
+        validated_session_tab, SplitLayout, SplitOrientation,
     };
     use crate::browser::tabs::{BrowserState, SessionTab, TabState};
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -3721,11 +3933,10 @@ mod tests {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let initial_launch_request = parse_launch_args(std::env::args());
-    let builder =
-        tauri::Builder::default()
-            .plugin(tauri_plugin_dialog::init())
-            .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            match parse_launch_args(args) {
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_single_instance::init(
+            |app, args, _cwd| match parse_launch_args(args) {
                 Ok(request) => {
                     let window_label =
                         focused_browser_window_label(app).unwrap_or_else(|| "main".to_string());
@@ -3739,8 +3950,8 @@ pub fn run() {
                     }
                 }
                 Err(error) => eprintln!("Could not handle mybrowser arguments: {error}"),
-            }
-        }));
+            },
+        ));
     #[cfg(all(debug_assertions, feature = "desktop-test"))]
     let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
     #[cfg(all(debug_assertions, feature = "desktop-test"))]
@@ -3812,8 +4023,7 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+,")
                 .build(app)?;
             #[cfg(target_os = "macos")]
-            let about = MenuItemBuilder::with_id("show-about", "About Unky")
-                .build(app)?;
+            let about = MenuItemBuilder::with_id("show-about", "About Unky").build(app)?;
             #[cfg(target_os = "macos")]
             let app_menu = SubmenuBuilder::new(app, "Unky")
                 .item(&about)
@@ -3859,9 +4069,10 @@ pub fn run() {
                     .accelerator("Ctrl+PageUp")
                     .build(app)?;
             #[cfg(target_os = "macos")]
-            let next_tab_mac = MenuItemBuilder::with_id("shortcut-next-tab-mac", "Next Tab (Chrome)")
-                .accelerator("CmdOrCtrl+Alt+Right")
-                .build(app)?;
+            let next_tab_mac =
+                MenuItemBuilder::with_id("shortcut-next-tab-mac", "Next Tab (Chrome)")
+                    .accelerator("CmdOrCtrl+Alt+Right")
+                    .build(app)?;
             #[cfg(target_os = "macos")]
             let previous_tab_mac =
                 MenuItemBuilder::with_id("shortcut-previous-tab-mac", "Previous Tab (Chrome)")
@@ -3896,6 +4107,16 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let file_menu = file_menu.separator().item(&settings).separator().quit();
             let file_menu = file_menu.build()?;
+            #[cfg(target_os = "macos")]
+            let capture_full_page = MenuItemBuilder::with_id(
+                "shortcut-capture-full-page",
+                "Save Full Page Screenshot…",
+            )
+            .build(app)?;
+            #[cfg(target_os = "macos")]
+            let tabs_menu = SubmenuBuilder::new(app, "Tabs")
+                .item(&capture_full_page)
+                .build()?;
             let edit_menu = SubmenuBuilder::new(app, "Edit")
                 .undo()
                 .redo()
@@ -3958,16 +4179,18 @@ pub fn run() {
                 .separator()
                 .item(&actual_size)
                 .build()?;
-            let show_shortcuts = MenuItemBuilder::with_id("show-shortcuts", "Show Shortcuts")
-                .build(app)?;
+            let show_shortcuts =
+                MenuItemBuilder::with_id("show-shortcuts", "Show Shortcuts").build(app)?;
             let help_menu = SubmenuBuilder::new(app, "Help")
                 .item(&show_shortcuts)
                 .build()?;
             let menu = MenuBuilder::new(app);
             #[cfg(target_os = "macos")]
             let menu = menu.item(&app_menu);
+            let menu = menu.item(&file_menu);
+            #[cfg(target_os = "macos")]
+            let menu = menu.item(&tabs_menu);
             let menu = menu
-                .item(&file_menu)
                 .item(&edit_menu)
                 .item(&view_menu)
                 .item(&help_menu)
@@ -4170,6 +4393,7 @@ pub fn run() {
         set_settings_open,
         set_view_bounds,
         reopen_closed_tab,
+        save_full_page_screenshot,
         desktop_test_inspect_page,
         desktop_test_inspect_tab_drag_overlay,
         desktop_test_browser_ui,
@@ -4221,10 +4445,58 @@ pub fn run() {
         stop_loading,
         set_settings_open,
         set_view_bounds,
-        reopen_closed_tab
+        reopen_closed_tab,
+        save_full_page_screenshot
     ]);
     builder
         .on_menu_event(|app, event| {
+            #[cfg(target_os = "macos")]
+            if event.id().as_ref() == "shortcut-capture-full-page" {
+                let owner = focused_browser_window_label(app).unwrap_or_else(|| "main".to_string());
+                let task_app = app.clone();
+                let _ = app.emit_to(&owner, CAPTURE_STATUS_EVENT, "Capturing full page…");
+                tauri::async_runtime::spawn(async move {
+                    let state = task_app.state::<BrowserState>();
+                    let active_tab_id = state.data.lock().ok().and_then(|tabs| {
+                        tabs.iter()
+                            .find(|tab| tab.active && tab.window_label == owner)
+                            .map(|tab| tab.id.clone())
+                    });
+                    let result = match active_tab_id {
+                        Some(tab_id) => {
+                            save_full_page_screenshot_for_tab(&task_app, &state, &owner, &tab_id)
+                                .await
+                        }
+                        None => Err("There is no active website tab to capture".into()),
+                    };
+                    match result {
+                        Ok(true) => {
+                            let _ = task_app.emit_to(
+                                &owner,
+                                CAPTURE_STATUS_EVENT,
+                                "Full page screenshot saved.",
+                            );
+                        }
+                        Ok(false) => {
+                            let _ = task_app.emit_to(
+                                &owner,
+                                CAPTURE_STATUS_EVENT,
+                                "Screenshot cancelled.",
+                            );
+                        }
+                        Err(error) => {
+                            let _ = task_app.emit_to(&owner, CAPTURE_STATUS_EVENT, error.clone());
+                            use tauri_plugin_dialog::DialogExt;
+                            task_app
+                                .dialog()
+                                .message(error)
+                                .title("Full Page Screenshot")
+                                .show(|_| {});
+                        }
+                    }
+                });
+                return;
+            }
             let Some(window_label) = focused_browser_window_label(app) else {
                 return;
             };
