@@ -13,6 +13,7 @@
     "tauri": "tauri",
     "tauri-release": "npm run build:metadata && npm run tauri -- build --bundles dmg",
     "build:metadata": "node scripts/build-metadata.mjs",
+    "release:patch": "node scripts/bump-patch-version.mjs",
     "release:prepare": "node scripts/prepare-release.mjs",
     "sign-mac": "bash scripts/sign-mac.sh",
     "build:installer": "npm run tauri -- build --bundles nsis",
