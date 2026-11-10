@@ -29,7 +29,7 @@ Run `npm run clean` to remove build output on both sides: `dist`, `test-results`
 
 ## Release download page
 
-`site/index.html` is a standalone, dependency-free download page published at [apps.josh.earth/unky](https://apps.josh.earth/unky). The existing manual publish scripts target `/sites/apps.josh.earth/my-browser/`; the CI release process should use a dedicated deploy credential restricted to that directory. Release candidates generate GitHub release notes from the matching `CHANGELOG.md` section and show the five newest changelog sections on the website. Website dates come from each GitHub Release's publication date and display in UTC; the current candidate is marked pending until published. The public page updates only after human approval and includes first-launch guidance for this build.
+`site/index.html` is a standalone, dependency-free download page published at [apps.josh.earth/unky](https://apps.josh.earth/unky). It introduces Unky, its values, and its macOS and Windows downloads. Windows x64 and ARM64 installer links are filled from the release artifacts; Windows installers are currently unsigned, and content filtering is available on macOS only. Release candidates generate GitHub release notes from the matching `CHANGELOG.md` section and replace the page's release-notes section with the five newest changelog entries. Website dates come from each GitHub Release's publication date and display in UTC; the current candidate is marked pending until published. The public page updates only after human approval and includes first-launch guidance for macOS.
 
 ### Sign and notarize a macOS release
 
