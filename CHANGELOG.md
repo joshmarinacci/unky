@@ -2,6 +2,19 @@
 
 Release notes are written under an `## <version>` heading. Candidate generation uses that version's full section for its GitHub release notes. The website shows the five newest sections, with dates taken from each GitHub Release's publication date and displayed in UTC; an unpublished candidate is marked pending.
 
+## 0.1.3
+
+- Add patch release version helper
+- Match Windows download button styling
+- update prose
+- Update Unky download page
+- Add macOS full-page webview screenshots
+- Separate development app data from production
+- Add external browser context menu and UI tests
+- Select tab names when renaming
+- Open context menu links in other split pane
+- Fix tab cycling order for pinned tabs
+
 ## 0.1.2
 
 - Fix release candidate preparation failing on a duplicate HTML escaping helper.
