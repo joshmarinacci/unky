@@ -62,7 +62,7 @@ if (process.env.RELEASE_VERSION && !readdirSync(resolve(root, process.env.ARTIFA
 const generated = site.replace(/Unky_0\.1\.0_aarch64\.dmg/g, `Unky_${version}_aarch64.dmg`)
   .replace('Unky_0.1.0_screenshot.png', screenshotFile)
   .replace(/Version 0\.1\.0 · Apple Silicon/g, `Version ${version} · Apple Silicon`)
-  .replace(/<section id="release-notes"[\s\S]*?<\/section>/, releaseHistory.replace('<section class="notice release-history"', '<section id="release-notes" class="page release-history"'));
+  .replace(/<section\b(?=[^>]*\bid="release-notes")[^>]*>[\s\S]*?<\/section>/, releaseHistory.replace('<section class="notice release-history"', '<section id="release-notes" class="page release-history"'));
 writeFileSync(join(out, 'index.html'), generated);
 
 const artifactDir = resolve(root, process.env.ARTIFACT_DIR || 'release-artifacts');
