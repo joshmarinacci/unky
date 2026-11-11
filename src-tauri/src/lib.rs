@@ -1006,6 +1006,7 @@ struct DesktopTabDragOverlayDiagnostics {
     attached: bool,
     visible: bool,
     target: Option<&'static str>,
+    preview: Option<&'static str>,
 }
 
 /// WebDriver attaches to the trusted `main` webview. Website tabs are separate native
@@ -1157,6 +1158,7 @@ fn desktop_test_inspect_tab_drag_overlay(
                     attached: native.attached,
                     visible: native.visible,
                     target: native.target,
+                    preview: native.preview,
                 })
                 .ok_or_else(|| {
                     "Native overlay inspection requires the AppKit main thread".to_string()
@@ -1173,6 +1175,54 @@ fn desktop_test_inspect_tab_drag_overlay(
     }
 }
 
+/// Set deterministic split or invalid-drop feedback for desktop-test screenshots.
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+#[tauri::command]
+fn desktop_test_show_tab_drag_feedback(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Desktop diagnostics are only available to the trusted browser UI".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::MainThreadMarker;
+
+        let target_id = state
+            .tab_drag_target
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?
+            .clone()
+            .ok_or("A tab drag must be active before capturing its preview")?;
+        let page = get_page(&app, &target_id)?;
+        let (sender, receiver) = std::sync::mpsc::channel();
+        page.with_webview(move |_| {
+            let result = MainThreadMarker::new()
+                .map(|_| unsafe { platforms::tab_drag_overlay::show_test_drag_feedback() })
+                .ok_or_else(|| {
+                    "Native preview inspection requires the AppKit main thread".to_string()
+                })
+                .and_then(|visible| {
+                    if visible {
+                        Ok(())
+                    } else {
+                        Err("The native tab drag overlay is unavailable".into())
+                    }
+                });
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+        receiver.recv().map_err(|error| error.to_string())?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, state);
+        Err("Native tab drag previews are only available on macOS".into())
+    }
+}
+
 /// Drive and inspect the trusted browser UI from the debug-only WebDriver host.
 #[cfg(all(debug_assertions, feature = "desktop-test"))]
 #[tauri::command]
@@ -1182,6 +1232,10 @@ async fn desktop_test_browser_ui(
     action: String,
     tab_id: Option<String>,
     menu_item: Option<String>,
+    target_id: Option<String>,
+    tab_position: Option<String>,
+    drop_position: Option<String>,
+    snapshot: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Desktop UI controls are only available to the trusted browser UI".into());
@@ -1189,13 +1243,128 @@ async fn desktop_test_browser_ui(
     let ui = app
         .get_webview("main")
         .ok_or("The trusted browser UI is unavailable")?;
-    let args = serde_json::json!({ "action": action, "tabId": tab_id, "menuItem": menu_item });
+    let args = serde_json::json!({
+        "action": action,
+        "tabId": tab_id,
+        "menuItem": menu_item,
+        "targetId": target_id,
+        "tabPosition": tab_position,
+        "dropPosition": drop_position,
+        "snapshot": snapshot,
+    });
     let script = format!(
         r#"JSON.stringify((() => {{
           const args = {args};
+          if (args.action === 'reset-tab-ui') {{
+            if (typeof window.__myBrowserTestResetTabUi !== 'function') return {{ error: 'The tab UI reset test bridge is unavailable' }};
+            window.__myBrowserTestResetTabUi();
+            return {{ reset: true }};
+          }}
+          if (args.action === 'sync-tab-snapshot') {{
+            if (typeof window.__myBrowserTestSyncTabSnapshot !== 'function') return {{ error: 'The tab snapshot test bridge is unavailable' }};
+            window.__myBrowserTestSyncTabSnapshot(args.snapshot);
+            return {{ synced: true }};
+          }}
           if (args.action === 'seed-tab-folders') {{
             localStorage.setItem('browser.tabTree', JSON.stringify([{{ id: 'desktop-test-folder', type: 'folder', title: 'Desktop Test Folder', collapsed: false, children: [] }}]));
             return {{ seeded: true }};
+          }}
+          if (args.action === 'set-tab-position') {{
+            const switcher = document.querySelector('[role="tab"][id="tabs"]');
+            if (switcher && switcher.getAttribute('aria-selected') !== 'true') switcher.click();
+            const expand = document.querySelector('[aria-label="Expand sidebar"]');
+            if (expand) expand.click();
+            const button = Array.from(document.querySelectorAll('.tab-position-picker button')).find(node => node.getAttribute('aria-label') === `Tabs on ${{args.tabPosition}}`);
+            if (!button) return {{ error: `Tab position ${{args.tabPosition}} was not found` }};
+            button.click();
+            return {{ selected: args.tabPosition }};
+          }}
+          if (args.action === 'create-tab-folder') {{
+            const switcher = document.querySelector('[role="tab"][id="tabs"]');
+            if (switcher && switcher.getAttribute('aria-selected') !== 'true') switcher.click();
+            const expand = document.querySelector('[aria-label="Expand sidebar"]');
+            if (expand) expand.click();
+            const button = document.querySelector('[aria-label="Create tab folder"]');
+            if (!button) return {{ error: 'The tab folder button was not found' }};
+            button.click();
+            return {{ created: true }};
+          }}
+          if (args.action === 'finish-tab-folder-name') {{
+            const input = document.querySelector('.tab-folder-name-input');
+            if (input instanceof HTMLElement) input.blur();
+            return {{ finished: true }};
+          }}
+          if (args.action === 'open-folder-context-menu') {{
+            const row = Array.from(document.querySelectorAll('.tab-sortable-item')).find(node => node.dataset.tabNodeId === args.tabId);
+            if (!row) return {{ error: `Tab folder ${{args.tabId}} was not found` }};
+            row.dispatchEvent(new MouseEvent('contextmenu', {{ bubbles: true, cancelable: true, clientX: 100, clientY: 100 }}));
+            return {{ opened: true }};
+          }}
+          if (args.action === 'inspect-tab-layout') {{
+            const shell = document.querySelector('.browser-shell');
+            const sidebar = document.querySelector('.sidebar')?.getBoundingClientRect();
+            const page = document.querySelector('.webview-slot')?.getBoundingClientRect();
+            const tree = JSON.parse(localStorage.getItem('browser.tabTree') || '[]');
+            return {{
+              position: shell?.getAttribute('data-tab-position'),
+              persistedPosition: localStorage.getItem('browser.tabPosition'),
+              sidebarCollapsed: shell?.getAttribute('data-sidebar-collapsed') === 'true',
+              tabListVisible: document.querySelector('.tab-list') !== null,
+              axis: document.querySelector('.tab-list')?.getAttribute('aria-orientation'),
+              tabIds: Array.from(document.querySelectorAll('.tab-list [data-tab-id]')).map(node => node.dataset.tabId),
+              tabNodeIds: Array.from(document.querySelectorAll('.tab-list [data-tab-node-id]')).map(node => node.dataset.tabNodeId),
+              pinnedIds: Array.from(document.querySelectorAll('.pinned-tabs-row .pinned-tab-button')).map(node => node.dataset.tabId),
+              tree,
+              treeDragging: document.querySelector('.tab-tree')?.classList.contains('is-dragging') || false,
+              sidebar: sidebar ? {{ x: sidebar.x, y: sidebar.y, width: sidebar.width, height: sidebar.height }} : null,
+              page: page ? {{ x: page.x, y: page.y, width: page.width, height: page.height }} : null,
+              preview: document.querySelector('.tab-drag-morph')?.className || null,
+              dropTargets: Array.from(document.querySelectorAll('.tab-sortable-item.drop-before, .tab-sortable-item.drop-after, .tab-sortable-item.drop-inside, .pinned-tab-button.drop-before, .pinned-tab-button.drop-after')).map(node => ({{ id: node.dataset.tabNodeId || node.dataset.tabId, className: node.className }})),
+            }};
+          }}
+          if (args.action === 'drag-start') {{
+            const target = Array.from(document.querySelectorAll('.tab-sortable-item, .pinned-tab-button')).find(node => node.dataset.tabNodeId === args.tabId || node.dataset.tabId === args.tabId);
+            if (!target) return {{ error: `Draggable tab ${{args.tabId}} was not found` }};
+            const rect = target.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            const pointerId = 37;
+            const init = {{ bubbles: true, cancelable: true, pointerId, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1, clientX: x, clientY: y }};
+            target.dispatchEvent(new PointerEvent('pointerdown', init));
+            const activatedX = x + 8;
+            const activatedY = y + 8;
+            document.dispatchEvent(new PointerEvent('pointermove', {{ ...init, clientX: activatedX, clientY: activatedY }}));
+            window.__myBrowserTestDragState = {{ pointerId, x: activatedX, y: activatedY }};
+            return {{ started: true, x: activatedX, y: activatedY }};
+          }}
+          if (args.action === 'drag-over-tab' || args.action === 'drag-over-dock' || args.action === 'drag-over-page') {{
+            const state = window.__myBrowserTestDragState;
+            if (!state) return {{ error: 'No tab drag is active' }};
+            let target;
+            if (args.action === 'drag-over-tab') target = Array.from(document.querySelectorAll('.tab-sortable-item, .pinned-tab-button')).find(node => node.dataset.tabNodeId === args.targetId || node.dataset.tabId === args.targetId);
+            if (args.action === 'drag-over-dock') target = document.querySelector('.pinned-tabs-row');
+            if (args.action === 'drag-over-page') target = document.querySelector('.webview-slot');
+            if (!target) return {{ error: 'The requested drag target was not found' }};
+            const rect = target.getBoundingClientRect();
+            const position = args.dropPosition || 'center';
+            const fractions = {{ left: [0.08, 0.5], right: [0.92, 0.5], top: [0.5, 0.08], bottom: [0.5, 0.92] }};
+            const [fx, fy] = fractions[position] || [0.5, 0.5];
+            const x = rect.left + rect.width * fx;
+            const y = rect.top + rect.height * fy;
+            const move = (clientX, clientY) => document.dispatchEvent(new PointerEvent('pointermove', {{ bubbles: true, cancelable: true, pointerId: state.pointerId, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1, clientX, clientY }}));
+            move(x, y);
+            state.nudge = (state.nudge || 0) + 1;
+            move(x + state.nudge, y + state.nudge);
+            state.x = x + state.nudge;
+            state.y = y + state.nudge;
+            return {{ moved: true, x, y, targetRect: {{ x: rect.x, y: rect.y, width: rect.width, height: rect.height }} }};
+          }}
+          if (args.action === 'drag-end' || args.action === 'drag-cancel') {{
+            const state = window.__myBrowserTestDragState;
+            if (!state) return {{ ended: false }};
+            document.dispatchEvent(new PointerEvent(args.action === 'drag-cancel' ? 'pointercancel' : 'pointerup', {{ bubbles: true, cancelable: true, pointerId: state.pointerId, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 0, clientX: state.x, clientY: state.y }}));
+            delete window.__myBrowserTestDragState;
+            return {{ ended: true }};
           }}
           if (args.action === 'inspect-split-rows') {{
             return {{ groups: Array.from(document.querySelectorAll('.tab-split-row')).map(group => ({{
@@ -3139,6 +3308,7 @@ fn set_tab_dragging(
     dragging: bool,
     tab_id: Option<String>,
     target_tab_id: Option<String>,
+    drag_type: Option<String>,
     cancelled: Option<bool>,
 ) -> Result<(), String> {
     if !is_trusted_browser_ui(webview.label()) {
@@ -3210,7 +3380,12 @@ fn set_tab_dragging(
                     page.with_webview(move |platform| {
                         let attached = MainThreadMarker::new().is_some_and(|mtm| unsafe {
                             let native = &*(platform.inner() as *mut NSView);
-                            platforms::tab_drag_overlay::show(native, mtm)
+                            let preview = if drag_type.as_deref() == Some("folder") {
+                                platforms::tab_drag_overlay::DragPreviewKind::Folder
+                            } else {
+                                platforms::tab_drag_overlay::DragPreviewKind::Tab
+                            };
+                            platforms::tab_drag_overlay::show(native, mtm, preview)
                         });
                         let _ = sender.send(attached);
                     })
@@ -4396,6 +4571,7 @@ pub fn run() {
         save_full_page_screenshot,
         desktop_test_inspect_page,
         desktop_test_inspect_tab_drag_overlay,
+        desktop_test_show_tab_drag_feedback,
         desktop_test_browser_ui,
         desktop_test_request_new_window
     ]);

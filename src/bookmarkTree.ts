@@ -38,8 +38,8 @@ export function resolveBookmarkDropDepth(originDepth: number, targetDepth: numbe
 export type BookmarkDropZone = 'before' | 'inside' | 'after';
 
 /** Classify where the dragged item's center sits within the hovered row. Folder rows have a middle band that nests. */
-export function resolveBookmarkDropZone(pointerY: number, rowTop: number, rowHeight: number, isFolderRow: boolean): BookmarkDropZone {
-  const ratio = rowHeight > 0 ? (pointerY - rowTop) / rowHeight : 0.5;
+export function resolveBookmarkDropZone(pointer: number, rowStart: number, rowSize: number, isFolderRow: boolean): BookmarkDropZone {
+  const ratio = rowSize > 0 ? (pointer - rowStart) / rowSize : 0.5;
   if (!isFolderRow) return ratio < 0.5 ? 'before' : 'after';
   return ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'inside';
 }

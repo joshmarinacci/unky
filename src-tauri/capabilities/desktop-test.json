@@ -7,6 +7,7 @@
     "allow-main-browser-commands",
     "allow-desktop-test-inspect-page",
     "allow-desktop-test-inspect-tab-drag-overlay",
+    "allow-desktop-test-show-tab-drag-feedback",
     "allow-desktop-test-browser-ui",
     "allow-desktop-test-new-window",
     "wdio:default",
