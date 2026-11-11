@@ -1,12 +1,13 @@
 mod browser;
 #[cfg(all(feature = "desktop-test", not(debug_assertions)))]
 compile_error!("desktop-test is only supported in debug builds");
+use browser::database::{BookmarkNode, BrowserDatabase};
 use browser::filtering::{FilterSettings, FilterSettingsView};
 use browser::tabs::{
-    cycle_active_tab, download_filename, find_script, next_download_path, record_history_entry,
-    remember_closed_tab, snapshot, take_recently_closed, update_history_title, BrowserSnapshot,
-    BrowserState, DownloadEntry, DownloadStatus, HistoryEntry, PersistedHistory, PersistedSession,
-    SessionTab, SplitLayout, SplitOrientation, TabFolderMenuEntry, TabState, ViewBounds,
+    cycle_active_tab, download_filename, find_script, next_download_path, remember_closed_tab,
+    snapshot, take_recently_closed, BrowserSnapshot, BrowserState, DownloadEntry, DownloadStatus,
+    HistoryEntry, PersistedSession, SessionTab, SplitLayout, SplitOrientation, TabFolderMenuEntry,
+    TabState, ViewBounds,
 };
 use std::sync::{atomic::Ordering, Arc, Mutex, MutexGuard};
 use std::{
@@ -23,6 +24,11 @@ const SPLIT_RESIZE_EVENT: &str = "browser://split-resize";
 const PAGE_POINTER_DOWN_EVENT: &str = "browser://page-pointer-down";
 const OPEN_SETTINGS_EVENT: &str = "browser://open-settings";
 const SHOW_HISTORY_EVENT: &str = "browser://show-history";
+const CLEAR_HISTORY_REQUEST_EVENT: &str = "browser://clear-history-request";
+const BOOKMARKS_EVENT: &str = "browser://bookmarks-changed";
+const OPEN_URL_FROM_MENU_EVENT: &str = "browser://open-url-from-menu";
+const IMPORT_BOOKMARKS_EVENT: &str = "browser://import-bookmarks";
+const EXPORT_BOOKMARKS_EVENT: &str = "browser://export-bookmarks";
 const SHOW_DOWNLOADS_EVENT: &str = "browser://show-downloads";
 const CAPTURE_STATUS_EVENT: &str = "browser://capture-status";
 const CAPTURE_PROGRESS_EVENT: &str = "browser://capture-progress";
@@ -226,6 +232,173 @@ fn emit_history(app: &tauri::AppHandle, entries: &[HistoryEntry]) {
     }
 }
 
+fn database_lock(
+    state: &BrowserState,
+) -> Result<std::sync::MutexGuard<'_, Option<BrowserDatabase>>, String> {
+    state
+        .database
+        .lock()
+        .map_err(|_| "Browser database is unavailable".to_string())
+}
+
+fn refresh_browser_menus(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), String> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let (bookmarks, recent_history) = {
+            let database = database_lock(state)?;
+            let database = database
+                .as_ref()
+                .ok_or_else(|| "Browser database is unavailable".to_string())?;
+            (
+                database.load_bookmarks()?,
+                database.recent_distinct_history(10)?,
+            )
+        };
+        let Some(menu) = app.menu() else {
+            return Ok(());
+        };
+        let Some(tauri::menu::MenuItemKind::Submenu(bookmarks_menu)) = menu.get("bookmarks-menu")
+        else {
+            return Ok(());
+        };
+        let Some(tauri::menu::MenuItemKind::Submenu(history_menu)) = menu.get("history-menu")
+        else {
+            return Ok(());
+        };
+        for index in (0..bookmarks_menu
+            .items()
+            .map_err(|error| error.to_string())?
+            .len())
+            .rev()
+        {
+            bookmarks_menu
+                .remove_at(index)
+                .map_err(|error| error.to_string())?;
+        }
+        append_bookmark_menu_items(app, &bookmarks_menu, &bookmarks)?;
+        if !bookmarks.is_empty() {
+            bookmarks_menu
+                .append(
+                    &tauri::menu::PredefinedMenuItem::separator(app)
+                        .map_err(|error| error.to_string())?,
+                )
+                .map_err(|error| error.to_string())?;
+        }
+        bookmarks_menu
+            .append(
+                &tauri::menu::MenuItemBuilder::with_id("import-bookmarks", "Import Bookmarks…")
+                    .build(app)
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+        bookmarks_menu
+            .append(
+                &tauri::menu::MenuItemBuilder::with_id("export-bookmarks", "Export Bookmarks…")
+                    .build(app)
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+
+        let history_items = history_menu.items().map_err(|error| error.to_string())?;
+        for index in (0..history_items.len()).rev() {
+            history_menu
+                .remove_at(index)
+                .map_err(|error| error.to_string())?;
+        }
+        history_menu
+            .append(
+                &tauri::menu::MenuItemBuilder::with_id("history-show-all", "Show All History")
+                    .build(app)
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+        history_menu
+            .append(
+                &tauri::menu::MenuItemBuilder::with_id("clear-history", "Clear History…")
+                    .build(app)
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+        if !recent_history.is_empty() {
+            history_menu
+                .append(
+                    &tauri::menu::PredefinedMenuItem::separator(app)
+                        .map_err(|error| error.to_string())?,
+                )
+                .map_err(|error| error.to_string())?;
+            for entry in recent_history {
+                let title = if entry.title.trim().is_empty() {
+                    entry.url.as_str()
+                } else {
+                    entry.title.as_str()
+                };
+                let item = tauri::menu::MenuItemBuilder::with_id(
+                    format!("history-open-{}", entry.id),
+                    title,
+                )
+                .build(app)
+                .map_err(|error| error.to_string())?;
+                history_menu
+                    .append(&item)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = (app, state);
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn append_bookmark_menu_items(
+    app: &tauri::AppHandle,
+    menu: &tauri::menu::Submenu<tauri::Wry>,
+    nodes: &[BookmarkNode],
+) -> Result<(), String> {
+    for node in nodes {
+        match node {
+            BookmarkNode::Bookmark { id, title, .. } => {
+                let item =
+                    tauri::menu::MenuItemBuilder::with_id(format!("bookmark-open-{id}"), title)
+                        .build(app)
+                        .map_err(|error| error.to_string())?;
+                menu.append(&item).map_err(|error| error.to_string())?;
+            }
+            BookmarkNode::Folder {
+                id,
+                title,
+                children,
+            } => {
+                let folder = tauri::menu::SubmenuBuilder::with_id(
+                    app,
+                    format!("bookmark-folder-{id}"),
+                    title,
+                )
+                .build()
+                .map_err(|error| error.to_string())?;
+                append_bookmark_menu_items(app, &folder, children)?;
+                menu.append(&folder).map_err(|error| error.to_string())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn emit_bookmarks(app: &tauri::AppHandle, state: &BrowserState) -> Result<(), String> {
+    let bookmarks = database_lock(state)?
+        .as_ref()
+        .ok_or_else(|| "Browser database is unavailable".to_string())?
+        .load_bookmarks()?;
+    for label in app
+        .windows()
+        .keys()
+        .filter(|label| label.as_str() == "main" || label.starts_with("browser-window-"))
+    {
+        let _ = app.emit_to(label, BOOKMARKS_EVENT, &bookmarks);
+    }
+    refresh_browser_menus(app, state)
+}
+
 fn snapshot_for_window(tabs: &[TabState], window_label: &str) -> BrowserSnapshot {
     let window_label = browser_window_for_ui(window_label);
     let local: Vec<_> = tabs
@@ -330,67 +503,71 @@ fn read_session(path: &PathBuf) -> PersistedSession {
         .unwrap_or_default()
 }
 
-fn persist_history(state: &BrowserState) -> Result<(), String> {
-    let path = state
-        .history_file
-        .lock()
-        .map_err(|_| "History path is unavailable")?
-        .clone();
-    let Some(path) = path else {
-        return Ok(());
-    };
-    let entries = state
-        .history
-        .lock()
-        .map_err(|_| "History is unavailable")?
-        .clone();
-    let persisted = PersistedHistory {
-        version: 1,
-        entries,
-    };
-    let parent = path
-        .parent()
-        .ok_or("History path has no parent directory")?;
-    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let temporary = path.with_extension("json.tmp");
-    fs::write(
-        &temporary,
-        serde_json::to_vec_pretty(&persisted).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
-    fs::rename(temporary, path).map_err(|error| error.to_string())
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyHistory {
+    version: u32,
+    entries: Vec<LegacyHistoryEntry>,
 }
 
-fn read_history(path: &PathBuf) -> Vec<HistoryEntry> {
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyHistoryEntry {
+    url: String,
+    title: String,
+    visited_at: u64,
+}
+
+fn read_legacy_history(path: &PathBuf) -> Vec<HistoryEntry> {
     fs::read(path)
         .ok()
-        .and_then(|contents| serde_json::from_slice::<PersistedHistory>(&contents).ok())
+        .and_then(|contents| serde_json::from_slice::<LegacyHistory>(&contents).ok())
         .filter(|history| history.version == 1)
-        .map(|mut history| {
-            history.entries.truncate(500);
-            history.entries
+        .map(|history| {
+            history
+                .entries
+                .into_iter()
+                .map(|entry| HistoryEntry {
+                    id: String::new(),
+                    url: entry.url,
+                    title: entry.title,
+                    visited_at: entry.visited_at,
+                    favicon: None,
+                })
+                .collect()
         })
         .unwrap_or_default()
 }
 
+fn current_history(state: &BrowserState) -> Result<Vec<HistoryEntry>, String> {
+    database_lock(state)?
+        .as_ref()
+        .ok_or_else(|| "Browser database is unavailable".to_string())?
+        .history(None, 10_000)
+}
+
 fn record_history_visit(app: &tauri::AppHandle, state: &BrowserState, url: String, title: String) {
-    if let Ok(mut history) = state.history.lock() {
-        let visited_at = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|duration| duration.as_secs())
-            .unwrap_or_default();
-        record_history_entry(
-            &mut history,
-            HistoryEntry {
-                url,
-                title,
-                visited_at,
-            },
-        );
-        let snapshot = history.clone();
-        drop(history);
-        let _ = persist_history(state);
+    let visited_at = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+    let result = database_lock(state).and_then(|database| {
+        database
+            .as_ref()
+            .ok_or_else(|| "Browser database is unavailable".to_string())?
+            .record_visit(&url, &title, visited_at)
+            .map(|_| ())
+    });
+    if let Err(error) = result {
+        eprintln!("could not record browsing history: {error}");
+        return;
+    }
+    if let Ok(snapshot) = current_history(state) {
+        if let Ok(mut history) = state.history.lock() {
+            *history = snapshot.clone();
+        }
         emit_history(app, &snapshot);
+        let _ = refresh_browser_menus(app, state);
     }
 }
 
@@ -400,12 +577,20 @@ fn update_history_entry_title(
     url: &str,
     title: &str,
 ) {
-    if let Ok(mut history) = state.history.lock() {
-        update_history_title(&mut history, url, title);
-        let snapshot = history.clone();
-        drop(history);
-        let _ = persist_history(state);
-        emit_history(app, &snapshot);
+    let result = database_lock(state).and_then(|database| {
+        database
+            .as_ref()
+            .ok_or_else(|| "Browser database is unavailable".to_string())?
+            .update_latest_visit_title(url, title)
+    });
+    if result.is_ok() {
+        if let Ok(snapshot) = current_history(state) {
+            if let Ok(mut history) = state.history.lock() {
+                *history = snapshot.clone();
+            }
+            emit_history(app, &snapshot);
+            let _ = refresh_browser_menus(app, state);
+        }
     }
 }
 
@@ -1236,9 +1421,25 @@ async fn desktop_test_browser_ui(
     tab_position: Option<String>,
     drop_position: Option<String>,
     snapshot: Option<serde_json::Value>,
+    window_label: Option<String>,
 ) -> Result<serde_json::Value, String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Desktop UI controls are only available to the trusted browser UI".into());
+    }
+    if action == "inspect-windows" {
+        let labels = app.windows().keys().cloned().collect::<Vec<_>>();
+        return serde_json::to_value(labels).map_err(|error| error.to_string());
+    }
+    if action == "close-window" {
+        let label = window_label.ok_or("A browser window label is required")?;
+        if !label.starts_with("browser-window-") {
+            return Err("Only test-created browser windows can be closed by this helper".into());
+        }
+        app.get_window(&label)
+            .ok_or("The requested browser window does not exist")?
+            .close()
+            .map_err(|error| error.to_string())?;
+        return Ok(serde_json::Value::Bool(true));
     }
     let ui = app
         .get_webview("main")
@@ -1271,7 +1472,8 @@ async fn desktop_test_browser_ui(
             return {{ selected: args.tabPosition }};
           }}
           if (args.action === 'seed-tab-folders') {{
-            localStorage.setItem('browser.tabTree', JSON.stringify([{{ id: 'desktop-test-folder', type: 'folder', title: 'Desktop Test Folder', collapsed: false, children: [] }}]));
+            if (typeof window.__myBrowserTestSeedTabFolders !== 'function') return {{ error: 'The desktop-test tab-folder bridge is unavailable' }};
+            window.__myBrowserTestSeedTabFolders();
             return {{ seeded: true }};
           }}
           if (args.action === 'create-tab-folder') {{
@@ -1390,10 +1592,7 @@ async fn desktop_test_browser_ui(
             const item = Array.from(document.querySelectorAll('.sidebar-context-menu button')).find(node => node.textContent.trim() === args.menuItem);
             if (!item) return {{ error: `Context item ${{args.menuItem}} was not found` }};
             if (item.getAttribute('aria-disabled') === 'true' || item.hasAttribute('disabled')) return {{ error: `Context item ${{args.menuItem}} is disabled` }};
-            const pointer = {{ bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1 }};
-            item.dispatchEvent(new PointerEvent('pointerdown', pointer));
-            item.dispatchEvent(new PointerEvent('pointerup', {{ ...pointer, buttons: 0 }}));
-            item.dispatchEvent(new MouseEvent('click', {{ bubbles: true, cancelable: true, button: 0 }}));
+            item.click();
             return {{ clicked: true }};
           }}
           if (args.action === 'inspect') {{
@@ -1954,14 +2153,110 @@ fn clear_browsing_data(
                 .map_err(|error| format!("Could not clear website data: {error}"))?;
         }
     }
+    database_lock(&state)?
+        .as_ref()
+        .ok_or_else(|| "Browser database is unavailable".to_string())?
+        .clear_history()?;
     state
         .history
         .lock()
         .map_err(|_| "History is unavailable")?
         .clear();
-    persist_history(&state)?;
     emit_history(&app, &[]);
+    refresh_browser_menus(&app, &state)?;
     Ok(())
+}
+
+#[tauri::command]
+fn load_bookmarks(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    legacy_bookmarks: Vec<BookmarkNode>,
+) -> Result<Vec<BookmarkNode>, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Bookmarks are only available to the trusted browser UI".into());
+    }
+    let bookmarks = database_lock(&state)?
+        .as_mut()
+        .ok_or_else(|| "Browser database is unavailable".to_string())?
+        .migrate_bookmarks_once(&legacy_bookmarks)?;
+    refresh_browser_menus(&app, &state)?;
+    Ok(bookmarks)
+}
+
+#[tauri::command]
+fn save_bookmarks(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    bookmarks: Vec<BookmarkNode>,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Bookmarks can only be changed from the trusted browser UI".into());
+    }
+    database_lock(&state)?
+        .as_mut()
+        .ok_or_else(|| "Browser database is unavailable".to_string())?
+        .save_bookmarks(&bookmarks)?;
+    refresh_browser_menus(&app, &state)
+}
+
+#[tauri::command]
+fn clear_history(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("History can only be cleared from the trusted browser UI".into());
+    }
+    database_lock(&state)?
+        .as_ref()
+        .ok_or_else(|| "Browser database is unavailable".to_string())?
+        .clear_history()?;
+    state
+        .history
+        .lock()
+        .map_err(|_| "History is unavailable")?
+        .clear();
+    emit_history(&app, &[]);
+    refresh_browser_menus(&app, &state)
+}
+
+#[tauri::command]
+fn import_bookmarks_html(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    path: String,
+) -> Result<Vec<BookmarkNode>, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Bookmarks can only be imported from the trusted browser UI".into());
+    }
+    let html = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let bookmarks = database_lock(&state)?
+        .as_mut()
+        .ok_or_else(|| "Browser database is unavailable".to_string())?
+        .import_bookmarks_html(&html)?;
+    refresh_browser_menus(&app, &state)?;
+    Ok(bookmarks)
+}
+
+#[tauri::command]
+fn export_bookmarks_html(
+    webview: tauri::Webview,
+    state: tauri::State<'_, BrowserState>,
+    path: String,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Bookmarks can only be exported from the trusted browser UI".into());
+    }
+    let html = database_lock(&state)?
+        .as_ref()
+        .ok_or_else(|| "Browser database is unavailable".to_string())?
+        .export_bookmarks_html()?;
+    fs::write(path, html).map_err(|error| error.to_string())
 }
 
 fn filter_settings_path(state: &BrowserState) -> Result<PathBuf, String> {
@@ -2210,11 +2505,25 @@ fn get_history(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("History is only available to the trusted browser UI".into());
     }
-    Ok(state
-        .history
-        .lock()
-        .map_err(|_| "History is unavailable")?
-        .clone())
+    database_lock(&state)?
+        .as_ref()
+        .ok_or_else(|| "Browser database is unavailable".to_string())?
+        .history(None, 10_000)
+}
+
+#[tauri::command]
+fn search_history(
+    webview: tauri::Webview,
+    state: tauri::State<'_, BrowserState>,
+    query: String,
+) -> Result<Vec<HistoryEntry>, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("History is only available to the trusted browser UI".into());
+    }
+    database_lock(&state)?
+        .as_ref()
+        .ok_or_else(|| "Browser database is unavailable".to_string())?
+        .history(Some(&query), 10_000)
 }
 
 #[tauri::command]
@@ -2269,6 +2578,14 @@ async fn get_tab_favicon(
         return Err("Favicons are only available to the trusted browser UI".into());
     }
     let page = get_page_for_window(&app, &state, webview.label(), &tab_id)?;
+    let page_url = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?
+        .iter()
+        .find(|tab| tab.id == tab_id)
+        .map(|tab| tab.url.clone())
+        .unwrap_or_default();
     let script = r#"(() => {
       const icon = document.querySelector('link[rel~="icon" i], link[rel~="shortcut" i]');
       if (icon && icon.href) return icon.href;
@@ -2284,7 +2601,93 @@ async fn get_tab_favicon(
     })
     .await
     .map_err(|error| error.to_string())??;
-    serde_json::from_str(&result).map_err(|error| error.to_string())
+    let icon_url: String = serde_json::from_str(&result).map_err(|error| error.to_string())?;
+    if icon_url.is_empty() || page_url.is_empty() {
+        return Ok(icon_url);
+    }
+    let cached = database_lock(&state)?
+        .as_ref()
+        .ok_or_else(|| "Browser database is unavailable".to_string())?
+        .favicon(&page_url)?;
+    if cached
+        .as_ref()
+        .is_some_and(|cached| cached.icon_url == icon_url && cached.data_url.is_some())
+    {
+        return Ok(icon_url);
+    }
+
+    let mut mime_type = None;
+    let mut data_url: Option<String> = None;
+    if icon_url.starts_with("data:image/") && icon_url.len() <= 512 * 1024 {
+        mime_type = icon_url
+            .split_once(':')
+            .and_then(|(_, remainder)| remainder.split([';', ',']).next())
+            .map(str::to_string);
+        data_url = Some(icon_url.clone());
+    } else if let (Ok(page_url_parsed), Ok(icon_url_parsed)) =
+        (url::Url::parse(&page_url), url::Url::parse(&icon_url))
+    {
+        // Only fetch same-origin icons in the native process. This avoids turning a
+        // page-provided icon URL into a request to local network services.
+        if matches!(icon_url_parsed.scheme(), "http" | "https")
+            && page_url_parsed.origin() == icon_url_parsed.origin()
+        {
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(4))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .map_err(|error| error.to_string())?;
+            if let Ok(response) = client.get(&icon_url).send().await {
+                let response_mime = response
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.split(';').next())
+                    .map(str::trim)
+                    .filter(|value| value.starts_with("image/"))
+                    .map(str::to_string);
+                let size_allowed = response
+                    .content_length()
+                    .map(|length| length <= 512 * 1024)
+                    .unwrap_or(true);
+                if response.status().is_success() && size_allowed {
+                    if let (Some(response_mime), Ok(bytes)) =
+                        (response_mime, response.bytes().await)
+                    {
+                        if !bytes.is_empty() && bytes.len() <= 512 * 1024 {
+                            use base64::Engine;
+                            data_url = Some(format!(
+                                "data:{response_mime};base64,{}",
+                                base64::engine::general_purpose::STANDARD.encode(&bytes)
+                            ));
+                            mime_type = Some(response_mime);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    database_lock(&state)?
+        .as_ref()
+        .ok_or_else(|| "Browser database is unavailable".to_string())?
+        .save_favicon(
+            &page_url,
+            &icon_url,
+            mime_type.as_deref(),
+            data_url.as_deref(),
+        )?;
+    if data_url.is_some() {
+        if let Ok(history) = current_history(&state) {
+            if let Ok(mut saved) = state.history.lock() {
+                *saved = history.clone();
+            }
+            emit_history(&app, &history);
+        }
+        let _ = emit_bookmarks(&app, &state);
+    } else {
+        let _ = refresh_browser_menus(&app, &state);
+    }
+    Ok(icon_url)
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -4159,12 +4562,33 @@ pub fn run() {
             .session_file
             .lock()
             .expect("session path lock poisoned") = Some(session_path.clone());
+        #[cfg(debug_assertions)]
+        let profile_database_path = std::env::var_os("MY_BROWSER_PROFILE_DIR")
+            .map(PathBuf::from)
+            .map(|path| path.join("browser.sqlite"));
+        #[cfg(not(debug_assertions))]
+        let profile_database_path: Option<PathBuf> = None;
+        #[cfg(feature = "macos-session-test")]
+        let session_test_database_path = std::env::var_os("MY_BROWSER_SESSION_TEST_PATH")
+            .map(PathBuf::from)
+            .and_then(|path| path.parent().map(|parent| parent.join("browser.sqlite")));
+        #[cfg(not(feature = "macos-session-test"))]
+        let session_test_database_path: Option<PathBuf> = None;
+        let database_path = std::env::var_os("UNKY_DATABASE_PATH")
+            .map(PathBuf::from)
+            .or(session_test_database_path)
+            .or(profile_database_path)
+            .unwrap_or(app.path().app_data_dir()?.join("browser.sqlite"));
         let history_path = session_path.with_file_name("history.json");
-        *state
-            .history_file
-            .lock()
-            .expect("history path lock poisoned") = Some(history_path.clone());
-        *state.history.lock().expect("history lock poisoned") = read_history(&history_path);
+        let mut database = BrowserDatabase::open(&database_path).map_err(std::io::Error::other)?;
+        database
+            .import_history_once(&read_legacy_history(&history_path))
+            .map_err(std::io::Error::other)?;
+        let history = database
+            .history(None, 10_000)
+            .map_err(std::io::Error::other)?;
+        *state.database.lock().expect("database lock poisoned") = Some(database);
+        *state.history.lock().expect("history lock poisoned") = history;
         let filter_path = session_path.with_file_name("filtering.json");
         *state
             .filtering_file
@@ -4354,6 +4778,9 @@ pub fn run() {
                 .separator()
                 .item(&actual_size)
                 .build()?;
+            let bookmarks_menu =
+                SubmenuBuilder::with_id(app, "bookmarks-menu", "Bookmarks").build()?;
+            let history_menu = SubmenuBuilder::with_id(app, "history-menu", "History").build()?;
             let show_shortcuts =
                 MenuItemBuilder::with_id("show-shortcuts", "Show Shortcuts").build(app)?;
             let help_menu = SubmenuBuilder::new(app, "Help")
@@ -4368,9 +4795,12 @@ pub fn run() {
             let menu = menu
                 .item(&edit_menu)
                 .item(&view_menu)
+                .item(&bookmarks_menu)
+                .item(&history_menu)
                 .item(&help_menu)
                 .build()?;
             app.set_menu(menu)?;
+            refresh_browser_menus(app.handle(), &state).map_err(std::io::Error::other)?;
         }
         #[cfg(all(target_os = "macos", feature = "macos-interception-test"))]
         {
@@ -4490,6 +4920,12 @@ pub fn run() {
         focus_browser_tab,
         set_page_context_menu_enabled,
         get_history,
+        search_history,
+        load_bookmarks,
+        save_bookmarks,
+        clear_history,
+        import_bookmarks_html,
+        export_bookmarks_html,
         get_downloads,
         find_in_page,
         get_tab_favicon,
@@ -4542,6 +4978,12 @@ pub fn run() {
         focus_browser_tab,
         set_page_context_menu_enabled,
         get_history,
+        search_history,
+        load_bookmarks,
+        save_bookmarks,
+        clear_history,
+        import_bookmarks_html,
+        export_bookmarks_html,
         get_downloads,
         find_in_page,
         get_tab_favicon,
@@ -4596,6 +5038,12 @@ pub fn run() {
         focus_browser_tab,
         set_page_context_menu_enabled,
         get_history,
+        search_history,
+        load_bookmarks,
+        save_bookmarks,
+        clear_history,
+        import_bookmarks_html,
+        export_bookmarks_html,
         get_downloads,
         find_in_page,
         get_tab_favicon,
@@ -4690,8 +5138,45 @@ pub fn run() {
                 );
                 app.dialog().message(text).title("About Unky").show(|_| {});
             }
-            if event.id().as_ref() == "show-history" {
+            if event.id().as_ref() == "show-history" || event.id().as_ref() == "history-show-all" {
                 let _ = app.emit_to(&window_label, SHOW_HISTORY_EVENT, ());
+            }
+            if event.id().as_ref() == "clear-history" {
+                let _ = app.emit_to(&window_label, CLEAR_HISTORY_REQUEST_EVENT, ());
+            }
+            if event.id().as_ref() == "import-bookmarks" {
+                let _ = app.emit_to(&window_label, IMPORT_BOOKMARKS_EVENT, ());
+            }
+            if event.id().as_ref() == "export-bookmarks" {
+                let _ = app.emit_to(&window_label, EXPORT_BOOKMARKS_EVENT, ());
+            }
+            let id = event.id().as_ref();
+            if let Some(bookmark_id) = id.strip_prefix("bookmark-open-") {
+                if let Some(state) = app.try_state::<BrowserState>() {
+                    if let Ok(database) = database_lock(&state) {
+                        if let Some(url) = database
+                            .as_ref()
+                            .and_then(|database| database.bookmark_url(bookmark_id).ok().flatten())
+                        {
+                            let _ = app.emit_to(&window_label, OPEN_URL_FROM_MENU_EVENT, url);
+                        }
+                    }
+                }
+            }
+            if let Some(history_id) = id
+                .strip_prefix("history-open-")
+                .and_then(|id| id.parse::<i64>().ok())
+            {
+                if let Some(state) = app.try_state::<BrowserState>() {
+                    if let Ok(database) = database_lock(&state) {
+                        if let Some(entry) = database
+                            .as_ref()
+                            .and_then(|database| database.history_entry(history_id).ok())
+                        {
+                            let _ = app.emit_to(&window_label, OPEN_URL_FROM_MENU_EVENT, entry.url);
+                        }
+                    }
+                }
             }
             if event.id().as_ref() == "show-downloads" {
                 let _ = app.emit_to(&window_label, SHOW_DOWNLOADS_EVENT, ());

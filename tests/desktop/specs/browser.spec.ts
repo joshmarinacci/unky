@@ -116,6 +116,10 @@ describe('native Tauri browser', () => {
     const windowTab = page.browser.tabs.find((item: Snapshot['tabs'][number]) => item.url === url && item.windowLabel !== 'main');
     assert.equal(windowTab?.private, true);
     await assert.rejects(() => invoke('open_link_in_new_window', { url: 'javascript:alert(1)' }));
+    if (windowTab) {
+      await browserUi('close-window', undefined, undefined, windowTab.windowLabel);
+      await browser.waitUntil(async () => !(await browserUi('inspect-windows') as string[]).includes(windowTab.windowLabel));
+    }
     await invoke('close_tab', { tabId: tab.id });
     await invoke('close_tab', { tabId: privateSource.activeTabId });
   });
@@ -230,8 +234,8 @@ describe('native Tauri browser', () => {
     const history = await invoke('get_history') as Array<{ url: string }>;
     assert.ok(history.some(entry => entry.url === `${base}&write=normal`));
     assert.ok(!history.some(entry => entry.url === privateUrl || entry.url === `${base}&mode=private-read`));
-    const savedHistory = JSON.parse(readFileSync(join(results, 'disposable-profile', 'history.json'), 'utf8'));
-    assert.ok(!savedHistory.entries.some((entry: { url: string }) => entry.url === privateUrl || entry.url === `${base}&mode=private-read`));
+    const storedHistory = await invoke('get_history') as Array<{ url: string }>;
+    assert.ok(!storedHistory.some(entry => entry.url === privateUrl || entry.url === `${base}&mode=private-read`));
 
     await invoke('close_tab', { tabId: privateId });
     const closed = JSON.parse(readFileSync(sessionPath, 'utf8'));

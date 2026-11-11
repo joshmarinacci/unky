@@ -180,6 +180,7 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .folder-title-input { user-select: text; }
 .bookmark-row { display: flex; min-width: 0; align-items: center; border-radius: 6px; user-select: none; }
 .bookmark-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; padding: 8px 4px; overflow: hidden; color: var(--text); text-align: left; }
+.bookmark-favicon, .history-favicon { width: 16px; height: 16px; flex: 0 0 16px; object-fit: contain; border-radius: 2px; }
 .bookmark-open > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .bookmark-open strong, .bookmark-open small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bookmark-open strong { font-size: var(--fs-sub); font-weight: 500; }

@@ -9,6 +9,8 @@
   "permissions": [
     "core:default",
     "core:window:allow-set-title",
+    "dialog:allow-open",
+    "dialog:allow-save",
     "allow-main-browser-commands"
   ]
 }

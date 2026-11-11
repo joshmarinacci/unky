@@ -80,6 +80,7 @@ def run_phase(phase, session_path, report_path, app_log, downloads_dir):
         "CI": "true",
         "MY_BROWSER_SESSION_TEST_PHASE": phase,
         "MY_BROWSER_SESSION_TEST_PATH": str(session_path),
+        "UNKY_DATABASE_PATH": str(session_path.with_name("browser.sqlite")),
         "MY_BROWSER_SESSION_TEST_REPORT": str(report_path),
         "MY_BROWSER_SESSION_TEST_DOWNLOAD_DIR": str(downloads_dir),
     })
