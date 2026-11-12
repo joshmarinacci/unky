@@ -136,3 +136,7 @@
 
 - Fixed tab URL restoration after navigation inside a page frame.
 - Added dated release notes and a release screenshot to the download page and release candidate.
+
+## 2026-11-12
+
+- Separated tab-strip position from bookmarks-sidebar placement. Tabs can dock vertically in the left/right sidebar or horizontally in a compact top/bottom strip, while bookmarks remain in a left/right sidebar. Added separate persisted Settings controls for both positions and expanded the desktop layout regression to cover detached tabs and sidebar geometry.

@@ -558,11 +558,15 @@ describe('native Tauri browser', () => {
       persistedPosition: string;
       sidebarCollapsed: boolean;
       tabListVisible: boolean;
+      tabsDetached: boolean;
+      bookmarksInSidebar: boolean;
       axis: string;
+      sidebarSide: 'left' | 'right';
       tabIds: string[];
       pinnedIds: string[];
       tree: TabNode[];
       sidebar: { x: number; y: number; width: number; height: number };
+      tabStrip: { x: number; y: number; width: number; height: number };
       page: { x: number; y: number; width: number; height: number };
       preview: string | null;
       dropTargets: Array<{ id: string; className: string }>;
@@ -572,6 +576,10 @@ describe('native Tauri browser', () => {
     const createdIds: string[] = [];
     let folderId = '';
     let dragActive = false;
+    const captureLayoutScreenshot = (filename: string) => {
+      try { captureNativeWindow(filename); }
+      catch (error) { console.warn(`Could not capture ${filename}: ${String(error)}`); }
+    };
     await browserUi('reset-tab-ui');
     await browser.pause(50);
     await browserUi('set-tab-position', undefined, undefined, { tabPosition: originalPosition });
@@ -613,12 +621,22 @@ describe('native Tauri browser', () => {
         assert.equal(layout.tabListVisible, true, 'the tab list should remain visible in every position');
         assert.ok(createdIds.every(id => layout.tabIds.includes(id)), 'all tabs should remain visible in every position');
         assert.equal(layout.axis, position === 'top' || position === 'bottom' ? 'horizontal' : 'vertical');
-        if (position === 'left') assert.ok(layout.sidebar.x + layout.sidebar.width <= layout.page.x, 'left tabs should sit before the page');
-        if (position === 'right') assert.ok(layout.sidebar.x >= layout.page.x + layout.page.width, 'right tabs should sit after the page');
-        if (position === 'top') assert.ok(layout.sidebar.y + layout.sidebar.height <= layout.page.y, 'top tabs should sit above the page');
-        if (position === 'bottom') assert.ok(layout.sidebar.y >= layout.page.y + layout.page.height, 'bottom tabs should sit below the page');
+        assert.equal(layout.tabsDetached, position === 'top' || position === 'bottom', 'top and bottom tabs should live outside the sidebar');
+        assert.equal(layout.bookmarksInSidebar, position === 'top' || position === 'bottom', 'when tabs detach, the bookmarks manager should stay in the side panel');
+        if (position === 'left') assert.ok(layout.sidebar.x + layout.sidebar.width <= layout.page.x, 'left tabs should remain in the left sidebar');
+        if (position === 'right') assert.ok(layout.sidebar.x >= layout.page.x + layout.page.width, 'right tabs should remain in the right sidebar');
+        if (position === 'top') {
+          assert.ok(layout.tabStrip.y + layout.tabStrip.height <= layout.page.y, 'top tabs should sit above the page');
+          if (layout.sidebarSide === 'left') assert.ok(layout.sidebar.x + layout.sidebar.width <= layout.page.x, 'the bookmarks sidebar should remain to the left of the page');
+          else assert.ok(layout.sidebar.x >= layout.page.x + layout.page.width, 'the bookmarks sidebar should remain to the right of the page');
+        }
+        if (position === 'bottom') {
+          assert.ok(layout.tabStrip.y >= layout.page.y + layout.page.height, 'bottom tabs should sit below the page');
+          if (layout.sidebarSide === 'left') assert.ok(layout.sidebar.x + layout.sidebar.width <= layout.page.x, 'the bookmarks sidebar should remain to the left of the page');
+          else assert.ok(layout.sidebar.x >= layout.page.x + layout.page.width, 'the bookmarks sidebar should remain to the right of the page');
+        }
         await browser.pause(150);
-        captureNativeWindow(`tab-strip-${position}.png`);
+        captureLayoutScreenshot(`tab-strip-${position}.png`);
       }
 
       await browserUi('set-tab-position', undefined, undefined, { tabPosition: 'left' });
@@ -639,7 +657,7 @@ describe('native Tauri browser', () => {
       await browser.pause(50);
       await browserUi('drag-over-tab', undefined, undefined, { targetId: folderId });
       await browser.waitUntil(async () => (await read()).dropTargets.some(item => item.id === folderId && item.className.includes('drop-inside')));
-      captureNativeWindow('tab-drop-folder-inside.png');
+      captureLayoutScreenshot('tab-drop-folder-inside.png');
       await browserUi('drag-end');
       dragActive = false;
       await browser.waitUntil(async () => {
@@ -653,7 +671,7 @@ describe('native Tauri browser', () => {
         await browser.pause(50);
         await settleTabDragOver('drag-over-dock');
         await browser.waitUntil(async () => (await read()).preview?.includes('tab-drag-morph'));
-        captureNativeWindow('tab-drag-pin-dock.png');
+        captureLayoutScreenshot('tab-drag-pin-dock.png');
         await browserUi('drag-end');
         dragActive = false;
         await browser.waitUntil(async () => (await read()).pinnedIds.includes(tabId));
@@ -687,7 +705,7 @@ describe('native Tauri browser', () => {
         const overlay = await invoke('desktop_test_inspect_tab_drag_overlay') as { target: string | null; preview: string | null };
         return overlay.target === 'left' && overlay.preview === 'tab';
       });
-      captureNativeWindow('tab-drag-split-target.png');
+      captureLayoutScreenshot('tab-drag-split-target.png');
       await settleTabDragOver('drag-over-tab', { targetId: third.activeTabId });
       await browserUi('drag-end');
       dragActive = false;
@@ -700,7 +718,7 @@ describe('native Tauri browser', () => {
       await browser.waitUntil(async () => (await invoke('desktop_test_inspect_tab_drag_overlay') as { attached: boolean }).attached);
       await invoke('desktop_test_show_tab_drag_feedback');
       await browser.waitUntil(async () => (await invoke('desktop_test_inspect_tab_drag_overlay') as { preview: string | null }).preview === 'folder');
-      captureNativeWindow('tab-drag-folder-invalid.png');
+      captureLayoutScreenshot('tab-drag-folder-invalid.png');
       await browserUi('drag-cancel');
       dragActive = false;
       assert.ok((await read()).tree.some(node => node.type === 'folder' && node.id === folderId), 'a cancelled folder drag should leave the folder intact');

@@ -1265,19 +1265,14 @@ async fn desktop_test_browser_ui(
             window.__myBrowserTestSyncTabSnapshot(args.snapshot);
             return {{ synced: true }};
           }}
+          if (args.action === 'set-tab-position') {{
+            if (typeof window.__myBrowserTestSetTabPosition !== 'function') return {{ error: 'The tab position test bridge is unavailable' }};
+            window.__myBrowserTestSetTabPosition(args.tabPosition);
+            return {{ selected: args.tabPosition }};
+          }}
           if (args.action === 'seed-tab-folders') {{
             localStorage.setItem('browser.tabTree', JSON.stringify([{{ id: 'desktop-test-folder', type: 'folder', title: 'Desktop Test Folder', collapsed: false, children: [] }}]));
             return {{ seeded: true }};
-          }}
-          if (args.action === 'set-tab-position') {{
-            const switcher = document.querySelector('[role="tab"][id="tabs"]');
-            if (switcher && switcher.getAttribute('aria-selected') !== 'true') switcher.click();
-            const expand = document.querySelector('[aria-label="Expand sidebar"]');
-            if (expand) expand.click();
-            const button = Array.from(document.querySelectorAll('.tab-position-picker button')).find(node => node.getAttribute('aria-label') === `Tabs on ${{args.tabPosition}}`);
-            if (!button) return {{ error: `Tab position ${{args.tabPosition}} was not found` }};
-            button.click();
-            return {{ selected: args.tabPosition }};
           }}
           if (args.action === 'create-tab-folder') {{
             const switcher = document.querySelector('[role="tab"][id="tabs"]');
@@ -1303,13 +1298,17 @@ async fn desktop_test_browser_ui(
           if (args.action === 'inspect-tab-layout') {{
             const shell = document.querySelector('.browser-shell');
             const sidebar = document.querySelector('.sidebar')?.getBoundingClientRect();
+            const tabStrip = (document.querySelector('.detached-tab-strip') || document.querySelector('.tab-list'))?.getBoundingClientRect();
             const page = document.querySelector('.webview-slot')?.getBoundingClientRect();
             const tree = JSON.parse(localStorage.getItem('browser.tabTree') || '[]');
             return {{
               position: shell?.getAttribute('data-tab-position'),
               persistedPosition: localStorage.getItem('browser.tabPosition'),
+              sidebarSide: shell?.getAttribute('data-sidebar-side'),
               sidebarCollapsed: shell?.getAttribute('data-sidebar-collapsed') === 'true',
               tabListVisible: document.querySelector('.tab-list') !== null,
+              tabsDetached: document.querySelector('.detached-tab-strip .tab-list') !== null,
+              bookmarksInSidebar: document.querySelector('.sidebar .bookmark-manager') !== null,
               axis: document.querySelector('.tab-list')?.getAttribute('aria-orientation'),
               tabIds: Array.from(document.querySelectorAll('.tab-list [data-tab-id]')).map(node => node.dataset.tabId),
               tabNodeIds: Array.from(document.querySelectorAll('.tab-list [data-tab-node-id]')).map(node => node.dataset.tabNodeId),
@@ -1317,6 +1316,7 @@ async fn desktop_test_browser_ui(
               tree,
               treeDragging: document.querySelector('.tab-tree')?.classList.contains('is-dragging') || false,
               sidebar: sidebar ? {{ x: sidebar.x, y: sidebar.y, width: sidebar.width, height: sidebar.height }} : null,
+              tabStrip: tabStrip ? {{ x: tabStrip.x, y: tabStrip.y, width: tabStrip.width, height: tabStrip.height }} : null,
               page: page ? {{ x: page.x, y: page.y, width: page.width, height: page.height }} : null,
               preview: document.querySelector('.tab-drag-morph')?.className || null,
               dropTargets: Array.from(document.querySelectorAll('.tab-sortable-item.drop-before, .tab-sortable-item.drop-after, .tab-sortable-item.drop-inside, .pinned-tab-button.drop-before, .pinned-tab-button.drop-after')).map(node => ({{ id: node.dataset.tabNodeId || node.dataset.tabId, className: node.className }})),

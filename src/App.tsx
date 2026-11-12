@@ -39,6 +39,7 @@ type TabNode = TabReference | TabFolder;
 type HistoryEntry = { url: string; title: string; visitedAt: number };
 type Download = { id: string; url: string; filename: string; path: string; status: 'downloading' | 'completed' | 'failed'; bytesReceived: number };
 type Theme = 'system' | 'light' | 'dark';
+type SidebarSide = 'left' | 'right';
 type FilterSettingsView = { enabled: boolean; sourceUrl: string; updatedAt: number | null; acceptedRules: number; exceptions: string[] };
 type FilterUpdateProgress = { phase: 'downloading' | 'compiling' | 'complete'; receivedBytes: number; totalBytes: number | null };
 type LaunchRequest = { url: string; private: boolean };
@@ -94,6 +95,12 @@ function initialSidebarWidth() {
 function initialTabPosition(): TabPosition {
   const saved = localStorage.getItem('browser.tabPosition');
   return isTabPosition(saved) ? saved : 'left';
+}
+
+function initialSidebarSide(): SidebarSide {
+  const saved = localStorage.getItem('browser.sidebarSide');
+  if (saved === 'left' || saved === 'right') return saved;
+  return initialTabPosition() === 'right' ? 'right' : 'left';
 }
 
 function initialSidebarCollapsed() {
@@ -519,6 +526,7 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialSidebarCollapsed);
   const [tabPosition, setTabPosition] = useState<TabPosition>(initialTabPosition);
+  const [sidebarSide, setSidebarSide] = useState<SidebarSide>(initialSidebarSide);
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [sidebarView, setSidebarView] = useState<'tabs' | 'bookmarks'>('tabs');
   const [bookmarks, setBookmarks] = useState<BookmarkNode[]>(initialBookmarks);
@@ -700,6 +708,10 @@ export default function App() {
   }, [tabPosition]);
 
   useEffect(() => {
+    localStorage.setItem('browser.sidebarSide', sidebarSide);
+  }, [sidebarSide]);
+
+  useEffect(() => {
     localStorage.setItem('browser.bookmarks', JSON.stringify(bookmarks));
   }, [bookmarks]);
 
@@ -804,7 +816,8 @@ export default function App() {
   useEffect(() => {
     if (!resizingSidebar) return;
     const resize = (event: PointerEvent) => {
-      const width = Math.max(sidebarMinWidth, Math.min(sidebarMaxWidth, event.clientX));
+      const pointerWidth = sidebarSide === 'right' ? window.innerWidth - event.clientX : event.clientX;
+      const width = Math.max(sidebarMinWidth, Math.min(sidebarMaxWidth, pointerWidth));
       setSidebarWidth(width);
       localStorage.setItem('browser.sidebarWidth', String(width));
     };
@@ -815,7 +828,7 @@ export default function App() {
       window.removeEventListener('pointermove', resize);
       window.removeEventListener('pointerup', stop);
     };
-  }, [resizingSidebar]);
+  }, [resizingSidebar, sidebarSide]);
 
   useEffect(() => {
     if (!findOpen) return;
@@ -850,12 +863,14 @@ export default function App() {
     const testWindow = window as typeof window & {
       __myBrowserTestResetTabUi?: () => void;
       __myBrowserTestSyncTabSnapshot?: (snapshot: BrowserSnapshot) => void;
+      __myBrowserTestSetTabPosition?: (position: unknown) => void;
     };
     testWindow.__myBrowserTestResetTabUi = () => {
       setSidebarView('tabs');
       setSidebarCollapsed(false);
       setPinnedTabIds([]);
       setTabPosition('left');
+      setSidebarSide('left');
       setTabGroupPickerOpen(false);
       setSplitPickerOpen(false);
       setTabContextMenu(null);
@@ -866,9 +881,15 @@ export default function App() {
       setPinnedTabIds([]);
       storeTabTree(reconcileTabNodes([], snapshot.tabs));
     };
+    testWindow.__myBrowserTestSetTabPosition = position => {
+      if (!isTabPosition(position)) return;
+      setTabPosition(position);
+      if (position === 'left' || position === 'right') setSidebarSide(position);
+    };
     return () => {
       delete testWindow.__myBrowserTestResetTabUi;
       delete testWindow.__myBrowserTestSyncTabSnapshot;
+      delete testWindow.__myBrowserTestSetTabPosition;
     };
   }, [applySnapshot]);
 
@@ -1936,124 +1957,111 @@ export default function App() {
   const visibleBookmarkRows = flattenBookmarkNodes(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()), bookmarkExpanded);
   const horizontalTabStrip = tabAxisForPosition(tabPosition) === 'horizontal';
 
+  function renderTabManager() {
+    return <DndContext sensors={tabSensors} collisionDetection={tabCollisionDetection} onDragStart={handleTabDragStart} onDragMove={handleTabDragMove} onDragEnd={handleTabDragEnd} onDragCancel={() => finishTabDrag(true)}>
+      <div className="bookmark-toolbar tab-toolbar">
+        <AppButton className="new-folder-button" title={`New tab (${commandKey}+T)`} onClick={() => void createTab()}><Plus className="ui-icon" size={14} aria-hidden="true" /> Tab</AppButton>
+        <AppButton className="new-folder-button" title="Create tab folder" aria-label="Create tab folder" onClick={createTabFolder}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
+      </div>
+      <PinnedTabsDock active={tabDropTarget?.container === 'pinned'} empty={pinnedTabs.length === 0}>
+        <SortableContext items={pinnedTabs.map(tab => `pinned:${tab.id}`)} strategy={() => null}>
+          {pinnedTabs.map(tab => renderPinnedTab(tab, false, tabDropTarget?.container === 'pinned' && tabDropTarget.overId === tab.id ? tabDropTarget.zone : undefined))}
+        </SortableContext>
+      </PinnedTabsDock>
+      <div className={`tab-list tab-tree ${horizontalTabStrip ? 'horizontal' : 'vertical'} ${tabDragOrigin ? 'is-dragging' : ''}`} role="tree" aria-orientation={horizontalTabStrip ? 'horizontal' : 'vertical'} aria-label="Open tabs">
+        <SortableContext items={displayedTabRows.map(row => row.node.id)} strategy={() => null}>
+          {sidebarTabRows.map(row => row.type === 'single' ? renderTabRow(row.row) : <div
+            key={`split-${row.first.node.id}-${row.second.node.id}`}
+            className={`tab-split-row ${[row.first.node.id, row.second.node.id].includes(activeTabId) ? 'split-active' : ''}`}
+            style={horizontalTabStrip ? { marginTop: row.depth * 10 } : { marginLeft: row.depth * 14 }} role="group" aria-label="Split view"
+            data-split-first={row.first.node.id} data-split-second={row.second.node.id}
+          >{renderTabRow({ ...row.first, depth: row.depth }, true)}{renderTabRow({ ...row.second, depth: row.depth }, true)}</div>)}
+        </SortableContext>
+      </div>
+      <div className="tab-actions"><AppButton className="new-tab" title={`New private tab (${commandKey}+Shift+N)`} onClick={() => void createTab(true)}><EyeOff className="ui-icon" size={16} aria-hidden="true" /> New private tab</AppButton></div>
+      <DragOverlay dropAnimation={null}>
+        {draggedTabNode && tabDragOrigin && tabDragPreview !== 'split' ? (() => {
+          const dockShape = tabDropTarget ? tabDropTarget.container === 'pinned' : tabDragOrigin.container === 'pinned';
+          const width = dockShape ? 36 : horizontalTabStrip ? 170 : tabDragOrigin.width;
+          const height = dockShape ? 36 : horizontalTabStrip ? 40 : tabDragOrigin.height;
+          const resized = width !== tabDragOrigin.width || height !== tabDragOrigin.height;
+          const tab = draggedTabNode.type === 'tab' ? tabs.find(item => item.id === draggedTabNode.id) : undefined;
+          const title = draggedTabNode.type === 'folder' ? draggedTabNode.title : tabNameOverrides[draggedTabNode.id] || tab?.title || 'New Tab';
+          return <div className={`tab-drag-morph${tabDragPreview === 'invalid' ? ' invalid' : ''}`} style={{ width, height, transform: resized ? `translate(${tabDragOrigin.grabX - width / 2}px, ${tabDragOrigin.grabY - height / 2}px)` : undefined }}>
+            <div className="tab-drag-card" style={{ opacity: dockShape ? 0 : 1 }}>
+              {draggedTabNode.type === 'folder' ? <Folder className="ui-icon" size={14} aria-hidden="true" /> : tab ? renderTabIcon(tab) : <Globe2 className="ui-icon" size={14} aria-hidden="true" />}
+              <span>{title}</span>
+            </div>
+            {tab && <div className="tab-drag-icon" style={{ opacity: dockShape ? 1 : 0 }}>{renderTabIcon(tab)}</div>}
+          </div>;
+        })() : null}
+      </DragOverlay>
+    </DndContext>;
+  }
+
+  function renderBookmarkManager() {
+    return <div className="bookmark-manager">
+      <div className="bookmark-toolbar">
+        <SearchField className="bookmark-search-field" aria-label="Search bookmarks" value={bookmarkSearch} onChange={setBookmarkSearch}>
+          <Input className="bookmark-search" type="search" placeholder="Find a bookmark" />
+          <AriaButton className="bookmark-search-clear" aria-label="Clear bookmarks search"><X className="ui-icon" size={14} aria-hidden="true" /></AriaButton>
+        </SearchField>
+        <AppButton className="new-folder-button" onClick={() => startAddBookmark()}><Plus className="ui-icon" size={14} aria-hidden="true" /> Bookmark</AppButton><AppButton className="new-folder-button" onClick={() => createBookmarkFolder()}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
+      </div>
+      {addingBookmark && bookmarkEditForm}
+      <DndContext sensors={bookmarkSensors} collisionDetection={closestCenter} onDragStart={handleBookmarkDragStart} onDragMove={handleBookmarkDragMove} onDragEnd={handleBookmarkDragEnd} onDragCancel={endBookmarkDrag}>
+        <div className={`bookmark-list bookmark-tree bookmark-dnd-list ${bookmarkDragOrigin ? 'is-dragging' : ''}`} role="tree" aria-label="Saved bookmarks">
+          {visibleBookmarkRows.length ? <SortableContext items={visibleBookmarkRows.map(item => item.node.id)} strategy={() => null}>
+            {visibleBookmarkRows.map(({ node, depth }) => <BookmarkSortableRow
+              key={node.id} node={node} depth={depth} expanded={bookmarkExpanded.has(node.id)} dropZone={bookmarkDropTarget?.overId === node.id ? bookmarkDropTarget.zone : undefined} editing={editingBookmarkId === node.id}
+              onToggle={() => setExpandedFolderIds(ids => ids.includes(node.id) ? ids.filter(id => id !== node.id) : [...ids, node.id])}
+              onOpen={url => void openBookmark(url)} onEdit={editBookmark} onDelete={deleteBookmarkNode} onNewFolder={createBookmarkFolder}
+              onContextMenu={(event, bookmark) => void openBookmarkContextMenu(event, bookmark)}
+              onRename={folder => { setFolderTitle(folder.title); setEditingFolderId(folder.id); }}
+              onCancelRename={() => { setEditingFolderId(''); setFolderTitle(node.type === 'folder' ? node.title : ''); }}
+              editingFolder={node.type === 'folder' && editingFolderId === node.id} folderTitle={folderTitle} setFolderTitle={setFolderTitle}
+              saveFolderTitle={() => saveFolderTitle(node.id)} editForm={bookmarkEditForm}
+            />)}
+          </SortableContext> : <p className="bookmark-empty">{bookmarks.length === 0 ? 'Your saved pages will appear here.' : 'No matching bookmarks.'}</p>}
+        </div>
+        <DragOverlay dropAnimation={null}>{draggedBookmark ? <div className="bookmark-drag-overlay">{draggedBookmark.type === 'folder' ? <Folder className="ui-icon" size={14} aria-hidden="true" /> : <Star className="ui-icon" size={14} aria-hidden="true" />}<span>{draggedBookmark.title}</span></div> : null}</DragOverlay>
+      </DndContext>
+    </div>;
+  }
+
   return (
-    <main className="browser-shell" data-tab-position={tabPosition} data-sidebar-collapsed={sidebarCollapsed}>
+    <main className="browser-shell" data-tab-position={tabPosition} data-sidebar-side={sidebarSide} data-sidebar-collapsed={sidebarCollapsed}>
+      {horizontalTabStrip && <div className={`detached-tab-strip ${tabPosition}`} role="region" aria-label="Open tabs">
+        <div className="detached-tab-manager">{renderTabManager()}</div>
+      </div>}
       <aside
-        className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}
-        data-tab-position={tabPosition}
-        style={horizontalTabStrip
-          ? { width: '100%', flexBasis: 'auto', height: sidebarCollapsed ? 54 : 190 }
-          : { width: sidebarCollapsed ? 48 : sidebarWidth, flexBasis: sidebarCollapsed ? 48 : sidebarWidth, height: '100%' }}
+        className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''} ${horizontalTabStrip ? 'tabs-detached' : ''}`}
+        data-sidebar-side={sidebarSide}
+        style={{ width: sidebarCollapsed ? 48 : sidebarWidth, flexBasis: sidebarCollapsed ? 48 : sidebarWidth, height: '100%' }}
       >
         <div className="brand-row">
           <div className="brand-mark" aria-hidden="true"><CircleDot className="ui-icon" size={17} /></div>
           <span className="brand-name">Unky</span>
           <AppButton className="sidebar-collapse-button" type="button" aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!sidebarCollapsed} aria-controls="sidebar-content" onClick={() => setSidebarCollapsed(collapsed => !collapsed)}>{sidebarCollapsed ? <PanelLeftOpen className="ui-icon" size={16} aria-hidden="true" /> : <PanelLeftClose className="ui-icon" size={16} aria-hidden="true" />}</AppButton>
         </div>
-        {sidebarCollapsed && <div className="sidebar-rail">
+        {sidebarCollapsed && !horizontalTabStrip && <div className="sidebar-rail">
           <button type="button" className="rail-button" title={`New tab (${commandKey}+T)`} aria-label="New tab" onClick={() => void createTab()}><Plus className="ui-icon" size={16} aria-hidden="true" /></button>
           {pinnedTabs.length > 0 && <div className="pinned-tabs-row pinned-tabs-row-rail" role="group" aria-label="Pinned tabs">{pinnedTabs.map(tab => renderPinnedTab(tab, true))}</div>}
           <div className="rail-tabs">{sidebarTabRows.map(row => row.type === 'single' ? renderRailItem(row.row) : <div className="rail-split-row" role="group" aria-label="Split view" key={`split-${row.first.node.id}-${row.second.node.id}`}>{renderRailItem(row.first)}{renderRailItem(row.second)}</div>)}</div>
           <button type="button" className="rail-button" title="Toggle developer console" aria-label="Toggle developer console" onClick={() => void invoke('toggle_devtools').catch(error => setMessage(String(error)))}><Terminal className="ui-icon" size={16} aria-hidden="true" /></button>
         </div>}
         <div className="sidebar-content" id="sidebar-content">
-        <Tabs className="sidebar-tabs" selectedKey={sidebarView} onSelectionChange={key => setSidebarView(key as typeof sidebarView)}>
-          <TabList className="sidebar-switcher" aria-label="Sidebar views">
-            <Tab id="tabs">Tabs</Tab>
-            <Tab id="bookmarks">Bookmarks</Tab>
-          </TabList>
-          <TabPanels className="sidebar-panels">
-          <TabPanel id={sidebarView} className="sidebar-panel">
-        {sidebarView === 'tabs' ? <>
-        <DndContext sensors={tabSensors} collisionDetection={tabCollisionDetection} onDragStart={handleTabDragStart} onDragMove={handleTabDragMove} onDragEnd={handleTabDragEnd} onDragCancel={() => finishTabDrag(true)}>
-        <div className="bookmark-toolbar tab-toolbar">
-          <AppButton className="new-folder-button" title={`New tab (${commandKey}+T)`} onClick={() => void createTab()}><Plus className="ui-icon" size={14} aria-hidden="true" /> Tab</AppButton>
-          <AppButton className="new-folder-button" title="Create tab folder" aria-label="Create tab folder" onClick={createTabFolder}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
-          <div className="tab-position-picker" role="group" aria-label="Tab bar position">
-            {tabPositions.map(position => <button
-              key={position.id}
-              type="button"
-              title={`Tabs on ${position.id}`}
-              aria-label={`Tabs on ${position.id}`}
-              aria-pressed={tabPosition === position.id}
-              onClick={() => setTabPosition(position.id)}
-            >{position.symbol}</button>)}
-          </div>
-        </div>
-        <PinnedTabsDock active={tabDropTarget?.container === 'pinned'} empty={pinnedTabs.length === 0}>
-          <SortableContext items={pinnedTabs.map(tab => `pinned:${tab.id}`)} strategy={() => null}>
-            {pinnedTabs.map(tab => renderPinnedTab(
-              tab,
-              false,
-              tabDropTarget?.container === 'pinned' && tabDropTarget.overId === tab.id ? tabDropTarget.zone : undefined,
-            ))}
-          </SortableContext>
-        </PinnedTabsDock>
-        <div className={`tab-list tab-tree ${horizontalTabStrip ? 'horizontal' : 'vertical'} ${tabDragOrigin ? 'is-dragging' : ''}`} role="tree" aria-orientation={horizontalTabStrip ? 'horizontal' : 'vertical'} aria-label="Open tabs">
-          <SortableContext items={displayedTabRows.map(row => row.node.id)} strategy={() => null}>
-            {sidebarTabRows.map(row => row.type === 'single' ? renderTabRow(row.row) : <div
-              key={`split-${row.first.node.id}-${row.second.node.id}`}
-              className={`tab-split-row ${[row.first.node.id, row.second.node.id].includes(activeTabId) ? 'split-active' : ''}`}
-              style={horizontalTabStrip ? { marginTop: row.depth * 10 } : { marginLeft: row.depth * 14 }} role="group" aria-label="Split view"
-              data-split-first={row.first.node.id} data-split-second={row.second.node.id}
-            >{renderTabRow({ ...row.first, depth: row.depth }, true)}{renderTabRow({ ...row.second, depth: row.depth }, true)}</div>)}
-          </SortableContext>
-        </div>
-        <div className="tab-actions">
-          <AppButton className="new-tab" title={`New private tab (${commandKey}+Shift+N)`} onClick={() => void createTab(true)}><EyeOff className="ui-icon" size={16} aria-hidden="true" /> New private tab</AppButton>
-        </div>
-        <DragOverlay dropAnimation={null}>
-          {draggedTabNode && tabDragOrigin && tabDragPreview !== 'split' ? (() => {
-            const dockShape = tabDropTarget ? tabDropTarget.container === 'pinned' : tabDragOrigin.container === 'pinned';
-            const width = dockShape ? 36 : horizontalTabStrip ? 170 : tabDragOrigin.width;
-            const height = dockShape ? 36 : horizontalTabStrip ? 40 : tabDragOrigin.height;
-            const resized = width !== tabDragOrigin.width || height !== tabDragOrigin.height;
-            const tab = draggedTabNode.type === 'tab' ? tabs.find(item => item.id === draggedTabNode.id) : undefined;
-            const title = draggedTabNode.type === 'folder' ? draggedTabNode.title : tabNameOverrides[draggedTabNode.id] || tab?.title || 'New Tab';
-            return <div
-              className={`tab-drag-morph${tabDragPreview === 'invalid' ? ' invalid' : ''}`}
-              style={{ width, height, transform: resized ? `translate(${tabDragOrigin.grabX - width / 2}px, ${tabDragOrigin.grabY - height / 2}px)` : undefined }}
-            >
-              <div className="tab-drag-card" style={{ opacity: dockShape ? 0 : 1 }}>
-                {draggedTabNode.type === 'folder' ? <Folder className="ui-icon" size={14} aria-hidden="true" /> : tab ? renderTabIcon(tab) : <Globe2 className="ui-icon" size={14} aria-hidden="true" />}
-                <span>{title}</span>
-              </div>
-              {tab && <div className="tab-drag-icon" style={{ opacity: dockShape ? 1 : 0 }}>{renderTabIcon(tab)}</div>}
-            </div>;
-          })() : null}
-        </DragOverlay>
-        </DndContext>
-        </> : sidebarView === 'bookmarks' ? <div className="bookmark-manager">
-          <div className="bookmark-toolbar">
-            <SearchField className="bookmark-search-field" aria-label="Search bookmarks" value={bookmarkSearch} onChange={setBookmarkSearch}>
-              <Input className="bookmark-search" type="search" placeholder="Find a bookmark" />
-              <AriaButton className="bookmark-search-clear" aria-label="Clear bookmarks search"><X className="ui-icon" size={14} aria-hidden="true" /></AriaButton>
-            </SearchField>
-            <AppButton className="new-folder-button" onClick={() => startAddBookmark()}><Plus className="ui-icon" size={14} aria-hidden="true" /> Bookmark</AppButton><AppButton className="new-folder-button" onClick={() => createBookmarkFolder()}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
-          </div>
-          {addingBookmark && bookmarkEditForm}
-          <DndContext sensors={bookmarkSensors} collisionDetection={closestCenter} onDragStart={handleBookmarkDragStart} onDragMove={handleBookmarkDragMove} onDragEnd={handleBookmarkDragEnd} onDragCancel={endBookmarkDrag}>
-            <div className={`bookmark-list bookmark-tree bookmark-dnd-list ${bookmarkDragOrigin ? 'is-dragging' : ''}`} role="tree" aria-label="Saved bookmarks">
-              {visibleBookmarkRows.length ? <SortableContext items={visibleBookmarkRows.map(item => item.node.id)} strategy={() => null}>
-                {visibleBookmarkRows.map(({ node, depth }) => <BookmarkSortableRow
-                  key={node.id} node={node} depth={depth} expanded={bookmarkExpanded.has(node.id)} dropZone={bookmarkDropTarget?.overId === node.id ? bookmarkDropTarget.zone : undefined} editing={editingBookmarkId === node.id}
-                  onToggle={() => setExpandedFolderIds(ids => ids.includes(node.id) ? ids.filter(id => id !== node.id) : [...ids, node.id])}
-                  onOpen={url => void openBookmark(url)} onEdit={editBookmark} onDelete={deleteBookmarkNode} onNewFolder={createBookmarkFolder}
-                  onContextMenu={(event, bookmark) => void openBookmarkContextMenu(event, bookmark)}
-                  onRename={folder => { setFolderTitle(folder.title); setEditingFolderId(folder.id); }}
-                  onCancelRename={() => { setEditingFolderId(''); setFolderTitle(node.type === 'folder' ? node.title : ''); }}
-                  editingFolder={node.type === 'folder' && editingFolderId === node.id} folderTitle={folderTitle} setFolderTitle={setFolderTitle}
-                  saveFolderTitle={() => saveFolderTitle(node.id)}
-                  editForm={bookmarkEditForm}
-                />)}
-              </SortableContext> : <p className="bookmark-empty">{bookmarks.length === 0 ? 'Your saved pages will appear here.' : 'No matching bookmarks.'}</p>}
-            </div>
-            <DragOverlay dropAnimation={null}>{draggedBookmark ? <div className="bookmark-drag-overlay">{draggedBookmark.type === 'folder' ? <Folder className="ui-icon" size={14} aria-hidden="true" /> : <Star className="ui-icon" size={14} aria-hidden="true" />}<span>{draggedBookmark.title}</span></div> : null}</DragOverlay>
-          </DndContext>
-        </div> : null}
-          </TabPanel>
-          </TabPanels>
-        </Tabs>
+          {horizontalTabStrip ? renderBookmarkManager() : <Tabs className="sidebar-tabs" selectedKey={sidebarView} onSelectionChange={key => setSidebarView(key as typeof sidebarView)}>
+            <TabList className="sidebar-switcher" aria-label="Sidebar views">
+              <Tab id="tabs">Tabs</Tab>
+              <Tab id="bookmarks">Bookmarks</Tab>
+            </TabList>
+            <TabPanels className="sidebar-panels">
+              <TabPanel id={sidebarView} className="sidebar-panel">
+                {sidebarView === 'tabs' ? renderTabManager() : renderBookmarkManager()}
+              </TabPanel>
+            </TabPanels>
+          </Tabs>}
         </div>
         {tabContextMenu && <>
           <div className="sidebar-context-dismiss" onClick={() => setTabContextMenu(null)} />
@@ -2192,7 +2200,30 @@ export default function App() {
                   </ListBox></Popover>
                 </Select>
               </div>
-              <div className="settings-card"><div><strong>Sidebar width</strong><small>Resize the sidebar by dragging its right edge.</small></div><span>{Math.round(sidebarWidth)} px</span></div>
+              <div className="settings-card"><div><strong>Tab position</strong><small>Place tabs in the sidebar or dock them across the top or bottom edge.</small></div>
+                <div className="tab-position-picker" role="group" aria-label="Tab position">
+                  {tabPositions.map(position => <button
+                    key={position.id}
+                    type="button"
+                    title={`Tabs on ${position.id}`}
+                    aria-label={`Tabs on ${position.id}`}
+                    aria-pressed={tabPosition === position.id}
+                    onClick={() => {
+                      setTabPosition(position.id);
+                      if (position.id === 'left' || position.id === 'right') setSidebarSide(position.id);
+                    }}
+                  ><span aria-hidden="true">{position.symbol}</span>{position.id[0].toUpperCase() + position.id.slice(1)}</button>)}
+                </div>
+              </div>
+              <div className="settings-card"><div><strong>Bookmarks sidebar</strong><small>Keep bookmarks on the left or right side of the window.</small></div>
+                <div className="tab-position-picker sidebar-side-picker" role="group" aria-label="Bookmarks sidebar position">
+                  {(['left', 'right'] as const).map(side => <button key={side} type="button" aria-label={`Bookmarks sidebar on ${side}`} aria-pressed={sidebarSide === side} onClick={() => {
+                    setSidebarSide(side);
+                    if (tabPosition === 'left' || tabPosition === 'right') setTabPosition(side);
+                  }}>{side[0].toUpperCase() + side.slice(1)}</button>)}
+                </div>
+              </div>
+              <div className="settings-card"><div><strong>Sidebar width</strong><small>Resize the sidebar by dragging its inner edge.</small></div><span>{Math.round(sidebarWidth)} px</span></div>
               <h2>Privacy</h2>
               <div className="settings-card"><div><strong>Private tab</strong><small>Open a tab with ephemeral website storage. Private tabs are excluded from history and session recovery.</small></div><AppButton onClick={() => void createTab(true)}>New private tab</AppButton></div>
               <div className="settings-card"><div><strong>Clear browsing data</strong><small>Clear website storage for this browser profile and remove browsing history.</small></div><AppButton onClick={() => void clearBrowsingData()}>Clear data</AppButton></div>

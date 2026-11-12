@@ -52,6 +52,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 .sidebar.collapsed { padding: 18px 9px 12px; }
 .sidebar-sizer { position: absolute; z-index: 5; top: 0; right: -3px; bottom: 0; width: 6px; cursor: col-resize; touch-action: none; }
 .sidebar-sizer::after { position: absolute; top: 0; right: 2px; bottom: 0; width: 1px; background: transparent; content: ''; }
+.browser-shell[data-sidebar-side="right"] .sidebar-sizer::after { right: auto; left: 2px; }
 .sidebar-sizer:hover::after, .sidebar-sizer:focus-visible::after, .sidebar-sizer.dragging::after { background: var(--accent); }
 .sidebar-sizer:focus-visible { outline: 0; }
 .brand-row { display: flex; height: 39px; align-items: center; gap: 10px; padding: 0 10px 13px; }
@@ -260,6 +261,7 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .settings-content h2 { margin: 24px 0 9px; color: var(--muted); font-size: var(--fs-callout); font-weight: 600; }
 .settings-card { display: flex; min-height: 62px; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 15px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
 .settings-card > div { display: flex; flex-direction: column; gap: 5px; }
+.settings-card > .tab-position-picker { display: flex; flex-direction: row; flex: 0 0 auto; }
 .settings-card strong { color: var(--text); font-size: var(--fs-body); font-weight: 500; }
 .settings-card small, .settings-card > span { color: var(--muted); font-size: var(--fs-sub); }
 .filter-update-progress { display: flex; width: min(320px, 60vw); flex-direction: column; gap: 4px; color: var(--muted); font-size: var(--fs-sub); }
@@ -295,87 +297,54 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .capture-progress-percent { min-width: 32px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; font-size: var(--fs-caption); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* The tab manager can dock on any edge of the page. */
-.browser-shell[data-tab-position="left"] { grid-template-areas: "sidebar main"; grid-template-columns: auto minmax(0, 1fr); }
-.browser-shell[data-tab-position="right"] { grid-template-areas: "main sidebar"; grid-template-columns: minmax(0, 1fr) auto; }
-.browser-shell[data-tab-position="top"] { grid-template-areas: "sidebar" "main"; grid-template-columns: minmax(0, 1fr); grid-template-rows: 190px minmax(0, 1fr); }
-.browser-shell[data-tab-position="bottom"] { grid-template-areas: "main" "sidebar"; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 190px; }
-.browser-shell[data-tab-position="top"][data-sidebar-collapsed="true"] { grid-template-rows: 54px minmax(0, 1fr); }
-.browser-shell[data-tab-position="bottom"][data-sidebar-collapsed="true"] { grid-template-rows: minmax(0, 1fr) 54px; }
+/* Tabs can dock on any edge; the bookmarks sidebar stays on a vertical edge. */
+.browser-shell[data-sidebar-side="left"] { grid-template-areas: "sidebar main"; grid-template-columns: auto minmax(0, 1fr); }
+.browser-shell[data-sidebar-side="right"] { grid-template-areas: "main sidebar"; grid-template-columns: minmax(0, 1fr) auto; }
+.browser-shell[data-sidebar-side="right"] .sidebar { border-right: 0; border-left: 1px solid var(--sidebar-border); }
+.browser-shell[data-sidebar-side="right"] .sidebar-sizer { right: auto; left: -3px; }
+.browser-shell[data-tab-position="top"][data-sidebar-side="left"] {
+  grid-template-areas: "tabs tabs" "sidebar main";
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 58px minmax(0, 1fr);
+}
+.browser-shell[data-tab-position="top"][data-sidebar-side="right"] {
+  grid-template-areas: "tabs tabs" "main sidebar";
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 58px minmax(0, 1fr);
+}
+.browser-shell[data-tab-position="bottom"][data-sidebar-side="left"] {
+  grid-template-areas: "sidebar main" "tabs tabs";
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 58px;
+}
+.browser-shell[data-tab-position="bottom"][data-sidebar-side="right"] {
+  grid-template-areas: "main sidebar" "tabs tabs";
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) 58px;
+}
 .sidebar { grid-area: sidebar; }
 .browser-main { grid-area: main; }
-.browser-shell[data-tab-position="right"] .sidebar { border-right: 0; border-left: 1px solid var(--sidebar-border); }
-.browser-shell[data-tab-position="top"] .sidebar,
-.browser-shell[data-tab-position="bottom"] .sidebar {
-  width: 100% !important;
-  min-height: 0;
-  flex-direction: row;
-  align-items: stretch;
-  padding: 8px 13px;
-  border-right: 0;
-}
-.browser-shell[data-tab-position="top"] .sidebar { border-bottom: 1px solid var(--sidebar-border); }
-.browser-shell[data-tab-position="bottom"] .sidebar { border-top: 1px solid var(--sidebar-border); }
-.browser-shell[data-tab-position="top"] .brand-row,
-.browser-shell[data-tab-position="bottom"] .brand-row {
-  width: 126px;
-  height: auto;
-  flex: 0 0 126px;
-  padding: 0 12px 0 2px;
-  border-right: 1px solid var(--border);
-}
-.browser-shell[data-tab-position="top"] .sidebar-content,
-.browser-shell[data-tab-position="bottom"] .sidebar-content { flex-direction: row; overflow: hidden; }
-.browser-shell[data-tab-position="top"] .sidebar-tabs,
-.browser-shell[data-tab-position="bottom"] .sidebar-tabs { flex-direction: row; overflow: hidden; }
-.browser-shell[data-tab-position="top"] .sidebar-switcher,
-.browser-shell[data-tab-position="bottom"] .sidebar-switcher {
-  width: 76px;
-  flex: 0 0 76px;
-  flex-direction: column;
-  margin: 0 8px 0 10px;
-}
-.browser-shell[data-tab-position="top"] .sidebar-panels,
-.browser-shell[data-tab-position="bottom"] .sidebar-panels,
-.browser-shell[data-tab-position="top"] .sidebar-panel,
-.browser-shell[data-tab-position="bottom"] .sidebar-panel { flex-direction: row; overflow: hidden; }
-.browser-shell[data-tab-position="top"] .tab-toolbar,
-.browser-shell[data-tab-position="bottom"] .tab-toolbar {
-  width: 124px;
-  flex: 0 0 124px;
-  flex-direction: column;
-  justify-content: center;
-  margin: 0 8px 0 0;
-}
-.browser-shell[data-tab-position="top"] .tab-toolbar .new-folder-button,
-.browser-shell[data-tab-position="bottom"] .tab-toolbar .new-folder-button { min-height: 29px; flex: 0 0 29px; }
-.tab-position-picker { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
-.tab-position-picker button { display: grid; height: 22px; place-items: center; padding: 0; border: 0; border-radius: 4px; color: var(--muted); background: transparent; font-size: 13px; line-height: 1; }
-.tab-position-picker button:hover { background: var(--surface-hover); }
-.tab-position-picker button[aria-pressed="true"] { color: var(--accent-contrast); background: var(--accent); }
-.pinned-tabs-row { position: relative; min-height: 42px; align-content: flex-start; }
-.pinned-tabs-row.drop-active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
-.pinned-tabs-hint { align-self: center; padding: 0 7px; color: var(--subtle); font-size: var(--fs-foot); white-space: nowrap; pointer-events: none; }
-.pinned-tab-button.drop-before { box-shadow: -3px 0 0 -1px Highlight; }
-.pinned-tab-button.drop-after { box-shadow: 3px 0 0 -1px Highlight; }
-.browser-shell[data-tab-position="top"] .pinned-tabs-row,
-.browser-shell[data-tab-position="bottom"] .pinned-tabs-row {
+.detached-tab-strip { z-index: 2; grid-area: tabs; min-width: 0; overflow: hidden; border-bottom: 1px solid var(--sidebar-border); background: var(--sidebar); }
+.detached-tab-strip.bottom { border-top: 1px solid var(--sidebar-border); border-bottom: 0; }
+.detached-tab-manager { display: flex; width: 100%; height: 100%; min-width: 0; align-items: center; gap: 8px; padding: 5px 12px; }
+.detached-tab-manager .tab-toolbar { width: auto; flex: 0 0 auto; align-items: center; margin: 0; }
+.detached-tab-manager .tab-toolbar .new-folder-button { min-height: 29px; flex: 0 0 auto; }
+.detached-tab-manager .pinned-tabs-row {
   width: auto;
   max-width: 165px;
-  min-width: 46px;
+  min-width: 0;
   height: 100%;
   flex: 0 0 auto;
   flex-wrap: nowrap;
   align-items: center;
   padding: 0 8px;
-  margin: 0 8px 0 0;
+  margin: 0;
   overflow-x: auto;
   overflow-y: hidden;
   border-right: 1px solid var(--border);
   border-bottom: 0;
 }
-.browser-shell[data-tab-position="top"] .tab-list.horizontal,
-.browser-shell[data-tab-position="bottom"] .tab-list.horizontal {
+.detached-tab-manager .tab-list.horizontal {
   width: auto;
   min-width: 0;
   flex-direction: row;
@@ -383,40 +352,26 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
   gap: 8px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 5px 5px 8px;
+  padding: 5px;
 }
-.browser-shell[data-tab-position="top"] .tab-sortable-item,
-.browser-shell[data-tab-position="bottom"] .tab-sortable-item { width: 190px; flex: 0 0 190px; }
-.browser-shell[data-tab-position="top"] .tab-folder-row,
-.browser-shell[data-tab-position="bottom"] .tab-folder-row,
-.browser-shell[data-tab-position="top"] .tab-row,
-.browser-shell[data-tab-position="bottom"] .tab-row { height: 40px; min-height: 40px; }
-.browser-shell[data-tab-position="top"] .tab-row,
-.browser-shell[data-tab-position="bottom"] .tab-row { width: 100%; margin: 0; }
-.browser-shell[data-tab-position="top"] .tab-split-row,
-.browser-shell[data-tab-position="bottom"] .tab-split-row { width: 310px; flex: 0 0 310px; margin-left: 0; }
-.browser-shell[data-tab-position="top"] .tab-actions,
-.browser-shell[data-tab-position="bottom"] .tab-actions { width: 122px; flex: 0 0 122px; align-items: center; padding: 0 4px; }
-.browser-shell[data-tab-position="top"] .tab-actions .new-tab,
-.browser-shell[data-tab-position="bottom"] .tab-actions .new-tab { justify-content: center; margin: 0; padding: 0 6px; }
-.browser-shell[data-tab-position="top"] .bookmark-manager,
-.browser-shell[data-tab-position="bottom"] .bookmark-manager { flex-direction: row; overflow: hidden; }
-.browser-shell[data-tab-position="top"] .bookmark-manager > .bookmark-toolbar,
-.browser-shell[data-tab-position="bottom"] .bookmark-manager > .bookmark-toolbar { width: 220px; flex: 0 0 220px; align-content: center; overflow: auto; }
-.browser-shell[data-tab-position="top"] .bookmark-manager > .bookmark-list,
-.browser-shell[data-tab-position="bottom"] .bookmark-manager > .bookmark-list { min-width: 0; overflow: auto; }
-.browser-shell[data-tab-position="top"] .sidebar.collapsed .brand-row,
-.browser-shell[data-tab-position="bottom"] .sidebar.collapsed .brand-row { width: 32px; flex-basis: 32px; padding: 0; border: 0; }
-.browser-shell[data-tab-position="top"] .sidebar.collapsed .brand-row,
-.browser-shell[data-tab-position="bottom"] .sidebar.collapsed .brand-row { flex-direction: row; }
-.browser-shell[data-tab-position="top"] .sidebar.collapsed .sidebar-rail,
-.browser-shell[data-tab-position="bottom"] .sidebar.collapsed .sidebar-rail { flex-direction: row; align-items: center; overflow-x: auto; }
-.browser-shell[data-tab-position="top"] .sidebar.collapsed .rail-tabs,
-.browser-shell[data-tab-position="bottom"] .sidebar.collapsed .rail-tabs { flex-direction: row; width: auto; overflow-x: auto; overflow-y: hidden; }
-.browser-shell[data-tab-position="top"] .sidebar.collapsed .sidebar-collapse-button,
-.browser-shell[data-tab-position="bottom"] .sidebar.collapsed .sidebar-collapse-button { margin: 0; }
-.browser-shell[data-tab-position="top"] .sidebar-sizer,
-.browser-shell[data-tab-position="bottom"] .sidebar-sizer { display: none; }
+.detached-tab-manager .tab-sortable-item { width: 190px; flex: 0 0 190px; }
+.detached-tab-manager .tab-folder-row,
+.detached-tab-manager .tab-row { height: 40px; min-height: 40px; }
+.detached-tab-manager .tab-row { width: 100%; margin: 0; }
+.detached-tab-manager .tab-split-row { width: 310px; flex: 0 0 310px; margin-left: 0; }
+.detached-tab-manager .tab-actions { width: 122px; flex: 0 0 122px; align-items: center; padding: 0 4px; }
+.detached-tab-manager .tab-actions .new-tab { justify-content: center; margin: 0; padding: 0 6px; }
+.tab-position-picker { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.tab-position-picker button { display: flex; height: 28px; min-width: 66px; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; border: 0; border-radius: 4px; color: var(--muted); background: transparent; font-size: var(--fs-sub); line-height: 1; white-space: nowrap; }
+.tab-position-picker button span { font-size: 13px; }
+.tab-position-picker button:hover { background: var(--surface-hover); }
+.tab-position-picker button[aria-pressed="true"] { color: var(--accent-contrast); background: var(--accent); }
+.tab-position-picker.sidebar-side-picker { grid-template-columns: repeat(2, minmax(66px, 1fr)); }
+.pinned-tabs-row { position: relative; min-height: 42px; align-content: flex-start; }
+.pinned-tabs-row.drop-active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.pinned-tabs-hint { align-self: center; padding: 0 7px; color: var(--subtle); font-size: var(--fs-foot); white-space: nowrap; pointer-events: none; }
+.pinned-tab-button.drop-before { box-shadow: -3px 0 0 -1px Highlight; }
+.pinned-tab-button.drop-after { box-shadow: 3px 0 0 -1px Highlight; }
 .tab-drag-morph {
   position: relative;
   overflow: hidden;
