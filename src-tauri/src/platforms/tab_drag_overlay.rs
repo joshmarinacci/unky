@@ -15,6 +15,22 @@ pub enum DropTarget {
     NewWindow,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DragPreviewKind {
+    Tab,
+    Folder,
+}
+
+impl DragPreviewKind {
+    #[cfg(all(debug_assertions, feature = "desktop-test"))]
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Tab => "tab",
+            Self::Folder => "folder",
+        }
+    }
+}
+
 #[cfg(all(debug_assertions, feature = "desktop-test"))]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +38,7 @@ pub struct OverlayDiagnostics {
     pub attached: bool,
     pub visible: bool,
     pub target: Option<&'static str>,
+    pub preview: Option<&'static str>,
 }
 
 impl DropTarget {
@@ -38,12 +55,22 @@ impl DropTarget {
 
 struct OverlayIvars {
     target: Cell<Option<DropTarget>>,
+    preview: Cell<DragPreviewKind>,
+    pointer_x: Cell<f64>,
+    pointer_y: Cell<f64>,
+    pointer_inside: Cell<bool>,
+    test_pointer_override: Cell<bool>,
 }
 
 impl Default for OverlayIvars {
     fn default() -> Self {
         Self {
             target: Cell::new(None),
+            preview: Cell::new(DragPreviewKind::Tab),
+            pointer_x: Cell::new(0.0),
+            pointer_y: Cell::new(0.0),
+            pointer_inside: Cell::new(false),
+            test_pointer_override: Cell::new(false),
         }
     }
 }
@@ -65,20 +92,50 @@ define_class!(
 
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
-            let Some(target) = self.ivars().target.get() else { return; };
             let bounds = self.bounds();
-            let (x, y, width, height) = target_rect(target, bounds.size.width, bounds.size.height);
+            if let Some(target) = self.ivars().target.get() {
+                let (x, y, width, height) = target_rect(target, bounds.size.width, bounds.size.height);
+                let rect = NSRect::new(NSPoint::new(x, y), NSSize::new(width, height));
+                let glow = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, 18.0, 18.0);
+                NSColor::colorWithSRGBRed_green_blue_alpha(0.98, 0.49, 0.22, 0.22).setFill();
+                glow.fill();
+                let halo = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, 18.0, 18.0);
+                halo.setLineWidth(13.0);
+                NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 0.54, 0.24, 0.30).setStroke();
+                halo.stroke();
+                let outline = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, 18.0, 18.0);
+                outline.setLineWidth(3.0);
+                NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 0.62, 0.30, 0.96).setStroke();
+                outline.stroke();
+                return;
+            }
+            if !self.ivars().pointer_inside.get() {
+                return;
+            }
+
+            // Website pages are native child WebViews, so the React DragOverlay cannot
+            // paint above them. Tabs use the established edge targets above; only an
+            // invalid folder drop needs a page-side preview here.
+            if self.ivars().preview.get() == DragPreviewKind::Tab {
+                return;
+            }
+            let width = 260.0_f64.min((bounds.size.width - 24.0).max(1.0));
+            let height = 160.0_f64.min((bounds.size.height - 24.0).max(1.0));
+            let x = (self.ivars().pointer_x.get() - width / 2.0)
+                .clamp(12.0, (bounds.size.width - width - 12.0).max(12.0));
+            let y = (self.ivars().pointer_y.get() - height / 2.0)
+                .clamp(12.0, (bounds.size.height - height - 12.0).max(12.0));
             let rect = NSRect::new(NSPoint::new(x, y), NSSize::new(width, height));
-            let glow = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, 18.0, 18.0);
-            NSColor::colorWithSRGBRed_green_blue_alpha(0.98, 0.49, 0.22, 0.22).setFill();
-            glow.fill();
-            let halo = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, 18.0, 18.0);
-            halo.setLineWidth(13.0);
-            NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 0.54, 0.24, 0.30).setStroke();
-            halo.stroke();
-            let outline = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, 18.0, 18.0);
-            outline.setLineWidth(3.0);
-            NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 0.62, 0.30, 0.96).setStroke();
+            let path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, 9.0, 9.0);
+            let (fill, stroke) = (
+                NSColor::colorWithSRGBRed_green_blue_alpha(0.996, 0.886, 0.886, 0.92),
+                NSColor::colorWithSRGBRed_green_blue_alpha(0.863, 0.149, 0.149, 0.98),
+            );
+            fill.setFill();
+            path.fill();
+            let outline = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, 9.0, 9.0);
+            outline.setLineWidth(2.0);
+            stroke.setStroke();
             outline.stroke();
         }
     }
@@ -146,6 +203,9 @@ fn target_at(point: NSPoint, width: f64, height: f64) -> Option<DropTarget> {
 }
 
 fn update_target_from_pointer(view: &TabDragOverlay) {
+    if view.ivars().test_pointer_override.get() {
+        return;
+    }
     let Some(window) = view.window() else {
         return;
     };
@@ -157,13 +217,21 @@ fn update_target_from_pointer(view: &TabDragOverlay) {
         && point.y >= 0.0
         && point.x <= bounds.size.width
         && point.y <= bounds.size.height;
-    let target = if is_inside {
+    let target = if is_inside && view.ivars().preview.get() == DragPreviewKind::Tab {
         target_at(point, bounds.size.width, bounds.size.height)
     } else {
         None
     };
-    if view.ivars().target.get() != target {
+    let point_changed = (view.ivars().pointer_x.get() - point.x).abs() > 0.5
+        || (view.ivars().pointer_y.get() - point.y).abs() > 0.5;
+    if view.ivars().target.get() != target
+        || view.ivars().pointer_inside.get() != is_inside
+        || point_changed
+    {
         view.ivars().target.set(target);
+        view.ivars().pointer_x.set(point.x);
+        view.ivars().pointer_y.set(point.y);
+        view.ivars().pointer_inside.set(is_inside);
         view.setNeedsDisplay(true);
     }
 }
@@ -182,13 +250,14 @@ fn start_pointer_tracker(overlay: &Retained<TabDragOverlay>) {
 }
 
 /// Display and register an overlay over the native website view.
-pub unsafe fn show(view: &NSView, mtm: MainThreadMarker) -> bool {
+pub unsafe fn show(view: &NSView, mtm: MainThreadMarker, preview: DragPreviewKind) -> bool {
     let Some(parent) = view.superview() else {
         return false;
     };
     let frame = view.frame();
     let target = TabDragOverlay::alloc(mtm).set_ivars(OverlayIvars::default());
     let overlay: Retained<TabDragOverlay> = msg_send![super(target), initWithFrame: frame];
+    overlay.ivars().preview.set(preview);
     overlay.setAutoresizingMask(view.autoresizingMask());
     parent.addSubview(&overlay);
     overlay.setNeedsDisplay(true);
@@ -219,6 +288,29 @@ pub unsafe fn hide(cancelled: bool) -> Option<DropTarget> {
     dropped
 }
 
+/// Show deterministic page feedback for desktop-test screenshots.
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+pub unsafe fn show_test_drag_feedback() -> bool {
+    OVERLAY.with(|slot| {
+        let overlay = slot.borrow();
+        let Some(overlay) = overlay.as_ref() else {
+            return false;
+        };
+        let bounds = overlay.bounds();
+        let is_tab = overlay.ivars().preview.get() == DragPreviewKind::Tab;
+        overlay.ivars().target.set(is_tab.then_some(DropTarget::Left));
+        overlay
+            .ivars()
+            .pointer_x
+            .set(if is_tab { 1.0 } else { bounds.size.width / 2.0 });
+        overlay.ivars().pointer_y.set(bounds.size.height / 2.0);
+        overlay.ivars().pointer_inside.set(true);
+        overlay.ivars().test_pointer_override.set(true);
+        overlay.setNeedsDisplay(true);
+        true
+    })
+}
+
 /// Return native overlay state for the debug desktop regression test.
 #[cfg(all(debug_assertions, feature = "desktop-test"))]
 pub unsafe fn diagnostics() -> OverlayDiagnostics {
@@ -229,12 +321,18 @@ pub unsafe fn diagnostics() -> OverlayDiagnostics {
                 attached: false,
                 visible: false,
                 target: None,
+                preview: None,
             };
         };
         OverlayDiagnostics {
             attached: overlay.superview().is_some(),
             visible: !overlay.isHiddenOrHasHiddenAncestor(),
             target: overlay.ivars().target.get().map(DropTarget::as_str),
+            preview: overlay
+                .ivars()
+                .pointer_inside
+                .get()
+                .then(|| overlay.ivars().preview.get().as_str()),
         }
     })
 }

@@ -4,20 +4,35 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { captureNativeWindow, inspect, invoke, results } from '../wdio.conf.js';
 
-async function browserUi(action: string, tabId?: string, menuItem?: string) {
-  return invoke('desktop_test_browser_ui', { action, tabId, menuItem });
+async function browserUi(action: string, tabId?: string, menuItem?: string, extra: Record<string, unknown> = {}) {
+  return invoke('desktop_test_browser_ui', { action, tabId, menuItem, ...extra });
+}
+
+async function settleTabDragOver(action: string, extra: Record<string, unknown> = {}) {
+  await browserUi(action, undefined, undefined, extra);
+  await browser.pause(50);
+  await browserUi(action, undefined, undefined, extra);
 }
 
 async function clickTabContextItem(tabId: string, menuItem: string) {
   await browserUi('open-context-menu', tabId);
+  await browser.pause(50);
+  await browser.waitUntil(async () => ((await browserUi('inspect')) as { menus: number }).menus > 0, {
+    timeout: 3000,
+    timeoutMsg: 'The tab context menu did not open',
+  });
   const initial = await browserUi('inspect') as { menuItems: string[]; tabRows: number; menus: number; hasTestContextMenuBridge: boolean };
   assert.ok(initial, 'The browser UI test inspector did not return a result');
   assert.equal(initial.hasTestContextMenuBridge, true, `The context menu test bridge is missing: ${JSON.stringify(initial)}`);
+  const targetItem = menuItem === 'Split right' ? 'Right' : menuItem === 'Duplicate tab' ? 'Duplicate' : menuItem;
+  if ((menuItem.startsWith('Split ') || menuItem.startsWith('Unsplit ')) && !initial.menuItems.includes(targetItem) && initial.menuItems.includes('Split')) {
+    await browserUi('click-context-item', undefined, 'Split');
+  }
   await browser.waitUntil(async () => {
     const state = await browserUi('inspect') as { menuItems: string[] };
-    return state.menuItems.includes(menuItem);
+    return state.menuItems.includes(targetItem);
   }, { timeout: 3000, timeoutMsg: `The ${menuItem} context menu item did not appear (initial UI state: ${JSON.stringify(initial)})` });
-  await browserUi('click-context-item', undefined, menuItem);
+  await browserUi('click-context-item', undefined, targetItem);
 }
 
 describe('native Tauri browser', () => {
@@ -349,6 +364,7 @@ describe('native Tauri browser', () => {
         attached: boolean;
         visible: boolean;
         target: string | null;
+        preview: string | null;
       };
       assert.equal(overlay.attached, true, 'the preview should attach above the active website WebView');
       assert.equal(overlay.visible, true, 'the native preview should be visible during a tab drag');
@@ -362,8 +378,9 @@ describe('native Tauri browser', () => {
       attached: boolean;
       visible: boolean;
       target: string | null;
+      preview: string | null;
     };
-    assert.deepEqual(removedOverlay, { attached: false, visible: false, target: null });
+    assert.deepEqual(removedOverlay, { attached: false, visible: false, target: null, preview: null });
 
     const state = await invoke('create_tab') as { tabs: Array<{ id: string }>; activeTabId: string };
     const secondTab = state.tabs.find((tab) => tab.id !== 'tab-1');
@@ -375,7 +392,9 @@ describe('native Tauri browser', () => {
     }, { timeout: 20000, timeoutMsg: 'The second local fixture did not finish loading' });
     const second = await inspect(secondTab.id);
     assert.equal(second.url, 'http://127.0.0.1:4179/two');
-    assert.equal(second.browser.tabs.length, 2);
+    const secondTabWindow = second.browser.tabs.find((tab: { id: string; windowLabel: string }) => tab.id === secondTab.id)?.windowLabel;
+    assert.ok(secondTabWindow, 'the second tab should have an owning browser window');
+    assert.equal(second.browser.tabs.filter((tab: { windowLabel: string }) => tab.windowLabel === secondTabWindow).length, 2);
 
     const thirdState = await invoke('create_tab') as { tabs: Array<{ id: string }>; activeTabId: string };
     const thirdTabId = thirdState.activeTabId;
@@ -394,6 +413,7 @@ describe('native Tauri browser', () => {
         attached: boolean;
         visible: boolean;
         target: string | null;
+        preview: string | null;
       };
       assert.equal(overlayWhileTargetInactive.attached, true, 'the overlay stays attached to the page that drag started over');
       assert.equal(overlayWhileTargetInactive.visible, true);
@@ -404,8 +424,9 @@ describe('native Tauri browser', () => {
       attached: boolean;
       visible: boolean;
       target: string | null;
+      preview: string | null;
     };
-    assert.deepEqual(hiddenOriginalTargetOverlay, { attached: false, visible: false, target: null });
+    assert.deepEqual(hiddenOriginalTargetOverlay, { attached: false, visible: false, target: null, preview: null });
 
     await invoke('split_tab', { tabId: 'tab-1', targetTabId: secondTab.id, side: 'left' });
     const explicitTargetSplit = await invoke('get_split_tabs') as { firstTabId: string; secondTabId: string; orientation: string } | null;
@@ -528,5 +549,196 @@ describe('native Tauri browser', () => {
     assert.equal((await invoke('get_browser_state') as { activeTabId: string }).activeTabId, 'tab-1', 'opening a background tab elsewhere should not select it');
     writeFileSync(join(results, 'external-browser-handoff.json'), JSON.stringify({ browsers, dispatched, launchStubbed: true }, null, 2));
     await invoke('close_tab', { tabId });
+  });
+
+  it('supports four tab-strip positions, pointer folder drops, pin docking, and page split feedback', async () => {
+    type TabNode = { id: string; type: 'tab' } | { id: string; type: 'folder'; title: string; children: TabNode[] };
+    type Layout = {
+      position: string;
+      persistedPosition: string;
+      sidebarCollapsed: boolean;
+      tabListVisible: boolean;
+      tabsDetached: boolean;
+      bookmarksInSidebar: boolean;
+      axis: string;
+      sidebarSide: 'left' | 'right';
+      tabIds: string[];
+      pinnedIds: string[];
+      tree: TabNode[];
+      sidebar: { x: number; y: number; width: number; height: number };
+      tabStrip: { x: number; y: number; width: number; height: number };
+      page: { x: number; y: number; width: number; height: number };
+      preview: string | null;
+      dropTargets: Array<{ id: string; className: string }>;
+    };
+    const read = () => browserUi('inspect-tab-layout') as Promise<Layout>;
+    const originalPosition = (await read()).persistedPosition || 'left';
+    const createdIds: string[] = [];
+    let folderId = '';
+    let dragActive = false;
+    const captureLayoutScreenshot = (filename: string) => {
+      try { captureNativeWindow(filename); }
+      catch (error) { console.warn(`Could not capture ${filename}: ${String(error)}`); }
+    };
+    await browserUi('reset-tab-ui');
+    await browser.pause(50);
+    await browserUi('set-tab-position', undefined, undefined, { tabPosition: originalPosition });
+    await invoke('select_tab', { tabId: 'tab-1' });
+    const first = await invoke('create_tab') as { activeTabId: string };
+    createdIds.push(first.activeTabId);
+    const second = await invoke('create_tab') as { activeTabId: string };
+    createdIds.push(second.activeTabId);
+    const third = await invoke('create_tab') as { activeTabId: string };
+    createdIds.push(third.activeTabId);
+    try {
+      const current = await invoke('get_browser_state') as { activeTabId: string; tabs: Array<{ id: string; windowLabel?: string }> };
+      const owner = current.tabs.find(tab => tab.id === current.activeTabId)?.windowLabel;
+      const currentWindow = owner ? { ...current, tabs: current.tabs.filter(tab => tab.windowLabel === owner) } : current;
+      const synced = await browserUi('sync-tab-snapshot', undefined, undefined, { snapshot: currentWindow }) as { synced?: boolean; error?: string };
+      assert.equal(synced.synced, true, `The browser UI did not accept the current-window snapshot: ${JSON.stringify(synced)}`);
+      for (const tabId of createdIds) {
+        if ((await read()).pinnedIds.includes(tabId)) await clickTabContextItem(tabId, 'Unpin');
+      }
+      for (const [index, tabId] of createdIds.entries()) {
+        await invoke('navigate', { tabId, url: `http://127.0.0.1:4179/?tab-dnd=${index}` });
+      }
+      try {
+        await browser.waitUntil(async () => {
+          const layout = await read();
+          return createdIds.every(id => layout.tabIds.includes(id));
+        }, { timeoutMsg: 'The new tabs did not appear in the tab strip' });
+      } catch (error) {
+        const layout = await read();
+        const state = await invoke('get_browser_state');
+        throw new Error(`${String(error)}\nTab layout: ${JSON.stringify(layout)}\nBrowser state: ${JSON.stringify(state)}`);
+      }
+
+      for (const position of ['left', 'right', 'top', 'bottom'] as const) {
+        await browserUi('set-tab-position', undefined, undefined, { tabPosition: position });
+        await browser.waitUntil(async () => (await read()).position === position && (await read()).persistedPosition === position);
+        const layout = await read();
+        assert.equal(layout.sidebarCollapsed, false, 'the tab strip should be expanded in every position');
+        assert.equal(layout.tabListVisible, true, 'the tab list should remain visible in every position');
+        assert.ok(createdIds.every(id => layout.tabIds.includes(id)), 'all tabs should remain visible in every position');
+        assert.equal(layout.axis, position === 'top' || position === 'bottom' ? 'horizontal' : 'vertical');
+        assert.equal(layout.tabsDetached, position === 'top' || position === 'bottom', 'top and bottom tabs should live outside the sidebar');
+        assert.equal(layout.bookmarksInSidebar, position === 'top' || position === 'bottom', 'when tabs detach, the bookmarks manager should stay in the side panel');
+        if (position === 'left') assert.ok(layout.sidebar.x + layout.sidebar.width <= layout.page.x, 'left tabs should remain in the left sidebar');
+        if (position === 'right') assert.ok(layout.sidebar.x >= layout.page.x + layout.page.width, 'right tabs should remain in the right sidebar');
+        if (position === 'top') {
+          assert.ok(layout.tabStrip.y + layout.tabStrip.height <= layout.page.y, 'top tabs should sit above the page');
+          if (layout.sidebarSide === 'left') assert.ok(layout.sidebar.x + layout.sidebar.width <= layout.page.x, 'the bookmarks sidebar should remain to the left of the page');
+          else assert.ok(layout.sidebar.x >= layout.page.x + layout.page.width, 'the bookmarks sidebar should remain to the right of the page');
+        }
+        if (position === 'bottom') {
+          assert.ok(layout.tabStrip.y >= layout.page.y + layout.page.height, 'bottom tabs should sit below the page');
+          if (layout.sidebarSide === 'left') assert.ok(layout.sidebar.x + layout.sidebar.width <= layout.page.x, 'the bookmarks sidebar should remain to the left of the page');
+          else assert.ok(layout.sidebar.x >= layout.page.x + layout.page.width, 'the bookmarks sidebar should remain to the right of the page');
+        }
+        await browser.pause(150);
+        captureLayoutScreenshot(`tab-strip-${position}.png`);
+      }
+
+      await browserUi('set-tab-position', undefined, undefined, { tabPosition: 'left' });
+      await browser.waitUntil(async () => (await read()).position === 'left');
+      const createdFolder = await browserUi('create-tab-folder') as { created: boolean };
+      assert.equal(createdFolder.created, true);
+      await browser.waitUntil(async () => (await read()).tree.some(node => node.type === 'folder' && node.title === 'New Folder'));
+      await browserUi('finish-tab-folder-name');
+      const folder = (await read()).tree.find(node => node.type === 'folder' && node.title === 'New Folder');
+      assert.ok(folder && folder.type === 'folder');
+      folderId = folder.id;
+      await browser.waitUntil(async () => (await read()).tree.some(node => node.type === 'folder' && node.id === folderId));
+
+      await browserUi('drag-start', first.activeTabId);
+      dragActive = true;
+      await browser.pause(50);
+      const movedIntoFolder = await browserUi('drag-over-tab', undefined, undefined, { targetId: folderId });
+      await browser.pause(50);
+      await browserUi('drag-over-tab', undefined, undefined, { targetId: folderId });
+      await browser.waitUntil(async () => (await read()).dropTargets.some(item => item.id === folderId && item.className.includes('drop-inside')));
+      captureLayoutScreenshot('tab-drop-folder-inside.png');
+      await browserUi('drag-end');
+      dragActive = false;
+      await browser.waitUntil(async () => {
+        const current = (await read()).tree.find(node => node.type === 'folder' && node.id === folderId);
+        return current?.type === 'folder' && current.children.some(node => node.id === first.activeTabId);
+      }, { timeoutMsg: 'Dragging a tab into a folder did not update the tab tree' });
+
+      for (const tabId of [second.activeTabId, third.activeTabId]) {
+        await browserUi('drag-start', tabId);
+        dragActive = true;
+        await browser.pause(50);
+        await settleTabDragOver('drag-over-dock');
+        await browser.waitUntil(async () => (await read()).preview?.includes('tab-drag-morph'));
+        captureLayoutScreenshot('tab-drag-pin-dock.png');
+        await browserUi('drag-end');
+        dragActive = false;
+        await browser.waitUntil(async () => (await read()).pinnedIds.includes(tabId));
+      }
+      assert.deepEqual((await read()).pinnedIds, [second.activeTabId, third.activeTabId]);
+
+      await browserUi('drag-start', second.activeTabId);
+      dragActive = true;
+      await browser.pause(50);
+      await settleTabDragOver('drag-over-tab', { targetId: third.activeTabId });
+      await browserUi('drag-end');
+      dragActive = false;
+      await browser.waitUntil(async () => JSON.stringify((await read()).pinnedIds) === JSON.stringify([third.activeTabId, second.activeTabId]));
+
+      await browserUi('drag-start', second.activeTabId);
+      dragActive = true;
+      await browser.pause(50);
+      await settleTabDragOver('drag-over-tab', { targetId: first.activeTabId });
+      await browserUi('drag-end');
+      dragActive = false;
+      await browser.waitUntil(async () => !(await read()).pinnedIds.includes(second.activeTabId));
+
+      await browserUi('drag-start', third.activeTabId);
+      dragActive = true;
+      await browser.pause(50);
+      await settleTabDragOver('drag-over-page', { dropPosition: 'left' });
+      await browser.waitUntil(async () => (await read()).preview === null);
+      await browser.waitUntil(async () => (await invoke('desktop_test_inspect_tab_drag_overlay') as { attached: boolean }).attached);
+      await invoke('desktop_test_show_tab_drag_feedback');
+      await browser.waitUntil(async () => {
+        const overlay = await invoke('desktop_test_inspect_tab_drag_overlay') as { target: string | null; preview: string | null };
+        return overlay.target === 'left' && overlay.preview === 'tab';
+      });
+      captureLayoutScreenshot('tab-drag-split-target.png');
+      await settleTabDragOver('drag-over-tab', { targetId: third.activeTabId });
+      await browserUi('drag-end');
+      dragActive = false;
+
+      await browserUi('drag-start', folderId);
+      dragActive = true;
+      await browser.pause(50);
+      await settleTabDragOver('drag-over-page', { dropPosition: 'center' });
+      await browser.waitUntil(async () => (await read()).preview?.includes('invalid'));
+      await browser.waitUntil(async () => (await invoke('desktop_test_inspect_tab_drag_overlay') as { attached: boolean }).attached);
+      await invoke('desktop_test_show_tab_drag_feedback');
+      await browser.waitUntil(async () => (await invoke('desktop_test_inspect_tab_drag_overlay') as { preview: string | null }).preview === 'folder');
+      captureLayoutScreenshot('tab-drag-folder-invalid.png');
+      await browserUi('drag-cancel');
+      dragActive = false;
+      assert.ok((await read()).tree.some(node => node.type === 'folder' && node.id === folderId), 'a cancelled folder drag should leave the folder intact');
+    } finally {
+      if (dragActive) await browserUi('drag-cancel');
+      await invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null, cancelled: true }).catch(() => undefined);
+      for (const tabId of createdIds) {
+        if ((await read()).pinnedIds.includes(tabId)) {
+          await clickTabContextItem(tabId, 'Unpin').catch(() => undefined);
+        }
+      }
+      if (folderId) {
+        await browserUi('open-folder-context-menu', folderId).catch(() => undefined);
+        await browserUi('click-context-item', undefined, 'Delete folder').catch(() => undefined);
+      }
+      await browserUi('set-tab-position', undefined, undefined, { tabPosition: originalPosition }).catch(() => undefined);
+      for (const tabId of createdIds) {
+        const current = await invoke('get_browser_state') as { tabs: Array<{ id: string }> };
+        if (current.tabs.some(tab => tab.id === tabId)) await invoke('close_tab', { tabId }).catch(() => undefined);
+      }
+    }
   });
 });

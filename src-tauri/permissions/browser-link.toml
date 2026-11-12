@@ -49,6 +49,11 @@ description = "Allows the debug-only WebDriver host to inspect the native tab dr
 commands.allow = ["desktop_test_inspect_tab_drag_overlay"]
 
 [[permission]]
+identifier = "allow-desktop-test-show-tab-drag-feedback"
+description = "Allows the debug-only WebDriver host to capture native tab drag feedback."
+commands.allow = ["desktop_test_show_tab_drag_feedback"]
+
+[[permission]]
 identifier = "allow-desktop-test-browser-ui"
 description = "Allows the debug-only WebDriver host to inspect and exercise the trusted browser UI."
 commands.allow = ["desktop_test_browser_ui"]

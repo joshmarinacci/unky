@@ -48,6 +48,7 @@ test('split pairs span collapsed folders without mutating folder membership', ()
   assert.ok(groupSplitTabRows(collapsed, all, { firstTabId: 'draft', secondTabId: 'old' }).every(row => row.type === 'single'));
 });
 import { moveBookmarkToDepth, moveBookmarkToDropZone, resolveBookmarkDropDepth, resolveBookmarkDropZone, type BookmarkNode } from '../src/bookmarkTree.ts';
+import { isTabPosition, reorderTabIds, tabAxisForPosition, resolveTabDragPreview } from '../src/tabLayout.ts';
 
 const tree: BookmarkNode[] = [
   { id: 'work', type: 'folder', title: 'Work', children: [
@@ -118,6 +119,31 @@ test('classifies drop zones: folders have a middle nesting band, links split in 
   assert.equal(resolveBookmarkDropZone(135, 100, 40, true), 'after');
   assert.equal(resolveBookmarkDropZone(110, 100, 40, false), 'before');
   assert.equal(resolveBookmarkDropZone(130, 100, 40, false), 'after');
+});
+
+test('tab positions select a horizontal or vertical strip', () => {
+  assert.equal(isTabPosition('left'), true);
+  assert.equal(isTabPosition('right'), true);
+  assert.equal(isTabPosition('top'), true);
+  assert.equal(isTabPosition('bottom'), true);
+  assert.equal(isTabPosition('center'), false);
+  assert.equal(tabAxisForPosition('left'), 'vertical');
+  assert.equal(tabAxisForPosition('right'), 'vertical');
+  assert.equal(tabAxisForPosition('top'), 'horizontal');
+  assert.equal(tabAxisForPosition('bottom'), 'horizontal');
+});
+
+test('pinned tabs reorder before, after, or at the end of the dock', () => {
+  assert.deepEqual(reorderTabIds(['a', 'b', 'c'], 'c', 'a', false), ['c', 'a', 'b']);
+  assert.deepEqual(reorderTabIds(['a', 'b', 'c'], 'a', 'b', true), ['b', 'a', 'c']);
+  assert.deepEqual(reorderTabIds(['a', 'b'], 'a', null, false), ['b', 'a']);
+  assert.deepEqual(reorderTabIds(['a', 'b'], 'a', 'missing', false), ['a', 'b']);
+});
+
+test('page drag feedback routes tabs to split targeting and marks folders invalid', () => {
+  assert.equal(resolveTabDragPreview(false, true), 'split');
+  assert.equal(resolveTabDragPreview(true, true), 'invalid');
+  assert.equal(resolveTabDragPreview(false, false), null);
 });
 
 test('dropping inside a folder appends to it without any horizontal movement', () => {
