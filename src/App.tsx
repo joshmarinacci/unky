@@ -527,6 +527,8 @@ export default function App() {
   const [tabGroupPickerOpen, setTabGroupPickerOpen] = useState(false);
   const [splitPickerOpen, setSplitPickerOpen] = useState(false);
   const [address, setAddress] = useState('');
+  const [addressSuggestionsOpen, setAddressSuggestionsOpen] = useState(false);
+  const [activeAddressSuggestion, setActiveAddressSuggestion] = useState(0);
   const [message, setMessage] = useState('');
   const [captureProgress, setCaptureProgress] = useState<{ completed: number; total: number } | null>(null);
   const [isTauri, setIsTauri] = useState(() => Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__));
@@ -658,6 +660,26 @@ export default function App() {
     };
   }, [tabContextMenuWidth]);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
+  const addressSuggestions = (() => {
+    const query = address.trim().toLocaleLowerCase();
+    if (!query) return [];
+    const matches: { url: string; title: string; source: 'Bookmark' | 'History' }[] = [];
+    const seen = new Set<string>();
+    const add = (url: string, title: string, source: 'Bookmark' | 'History') => {
+      if (!url || seen.has(url) || !`${title} ${url}`.toLocaleLowerCase().includes(query)) return;
+      seen.add(url);
+      matches.push({ url, title: title || url, source });
+    };
+    const visitBookmarks = (nodes: BookmarkNode[]) => {
+      for (const node of nodes) {
+        if (node.type === 'folder') visitBookmarks(node.children);
+        else add(node.url, node.title, 'Bookmark');
+      }
+    };
+    visitBookmarks(bookmarks);
+    for (const entry of history) add(entry.url, entry.title, 'History');
+    return matches.slice(0, 8);
+  })();
   useEffect(() => () => { void externalBrowserMenuRef.current?.close(); }, []);
   const tabSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -1464,6 +1486,7 @@ export default function App() {
   async function navigate(event: React.FormEvent) {
     event.preventDefault();
     if (!activeTabId) return;
+    setAddressSuggestionsOpen(false);
     try {
       await leaveHistoryTab(activeTabId);
       setMessage('');
@@ -1474,9 +1497,16 @@ export default function App() {
 
   async function navigateTo(url: string) {
     setAddress(url);
+    setAddressSuggestionsOpen(false);
     if (!activeTabId) return;
-    try { await leaveHistoryTab(activeTabId); setMessage(''); await invoke('navigate', { tabId: activeTabId, url }); }
+    try { await leaveHistoryTab(activeTabId); setMessage(''); await invoke('navigate', { tabId: activeTabId, url }); addressRef.current?.blur(); }
     catch (error) { setMessage(String(error)); }
+  }
+
+  function chooseAddressSuggestion(url: string) {
+    setAddress(url);
+    setAddressSuggestionsOpen(false);
+    void navigateTo(url);
   }
 
   async function runNavigationCommand(command: 'go_back' | 'go_forward' | 'reload' | 'stop_loading') {
@@ -2249,7 +2279,17 @@ export default function App() {
               if (!shown) setSecurityInfo(null);
             } catch (error) { setMessage(String(error)); }
           }}><Shield className="ui-icon" size={15} aria-hidden="true" /></AppButton>
-            <AppInput ref={addressRef} aria-label="Search or enter address" autoComplete="off" spellCheck={false} placeholder="Search or enter address" value={address} onChange={event => setAddress(event.target.value)} onFocus={event => event.currentTarget.select()} />
+            <AppInput ref={addressRef} aria-label="Search or enter address" aria-autocomplete="list" aria-controls="address-suggestions" aria-activedescendant={addressSuggestionsOpen && addressSuggestions.length ? `address-suggestion-${activeAddressSuggestion}` : undefined} aria-expanded={addressSuggestionsOpen && addressSuggestions.length > 0} autoComplete="off" spellCheck={false} placeholder="Search or enter address" value={address} onChange={event => { setAddress(event.target.value); setAddressSuggestionsOpen(true); setActiveAddressSuggestion(0); }} onFocus={event => event.currentTarget.select()} onBlur={() => window.setTimeout(() => setAddressSuggestionsOpen(false), 100)} onKeyDown={event => {
+              if (event.key === 'ArrowDown' && addressSuggestionsOpen && addressSuggestions.length) { event.preventDefault(); setActiveAddressSuggestion(index => (index + 1) % addressSuggestions.length); }
+              else if (event.key === 'ArrowUp' && addressSuggestionsOpen && addressSuggestions.length) { event.preventDefault(); setActiveAddressSuggestion(index => (index - 1 + addressSuggestions.length) % addressSuggestions.length); }
+              else if (event.key === 'Escape' && addressSuggestionsOpen) { event.preventDefault(); setAddressSuggestionsOpen(false); }
+              else if (event.key === 'Enter' && addressSuggestionsOpen && addressSuggestions[activeAddressSuggestion]) { event.preventDefault(); chooseAddressSuggestion(addressSuggestions[activeAddressSuggestion].url); }
+            }} />
+            {addressSuggestionsOpen && addressSuggestions.length > 0 && <div className="address-suggestions" id="address-suggestions" role="listbox" aria-label="Bookmarks and history suggestions">
+              {addressSuggestions.map((suggestion, index) => <AppButton key={`${suggestion.source}-${suggestion.url}`} id={`address-suggestion-${index}`} type="button" role="option" aria-selected={index === activeAddressSuggestion} className={`address-suggestion${index === activeAddressSuggestion ? ' is-active' : ''}`} onMouseDown={event => event.preventDefault()} onClick={() => chooseAddressSuggestion(suggestion.url)}>
+                <span className="address-suggestion-copy"><strong>{suggestion.title}</strong><small>{suggestion.url}</small></span><span className="address-suggestion-source">{suggestion.source}</span>
+              </AppButton>)}
+            </div>}
             <AppButton className={`toolbar-action bookmark-toggle ${currentBookmark ? 'is-bookmarked' : ''}`} title={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-label={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-pressed={Boolean(currentBookmark)} disabled={!activeTab?.url} onClick={addCurrentPage}><Star className="ui-icon" size={15} aria-hidden="true" fill={currentBookmark ? 'currentColor' : 'none'} /></AppButton>
           </form>
           {findOpen ? <form className="find-form" aria-label="Find in page" onSubmit={event => { event.preventDefault(); void findInPage(findQuery); }}>
