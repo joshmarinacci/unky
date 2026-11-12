@@ -651,14 +651,12 @@ export default function App() {
       setTabNodes(nodes);
     };
     testWindow.__myBrowserTestOpenTabContextMenu = openTestContextMenu;
-    return () => { delete testWindow.__myBrowserTestOpenTabContextMenu; };
-  }, [tabContextMenuWidth]);
     testWindow.__myBrowserTestSeedTabFolders = seedTestTabFolders;
     return () => {
       delete testWindow.__myBrowserTestOpenTabContextMenu;
       delete testWindow.__myBrowserTestSeedTabFolders;
     };
-  }, [sidebarWidth, tabContextMenuWidth]);
+  }, [tabContextMenuWidth]);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
   useEffect(() => () => { void externalBrowserMenuRef.current?.close(); }, []);
   const tabSensors = useSensors(
