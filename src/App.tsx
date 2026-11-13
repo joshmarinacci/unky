@@ -660,6 +660,7 @@ export default function App() {
     };
   }, [tabContextMenuWidth]);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
+  const nativeAddressSuggestions = isTauri && /Mac/.test(navigator.platform);
   const addressSuggestions = (() => {
     const query = address.trim().toLocaleLowerCase();
     if (!query) return [];
@@ -680,6 +681,28 @@ export default function App() {
     for (const entry of history) add(entry.url, entry.title, 'History');
     return matches.slice(0, 8);
   })();
+  useEffect(() => {
+    if (!nativeAddressSuggestions) return;
+    const update = () => {
+      const rect = addressRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const rows = addressSuggestionsOpen ? addressSuggestions : [];
+      void invoke('control_address_suggestions_popover', {
+        action: rows.length ? 'show' : 'close',
+        anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        rows,
+        selectedIndex: activeAddressSuggestion,
+      }).catch(error => setMessage(String(error)));
+    };
+    update();
+    if (!addressSuggestionsOpen) return;
+    let disposed = false;
+    let unlistenMoved: (() => void) | undefined;
+    let unlistenResized: (() => void) | undefined;
+    void getCurrentWindow().onMoved(update).then(stop => { if (disposed) stop(); else unlistenMoved = stop; });
+    void getCurrentWindow().onResized(update).then(stop => { if (disposed) stop(); else unlistenResized = stop; });
+    return () => { disposed = true; unlistenMoved?.(); unlistenResized?.(); };
+  }, [nativeAddressSuggestions, address, addressSuggestionsOpen, activeAddressSuggestion, history, bookmarks]);
   useEffect(() => () => { void externalBrowserMenuRef.current?.close(); }, []);
   const tabSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -2285,7 +2308,7 @@ export default function App() {
               else if (event.key === 'Escape' && addressSuggestionsOpen) { event.preventDefault(); setAddressSuggestionsOpen(false); }
               else if (event.key === 'Enter' && addressSuggestionsOpen && addressSuggestions[activeAddressSuggestion]) { event.preventDefault(); chooseAddressSuggestion(addressSuggestions[activeAddressSuggestion].url); }
             }} />
-            {addressSuggestionsOpen && addressSuggestions.length > 0 && <div className="address-suggestions" id="address-suggestions" role="listbox" aria-label="Bookmarks and history suggestions">
+            {addressSuggestionsOpen && addressSuggestions.length > 0 && !nativeAddressSuggestions && <div className="address-suggestions" id="address-suggestions" role="listbox" aria-label="Bookmarks and history suggestions">
               {addressSuggestions.map((suggestion, index) => <AppButton key={`${suggestion.source}-${suggestion.url}`} id={`address-suggestion-${index}`} type="button" role="option" aria-selected={index === activeAddressSuggestion} className={`address-suggestion${index === activeAddressSuggestion ? ' is-active' : ''}`} onMouseDown={event => event.preventDefault()} onClick={() => chooseAddressSuggestion(suggestion.url)}>
                 <span className="address-suggestion-copy"><strong>{suggestion.title}</strong><small>{suggestion.url}</small></span><span className="address-suggestion-source">{suggestion.source}</span>
               </AppButton>)}

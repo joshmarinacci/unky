@@ -205,13 +205,16 @@ kbd { border: 1px solid var(--border); border-radius: 4px; color: var(--subtle);
 .address-form input:focus-visible, .start-search input:focus-visible { outline: 0; }
 .address-form input::selection { background: Highlight; }
 .address-suggestions { position: absolute; z-index: 100; top: calc(100% + 5px); left: 0; right: 0; display: grid; gap: 2px; padding: 5px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: 0 8px 24px #0003; }
-.address-suggestion { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 9px; border-radius: 6px; text-align: left; }
+html:has(.address-popup), html:has(.address-popup) body, html:has(.address-popup) #root { background: transparent; }
+.address-popup { box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr); width: 100vw; gap: 2px; padding: 5px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: 0 4px 12px #0003; overflow: hidden; }
+.address-suggestion { box-sizing: border-box; display: flex; width: 100%; min-width: 0; overflow: hidden; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 9px; border: 0; border-radius: 6px; color: var(--text); background: transparent; font: inherit; text-align: left; cursor: pointer; }
 .address-suggestion:hover { background: var(--surface-hover); }
 .address-suggestion.is-active { background: var(--surface-raised); }
-.address-suggestion-copy { display: grid; min-width: 0; gap: 2px; }
+.address-suggestion-copy { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-width: 0; overflow: hidden; gap: 2px; }
 .address-suggestion-copy strong, .address-suggestion-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .address-suggestion-copy strong { font-size: var(--fs-body); font-weight: 550; }
 .address-suggestion-copy small, .address-suggestion-source { color: var(--muted); font-size: var(--fs-sub); }
+.address-suggestion-source { flex: none; }
 .find-form { display: flex; height: 31px; min-width: 160px; align-items: center; gap: 3px; padding: 0 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
 .find-form input { width: 100px; min-width: 40px; border: 0; outline: 0; color: inherit; background: transparent; font-size: var(--fs-sub); }
 .find-form button { display: grid; width: 21px; height: 23px; place-items: center; padding: 0; border: 0; border-radius: 4px; color: var(--muted); background: transparent; }

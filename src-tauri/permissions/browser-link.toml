@@ -92,6 +92,7 @@ commands.allow = [
   "cycle_tab",
   "reveal_download",
   "control_downloads_popover",
+  "control_address_suggestions_popover",
   "open_link_in_new_tab",
   "open_link_in_new_window",
   "focus_browser_tab",
@@ -120,3 +121,8 @@ commands.allow = [
   "session_test_open_new_tab",
   "session_test_start_download"
 ]
+
+[[permission]]
+identifier = "allow-address-popup-select"
+description = "Allows the address suggestions popup to open its selected URL."
+commands.allow = ["select_address_suggestion"]

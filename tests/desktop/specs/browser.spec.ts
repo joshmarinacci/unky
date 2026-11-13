@@ -117,7 +117,7 @@ describe('native Tauri browser', () => {
     assert.equal(windowTab?.private, true);
     await assert.rejects(() => invoke('open_link_in_new_window', { url: 'javascript:alert(1)' }));
     if (windowTab) {
-      await browserUi('close-window', undefined, undefined, windowTab.windowLabel);
+      await browserUi('close-window', undefined, undefined, { windowLabel: windowTab.windowLabel });
       await browser.waitUntil(async () => !(await browserUi('inspect-windows') as string[]).includes(windowTab.windowLabel));
     }
     await invoke('close_tab', { tabId: tab.id });
