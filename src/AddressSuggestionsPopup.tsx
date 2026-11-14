@@ -1,22 +1,14 @@
 import { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-
-type Suggestion = { url: string; title: string; source: string };
-type SuggestionsState = { rows: Suggestion[]; selectedIndex: number };
-
-const params = new URLSearchParams(window.location.search);
-function initialSuggestions(): SuggestionsState {
-  try { return JSON.parse(params.get('initial') ?? '') as SuggestionsState; }
-  catch { return { rows: [], selectedIndex: 0 }; }
-}
+import { initialAddressSuggestions, type AddressSuggestionsState } from './addressSuggestions';
 
 export default function AddressSuggestionsPopup() {
-  const [suggestions, setSuggestions] = useState(initialSuggestions);
+  const [suggestions, setSuggestions] = useState(() => initialAddressSuggestions(window.location.search));
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<SuggestionsState>('browser://address-suggestions', event => setSuggestions(event.payload)).then(stop => {
+    void listen<AddressSuggestionsState>('browser://address-suggestions', event => setSuggestions(event.payload)).then(stop => {
       if (disposed) stop();
       else unlisten = stop;
     });
