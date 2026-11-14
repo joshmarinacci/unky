@@ -51,13 +51,13 @@ Run the Rust unit tests, including session persistence, history ordering, downlo
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
-Run the frontend tab-layout and tree drag-and-drop unit tests with:
+Run the frontend unit tests with:
 
 ```sh
 npm run test:unit
 ```
 
-These tests cover root reordering, moves between nesting levels and folders, folder nesting, cycle prevention, tab-strip orientation, pinned-tab ordering, and page drag feedback. Tree movement and drop-depth rules live in `src/bookmarkTree.ts`; tab layout and pin ordering helpers live in `src/tabLayout.ts` so the app and tests exercise the same code.
+These tests cover root reordering, moves between nesting levels and folders, folder nesting, cycle prevention, tab-strip orientation, pinned-tab ordering, and page drag feedback. They also check that tab snapshots stay in their owning window and that address suggestions match nested bookmarks and history, prefer bookmarks for duplicate URLs, stop at eight results, wrap keyboard selection, and initialize the popup from its URL data. Tree movement and drop-depth rules live in `src/bookmarkTree.ts`; tab layout and pin ordering helpers live in `src/tabLayout.ts`; address matching and popup initialization live in `src/addressSuggestions.ts` so the app and tests exercise the same code.
 
 The standalone dnd-kit interaction playground is available at `/?page=tree` while the Vite development server is running (`npm run dev`).
 

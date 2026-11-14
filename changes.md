@@ -145,3 +145,8 @@
 
 - The address bar now shows up to eight distinct bookmark and history matches. On macOS a separate frameless React WebView presents them above website tabs; its position accounts for the shell WebView's titlebar inset, so it sits below the address field. A popup-specific Tauri capability limits selection to validated URLs in the owning browser window. Added a desktop popup regression and documented the behavior, architecture, and permission boundary.
 - Corrected the desktop test helper's browser-window close argument so it passes the window label to Rust.
+
+## 2026-11-14
+
+- Ignore tab snapshots containing tabs from another browser window. This prevents an out-of-order native update from replacing the current window's tab strip with another window's tabs; added a unit regression and verified the desktop suite.
+- Extracted address suggestion matching, arrow-key selection, and popup initialization into shared functions. Added unit tests for nested bookmark and history matches, duplicate URL priority, the eight-result limit, selection wrapping, and initial popup data.
