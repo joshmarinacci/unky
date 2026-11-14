@@ -16,6 +16,7 @@ import { flattenBookmarkNodes, locateBookmark, moveBookmarkToDropZone, resolveBo
 import type { FlatNode, BookmarkDropZone, BookmarkFolder, BookmarkLink, BookmarkNode } from './bookmarkTree';
 import { groupSplitTabRows } from './splitTabRows';
 import { selectInputText } from './tabUiActions';
+import { snapshotBelongsToWindow } from './browserSnapshot';
 import { isTabPosition, reorderTabIds, tabAxisForPosition, resolveTabDragPreview, type TabPosition } from './tabLayout';
 
 type Tab = {
@@ -28,6 +29,7 @@ type Tab = {
   active: boolean;
   zoom: number;
   private?: boolean;
+  windowLabel?: string;
 };
 
 type BrowserSnapshot = { tabs: Tab[]; activeTabId: string };
@@ -920,6 +922,7 @@ export default function App() {
   }, [findOpen, findQuery, findInPage]);
 
   const applySnapshot = useCallback((snapshot: BrowserSnapshot) => {
+    if (!snapshotBelongsToWindow(snapshot.tabs, getCurrentWindow().label)) return;
     setTabs(snapshot.tabs);
     tabsRef.current = snapshot.tabs;
     setActiveTabId(snapshot.activeTabId);
