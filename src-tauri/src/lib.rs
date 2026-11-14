@@ -41,6 +41,7 @@ const SHORTCUT_EVENT: &str = "browser://shortcut";
 const HISTORY_EVENT: &str = "browser://history-changed";
 const ADDRESS_SUGGESTIONS_EVENT: &str = "browser://address-suggestions";
 const DOWNLOADS_EVENT: &str = "browser://downloads-changed";
+const SHOW_ALL_DOWNLOADS_EVENT: &str = "browser://show-all-downloads";
 const FILTER_UPDATE_PROGRESS_EVENT: &str = "browser://filter-update-progress";
 const LAUNCH_REQUEST_EVENT: &str = "browser://launch-request";
 const TAB_POSITION_MENU_EVENT: &str = "browser://tab-position-menu";
@@ -3072,7 +3073,7 @@ async fn control_downloads_popover(
     }
     #[cfg(target_os = "macos")]
     {
-        use platforms::downloads_popover::{DownloadRow, Reveal};
+        use platforms::downloads_popover::{DownloadRow, Reveal, ViewAll};
         let rows = state
             .downloads
             .lock()
@@ -3101,6 +3102,11 @@ async fn control_downloads_popover(
                 eprintln!("could not reveal download: {error}");
             }
         });
+        let view_all_app = app.clone();
+        let view_all_owner = owner.clone();
+        let view_all: ViewAll = Arc::new(move || {
+            let _ = view_all_app.emit_to(&view_all_owner, SHOW_ALL_DOWNLOADS_EVENT, ());
+        });
         let anchor = platforms::security_popover::AnchorRect {
             x: anchor.x,
             y: anchor.y,
@@ -3118,6 +3124,7 @@ async fn control_downloads_popover(
                     inset,
                     rows,
                     reveal,
+                    view_all,
                 )
             };
             let _ = sender.send(shown);

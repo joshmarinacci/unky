@@ -231,6 +231,8 @@ html:has(.address-popup), html:has(.address-popup) body, html:has(.address-popup
 .downloads-popover-heading h2 { margin: 0; color: var(--text); font-size: 13px; font-weight: 600; }
 .downloads-popover-heading span { color: var(--subtle); font-size: var(--fs-sub); }
 .downloads-popover-list { display: flex; flex-direction: column; gap: 2px; max-height: 450px; margin: 0; padding: 6px; overflow: auto; list-style: none; }
+.downloads-popover-footer { padding: 8px; border-top: 1px solid var(--border); }
+.downloads-popover-footer button { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface-raised); font-size: var(--fs-sub); }
 .downloads-popover-row { display: flex; min-width: 0; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 6px; }
 .downloads-popover-row:hover { background: var(--surface-hover); }
 .downloads-popover-icon { color: var(--muted); }
