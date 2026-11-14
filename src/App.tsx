@@ -16,6 +16,8 @@ import { flattenBookmarkNodes, locateBookmark, moveBookmarkToDropZone, resolveBo
 import type { FlatNode, BookmarkDropZone, BookmarkFolder, BookmarkLink, BookmarkNode } from './bookmarkTree';
 import { groupSplitTabRows } from './splitTabRows';
 import { selectInputText } from './tabUiActions';
+import { snapshotBelongsToWindow } from './browserSnapshot';
+import { findAddressSuggestions, moveAddressSuggestionSelection } from './addressSuggestions';
 import { isTabPosition, reorderTabIds, tabAxisForPosition, resolveTabDragPreview, type TabPosition } from './tabLayout';
 
 type Tab = {
@@ -28,6 +30,7 @@ type Tab = {
   active: boolean;
   zoom: number;
   private?: boolean;
+  windowLabel?: string;
 };
 
 type BrowserSnapshot = { tabs: Tab[]; activeTabId: string };
@@ -661,26 +664,7 @@ export default function App() {
   }, [tabContextMenuWidth]);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
   const nativeAddressSuggestions = isTauri && /Mac/.test(navigator.platform);
-  const addressSuggestions = (() => {
-    const query = address.trim().toLocaleLowerCase();
-    if (!query) return [];
-    const matches: { url: string; title: string; source: 'Bookmark' | 'History' }[] = [];
-    const seen = new Set<string>();
-    const add = (url: string, title: string, source: 'Bookmark' | 'History') => {
-      if (!url || seen.has(url) || !`${title} ${url}`.toLocaleLowerCase().includes(query)) return;
-      seen.add(url);
-      matches.push({ url, title: title || url, source });
-    };
-    const visitBookmarks = (nodes: BookmarkNode[]) => {
-      for (const node of nodes) {
-        if (node.type === 'folder') visitBookmarks(node.children);
-        else add(node.url, node.title, 'Bookmark');
-      }
-    };
-    visitBookmarks(bookmarks);
-    for (const entry of history) add(entry.url, entry.title, 'History');
-    return matches.slice(0, 8);
-  })();
+  const addressSuggestions = findAddressSuggestions(address, bookmarks, history);
   useEffect(() => {
     if (!nativeAddressSuggestions) return;
     const update = () => {
@@ -920,6 +904,7 @@ export default function App() {
   }, [findOpen, findQuery, findInPage]);
 
   const applySnapshot = useCallback((snapshot: BrowserSnapshot) => {
+    if (!snapshotBelongsToWindow(snapshot.tabs, getCurrentWindow().label)) return;
     setTabs(snapshot.tabs);
     tabsRef.current = snapshot.tabs;
     setActiveTabId(snapshot.activeTabId);
@@ -2303,8 +2288,8 @@ export default function App() {
             } catch (error) { setMessage(String(error)); }
           }}><Shield className="ui-icon" size={15} aria-hidden="true" /></AppButton>
             <AppInput ref={addressRef} aria-label="Search or enter address" aria-autocomplete="list" aria-controls="address-suggestions" aria-activedescendant={addressSuggestionsOpen && addressSuggestions.length ? `address-suggestion-${activeAddressSuggestion}` : undefined} aria-expanded={addressSuggestionsOpen && addressSuggestions.length > 0} autoComplete="off" spellCheck={false} placeholder="Search or enter address" value={address} onChange={event => { setAddress(event.target.value); setAddressSuggestionsOpen(true); setActiveAddressSuggestion(0); }} onFocus={event => event.currentTarget.select()} onBlur={() => window.setTimeout(() => setAddressSuggestionsOpen(false), 100)} onKeyDown={event => {
-              if (event.key === 'ArrowDown' && addressSuggestionsOpen && addressSuggestions.length) { event.preventDefault(); setActiveAddressSuggestion(index => (index + 1) % addressSuggestions.length); }
-              else if (event.key === 'ArrowUp' && addressSuggestionsOpen && addressSuggestions.length) { event.preventDefault(); setActiveAddressSuggestion(index => (index - 1 + addressSuggestions.length) % addressSuggestions.length); }
+              if (event.key === 'ArrowDown' && addressSuggestionsOpen && addressSuggestions.length) { event.preventDefault(); setActiveAddressSuggestion(index => moveAddressSuggestionSelection(index, addressSuggestions.length, 1)); }
+              else if (event.key === 'ArrowUp' && addressSuggestionsOpen && addressSuggestions.length) { event.preventDefault(); setActiveAddressSuggestion(index => moveAddressSuggestionSelection(index, addressSuggestions.length, -1)); }
               else if (event.key === 'Escape' && addressSuggestionsOpen) { event.preventDefault(); setAddressSuggestionsOpen(false); }
               else if (event.key === 'Enter' && addressSuggestionsOpen && addressSuggestions[activeAddressSuggestion]) { event.preventDefault(); chooseAddressSuggestion(addressSuggestions[activeAddressSuggestion].url); }
             }} />
