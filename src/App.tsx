@@ -55,6 +55,7 @@ const showHistoryEvent = 'browser://show-history';
 const showDownloadsEvent = 'browser://show-downloads';
 const showShortcutsEvent = 'browser://show-shortcuts';
 const shortcutEvent = 'browser://shortcut';
+const tabPositionMenuEvent = 'browser://tab-position-menu';
 const historyEvent = 'browser://history-changed';
 const bookmarksEvent = 'browser://bookmarks-changed';
 const openUrlFromMenuEvent = 'browser://open-url-from-menu';
@@ -755,7 +756,22 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('browser.tabPosition', tabPosition);
-  }, [tabPosition]);
+    if (isTauri) {
+      void invoke('sync_tab_position_menu', { position: tabPosition }).catch(error => setMessage(String(error)));
+    }
+  }, [tabPosition, isTauri]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<{ windowLabel: string; position: string }>(tabPositionMenuEvent, event => {
+      if (event.payload.windowLabel !== getCurrentWindow().label || !isTabPosition(event.payload.position)) return;
+      setTabPosition(event.payload.position);
+      if (event.payload.position === 'left' || event.payload.position === 'right') setSidebarSide(event.payload.position);
+    }).then(stop => { if (disposed) stop(); else unlisten = stop; }).catch(error => setMessage(String(error)));
+    return () => { disposed = true; unlisten?.(); };
+  }, [isTauri]);
 
   useEffect(() => {
     localStorage.setItem('browser.sidebarSide', sidebarSide);

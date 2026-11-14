@@ -11,7 +11,12 @@ use browser::tabs::{
 };
 use std::sync::{atomic::Ordering, Arc, Mutex, MutexGuard};
 use std::{
-    collections::HashSet, fs, path::PathBuf, process::Command, thread, time::Duration,
+    collections::{HashMap, HashSet},
+    fs,
+    path::PathBuf,
+    process::Command,
+    thread,
+    time::Duration,
     time::SystemTime,
 };
 use tauri::{Emitter, Manager, WebviewUrl};
@@ -38,6 +43,18 @@ const ADDRESS_SUGGESTIONS_EVENT: &str = "browser://address-suggestions";
 const DOWNLOADS_EVENT: &str = "browser://downloads-changed";
 const FILTER_UPDATE_PROGRESS_EVENT: &str = "browser://filter-update-progress";
 const LAUNCH_REQUEST_EVENT: &str = "browser://launch-request";
+const TAB_POSITION_MENU_EVENT: &str = "browser://tab-position-menu";
+const TAB_POSITION_MENU_OPTIONS: [(&str, &str); 4] = [
+    ("left", "Left"),
+    ("right", "Right"),
+    ("top", "Top"),
+    ("bottom", "Bottom"),
+];
+
+#[derive(Default)]
+struct TabPositionMenuState {
+    by_window: Mutex<HashMap<String, String>>,
+}
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -206,6 +223,90 @@ fn browser_window_for_ui(label: &str) -> &str {
     } else {
         label
     }
+}
+
+fn tab_position_submenu(app: &tauri::AppHandle) -> Option<tauri::menu::Submenu<tauri::Wry>> {
+    let menu = app.menu()?;
+    let tauri::menu::MenuItemKind::Submenu(view_menu) = menu.get("view-menu")? else {
+        return None;
+    };
+    let tauri::menu::MenuItemKind::Submenu(position_menu) = view_menu.get("tab-position-menu")?
+    else {
+        return None;
+    };
+    Some(position_menu)
+}
+
+fn set_tab_position_menu_checks(app: &tauri::AppHandle, position: &str) -> Result<(), String> {
+    let Some(menu) = tab_position_submenu(app) else {
+        return Ok(());
+    };
+    for (option, _) in TAB_POSITION_MENU_OPTIONS {
+        let id = format!("tab-position-{option}");
+        if let Some(tauri::menu::MenuItemKind::Check(item)) = menu.get(&id) {
+            item.set_checked(option == position)
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn remember_tab_position(
+    app: &tauri::AppHandle,
+    window_label: &str,
+    position: &str,
+) -> Result<(), String> {
+    if !TAB_POSITION_MENU_OPTIONS
+        .iter()
+        .any(|(option, _)| *option == position)
+    {
+        return Err("Unsupported tab position".into());
+    }
+    app.state::<TabPositionMenuState>()
+        .by_window
+        .lock()
+        .map_err(|_| "Tab position menu state is unavailable".to_string())?
+        .insert(window_label.to_string(), position.to_string());
+    let focused = focused_browser_window_label(app);
+    if focused.as_deref() == Some(window_label) || focused.is_none() {
+        set_tab_position_menu_checks(app, position)?;
+    }
+    Ok(())
+}
+
+fn choose_tab_position_from_menu(
+    app: &tauri::AppHandle,
+    window_label: &str,
+    position: &str,
+) -> Result<(), String> {
+    remember_tab_position(app, window_label, position)?;
+    // The app menu is shared by every browser window, so restore the exclusive check state
+    // even though the clicked native checkbox toggled itself first.
+    set_tab_position_menu_checks(app, position)?;
+    app.emit_to(
+        window_label,
+        TAB_POSITION_MENU_EVENT,
+        serde_json::json!({
+            "windowLabel": window_label,
+            "position": position,
+        }),
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn sync_tab_position_menu(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    position: String,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Tab position can only be changed from the trusted browser UI".into());
+    }
+    if webview.label() == "wdio-host" {
+        return Ok(());
+    }
+    remember_tab_position(&app, webview.label(), &position)
 }
 
 fn emit_snapshot(app: &tauri::AppHandle, data: &MutexGuard<'_, Vec<TabState>>) {
@@ -1429,6 +1530,26 @@ async fn desktop_test_browser_ui(
 ) -> Result<serde_json::Value, String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Desktop UI controls are only available to the trusted browser UI".into());
+    }
+    if action == "inspect-tab-position-menu" {
+        let menu = tab_position_submenu(&app).ok_or("The tab position menu is unavailable")?;
+        let mut checks = serde_json::Map::new();
+        for (position, _) in TAB_POSITION_MENU_OPTIONS {
+            let id = format!("tab-position-{position}");
+            let Some(tauri::menu::MenuItemKind::Check(item)) = menu.get(&id) else {
+                return Err(format!("The {position} tab position item is unavailable"));
+            };
+            checks.insert(
+                position.to_string(),
+                serde_json::Value::Bool(item.is_checked().map_err(|error| error.to_string())?),
+            );
+        }
+        return Ok(serde_json::Value::Object(checks));
+    }
+    if action == "choose-tab-position-menu" {
+        let position = tab_position.ok_or("A tab position is required")?;
+        choose_tab_position_from_menu(&app, "main", &position)?;
+        return Ok(serde_json::Value::Bool(true));
     }
     if action == "inspect-windows" {
         let labels = app.windows().keys().cloned().collect::<Vec<_>>();
@@ -4677,6 +4798,7 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
     #[cfg(all(debug_assertions, feature = "desktop-test"))]
     let builder = builder.plugin(tauri_plugin_wdio::init());
+    let builder = builder.manage(TabPositionMenuState::default());
     let builder = builder.manage(BrowserState::default()).setup(move |app| {
         #[cfg(all(debug_assertions, feature = "desktop-test"))]
         tauri::WebviewWindowBuilder::new(app, "wdio-host", WebviewUrl::App("index.html".into()))
@@ -4760,7 +4882,7 @@ pub fn run() {
         let bounds = window_bounds(&state, "main").expect("browser bounds available");
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
-            use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+            use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
             let settings = MenuItemBuilder::with_id("open-settings", "Settings…")
                 .accelerator("CmdOrCtrl+,")
                 .build(app)?;
@@ -4906,9 +5028,31 @@ pub fn run() {
                     "Alt+Right"
                 })
                 .build(app)?;
-            let view_menu = SubmenuBuilder::new(app, "View")
+            let tab_position_left = CheckMenuItemBuilder::with_id("tab-position-left", "Left")
+                .checked(true)
+                .build(app)?;
+            let tab_position_right = CheckMenuItemBuilder::with_id("tab-position-right", "Right")
+                .checked(false)
+                .build(app)?;
+            let tab_position_top = CheckMenuItemBuilder::with_id("tab-position-top", "Top")
+                .checked(false)
+                .build(app)?;
+            let tab_position_bottom =
+                CheckMenuItemBuilder::with_id("tab-position-bottom", "Bottom")
+                    .checked(false)
+                    .build(app)?;
+            let tab_position_menu =
+                SubmenuBuilder::with_id(app, "tab-position-menu", "Tabs Position")
+                    .item(&tab_position_left)
+                    .item(&tab_position_right)
+                    .item(&tab_position_top)
+                    .item(&tab_position_bottom)
+                    .build()?;
+            let view_menu = SubmenuBuilder::with_id(app, "view-menu", "View")
                 .item(&show_history)
                 .item(&show_downloads)
+                .separator()
+                .item(&tab_position_menu)
                 .separator()
                 .item(&focus_address)
                 .item(&find)
@@ -5062,6 +5206,7 @@ pub fn run() {
         move_tab_to_new_window,
         focus_browser_tab,
         set_page_context_menu_enabled,
+        sync_tab_position_menu,
         get_history,
         search_history,
         load_bookmarks,
@@ -5122,6 +5267,7 @@ pub fn run() {
         move_tab_to_new_window,
         focus_browser_tab,
         set_page_context_menu_enabled,
+        sync_tab_position_menu,
         get_history,
         search_history,
         load_bookmarks,
@@ -5184,6 +5330,7 @@ pub fn run() {
         move_tab_to_new_window,
         focus_browser_tab,
         set_page_context_menu_enabled,
+        sync_tab_position_menu,
         get_history,
         search_history,
         load_bookmarks,
@@ -5222,6 +5369,28 @@ pub fn run() {
         save_full_page_screenshot
     ]);
     builder
+        .on_window_event(|window, event| {
+            let label = window.label();
+            if label != "main" && !label.starts_with("browser-window-") {
+                return;
+            }
+            let app = window.app_handle();
+            if matches!(event, tauri::WindowEvent::Focused(true)) {
+                let position = app
+                    .state::<TabPositionMenuState>()
+                    .by_window
+                    .lock()
+                    .ok()
+                    .and_then(|positions| positions.get(label).cloned())
+                    .unwrap_or_else(|| "left".to_string());
+                let _ = set_tab_position_menu_checks(app, &position);
+            }
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                if let Ok(mut positions) = app.state::<TabPositionMenuState>().by_window.lock() {
+                    positions.remove(label);
+                }
+            }
+        })
         .on_menu_event(|app, event| {
             #[cfg(target_os = "macos")]
             if event.id().as_ref() == "shortcut-capture-full-page" {
@@ -5273,6 +5442,10 @@ pub fn run() {
             let Some(window_label) = focused_browser_window_label(app) else {
                 return;
             };
+            if let Some(position) = event.id().as_ref().strip_prefix("tab-position-") {
+                let _ = choose_tab_position_from_menu(app, &window_label, position);
+                return;
+            }
             if event.id().as_ref() == "open-settings" {
                 let _ = app.emit_to(&window_label, OPEN_SETTINGS_EVENT, ());
             }
