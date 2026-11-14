@@ -140,3 +140,8 @@
 ## 2026-11-12
 
 - Separated tab-strip position from bookmarks-sidebar placement. Tabs can dock vertically in the left/right sidebar or horizontally in a compact top/bottom strip, while bookmarks remain in a left/right sidebar. Added separate persisted Settings controls for both positions and expanded the desktop layout regression to cover detached tabs and sidebar geometry.
+
+## 2026-11-13
+
+- The address bar now shows up to eight distinct bookmark and history matches. On macOS a separate frameless React WebView presents them above website tabs; its position accounts for the shell WebView's titlebar inset, so it sits below the address field. A popup-specific Tauri capability limits selection to validated URLs in the owning browser window. Added a desktop popup regression and documented the behavior, architecture, and permission boundary.
+- Corrected the desktop test helper's browser-window close argument so it passes the window label to Rust.

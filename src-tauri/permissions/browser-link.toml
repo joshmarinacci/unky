@@ -77,6 +77,12 @@ commands.allow = [
   "update_filter_list",
   "take_launch_request",
   "get_history",
+  "search_history",
+  "load_bookmarks",
+  "save_bookmarks",
+  "clear_history",
+  "import_bookmarks_html",
+  "export_bookmarks_html",
   "get_downloads",
   "find_in_page",
   "get_tab_favicon",
@@ -86,6 +92,7 @@ commands.allow = [
   "cycle_tab",
   "reveal_download",
   "control_downloads_popover",
+  "control_address_suggestions_popover",
   "open_link_in_new_tab",
   "open_link_in_new_window",
   "focus_browser_tab",
@@ -114,3 +121,8 @@ commands.allow = [
   "session_test_open_new_tab",
   "session_test_start_download"
 ]
+
+[[permission]]
+identifier = "allow-address-popup-select"
+description = "Allows the address suggestions popup to open its selected URL."
+commands.allow = ["select_address_suggestion"]

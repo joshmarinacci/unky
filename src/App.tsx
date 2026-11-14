@@ -8,6 +8,7 @@ import { listen } from '@tauri-apps/api/event';
 import { Menu } from '@tauri-apps/api/menu';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
+import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog';
 import SortableTreeDemo from './SortableTreeDemo';
 import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, closestCenter, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragMoveEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable';
@@ -36,7 +37,7 @@ type PageSecurityInfo = { secureHttps: boolean; location: string; camera: string
 type TabReference = { id: string; type: 'tab' };
 type TabFolder = { id: string; type: 'folder'; title: string; collapsed: boolean; children: TabNode[] };
 type TabNode = TabReference | TabFolder;
-type HistoryEntry = { url: string; title: string; visitedAt: number };
+type HistoryEntry = { id: string; url: string; title: string; visitedAt: number; favicon?: string };
 type Download = { id: string; url: string; filename: string; path: string; status: 'downloading' | 'completed' | 'failed'; bytesReceived: number };
 type Theme = 'system' | 'light' | 'dark';
 type SidebarSide = 'left' | 'right';
@@ -52,6 +53,11 @@ const showDownloadsEvent = 'browser://show-downloads';
 const showShortcutsEvent = 'browser://show-shortcuts';
 const shortcutEvent = 'browser://shortcut';
 const historyEvent = 'browser://history-changed';
+const bookmarksEvent = 'browser://bookmarks-changed';
+const openUrlFromMenuEvent = 'browser://open-url-from-menu';
+const importBookmarksEvent = 'browser://import-bookmarks';
+const exportBookmarksEvent = 'browser://export-bookmarks';
+const clearHistoryRequestEvent = 'browser://clear-history-request';
 const downloadsEvent = 'browser://downloads-changed';
 const captureStatusEvent = 'browser://capture-status';
 const captureProgressEvent = 'browser://capture-progress';
@@ -293,6 +299,7 @@ function normalizeBookmarkNodes(value: unknown): BookmarkNode[] {
         title: node.title,
         url: node.url,
         description: typeof node.description === 'string' ? node.description : '',
+        favicon: typeof node.favicon === 'string' ? node.favicon : undefined,
       }];
     }
     return [];
@@ -398,7 +405,7 @@ function BookmarkSortableRow({
   if (editing) return <div ref={setNodeRef} className="bookmark-sortable-item" style={{ paddingLeft: depth * 14 }}>{editForm}</div>;
   return <div ref={setNodeRef} style={style} className={itemClass} {...itemProps} {...listeners}>
     <div className="bookmark-row bookmark-tree-row bookmark-dnd-link" style={{ paddingLeft: depth * 14 }} onClick={() => onOpen(node.url)} onContextMenu={event => onContextMenu(event, node)}>
-      <span className="bookmark-open"><span className="bookmark-icon"><Star className="ui-icon" size={14} aria-hidden="true" /></span><span><strong>{node.title}</strong><small>{node.url}</small></span></span>
+      <span className="bookmark-open"><span className="bookmark-icon">{node.favicon ? <img className="bookmark-favicon" src={node.favicon} alt="" onError={event => { event.currentTarget.hidden = true; }} /> : <Star className="ui-icon" size={14} aria-hidden="true" />}</span><span><strong>{node.title}</strong><small>{node.url}</small></span></span>
       <button type="button" className="bookmark-edit" aria-label={`Edit ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onEdit(node); }}><Pencil className="ui-icon" size={14} aria-hidden="true" /></button>
       <button type="button" className="bookmark-delete" aria-label={`Delete ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onDelete(node); }}><X className="ui-icon" size={14} aria-hidden="true" /></button>
     </div>
@@ -520,9 +527,11 @@ export default function App() {
   const [tabGroupPickerOpen, setTabGroupPickerOpen] = useState(false);
   const [splitPickerOpen, setSplitPickerOpen] = useState(false);
   const [address, setAddress] = useState('');
+  const [addressSuggestionsOpen, setAddressSuggestionsOpen] = useState(false);
+  const [activeAddressSuggestion, setActiveAddressSuggestion] = useState(0);
   const [message, setMessage] = useState('');
   const [captureProgress, setCaptureProgress] = useState<{ completed: number; total: number } | null>(null);
-  const [isTauri, setIsTauri] = useState(false);
+  const [isTauri, setIsTauri] = useState(() => Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__));
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialSidebarCollapsed);
   const [tabPosition, setTabPosition] = useState<TabPosition>(initialTabPosition);
@@ -530,6 +539,7 @@ export default function App() {
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [sidebarView, setSidebarView] = useState<'tabs' | 'bookmarks'>('tabs');
   const [bookmarks, setBookmarks] = useState<BookmarkNode[]>(initialBookmarks);
+  const [bookmarksLoaded, setBookmarksLoaded] = useState(false);
   const [bookmarkDragOrigin, setBookmarkDragOrigin] = useState<{ id: string; depth: number } | null>(null);
   const bookmarkSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
   const [bookmarkDropTarget, setBookmarkDropTarget] = useState<{ overId: string; zone: BookmarkDropZone } | null>(null);
@@ -627,16 +637,72 @@ export default function App() {
   const tabContextMenuWidth = Math.min(220, window.innerWidth - 16);
   useEffect(() => {
     if (import.meta.env.MODE !== 'desktop-test') return;
-    const testWindow = window as typeof window & { __myBrowserTestOpenTabContextMenu?: (tabId: string) => void };
+    const testWindow = window as typeof window & {
+      __myBrowserTestOpenTabContextMenu?: (tabId: string) => void;
+      __myBrowserTestSeedTabFolders?: () => void;
+    };
     const openTestContextMenu = (tabId: string) => {
       if (!tabId) return;
       setTabGroupPickerOpen(false);
+      setSplitPickerOpen(false);
       setTabContextMenu({ id: tabId, type: 'tab', x: Math.max(8, Math.min(100, window.innerWidth - tabContextMenuWidth - 8)), y: 100 });
     };
+    const seedTestTabFolders = () => {
+      const nodes: TabNode[] = [{ id: 'desktop-test-folder', type: 'folder', title: 'Desktop Test Folder', collapsed: false, children: [] }];
+      localStorage.setItem('browser.tabTree', JSON.stringify(nodes));
+      setTabNodes(nodes);
+    };
     testWindow.__myBrowserTestOpenTabContextMenu = openTestContextMenu;
-    return () => { delete testWindow.__myBrowserTestOpenTabContextMenu; };
+    testWindow.__myBrowserTestSeedTabFolders = seedTestTabFolders;
+    return () => {
+      delete testWindow.__myBrowserTestOpenTabContextMenu;
+      delete testWindow.__myBrowserTestSeedTabFolders;
+    };
   }, [tabContextMenuWidth]);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
+  const nativeAddressSuggestions = isTauri && /Mac/.test(navigator.platform);
+  const addressSuggestions = (() => {
+    const query = address.trim().toLocaleLowerCase();
+    if (!query) return [];
+    const matches: { url: string; title: string; source: 'Bookmark' | 'History' }[] = [];
+    const seen = new Set<string>();
+    const add = (url: string, title: string, source: 'Bookmark' | 'History') => {
+      if (!url || seen.has(url) || !`${title} ${url}`.toLocaleLowerCase().includes(query)) return;
+      seen.add(url);
+      matches.push({ url, title: title || url, source });
+    };
+    const visitBookmarks = (nodes: BookmarkNode[]) => {
+      for (const node of nodes) {
+        if (node.type === 'folder') visitBookmarks(node.children);
+        else add(node.url, node.title, 'Bookmark');
+      }
+    };
+    visitBookmarks(bookmarks);
+    for (const entry of history) add(entry.url, entry.title, 'History');
+    return matches.slice(0, 8);
+  })();
+  useEffect(() => {
+    if (!nativeAddressSuggestions) return;
+    const update = () => {
+      const rect = addressRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const rows = addressSuggestionsOpen ? addressSuggestions : [];
+      void invoke('control_address_suggestions_popover', {
+        action: rows.length ? 'show' : 'close',
+        anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        rows,
+        selectedIndex: activeAddressSuggestion,
+      }).catch(error => setMessage(String(error)));
+    };
+    update();
+    if (!addressSuggestionsOpen) return;
+    let disposed = false;
+    let unlistenMoved: (() => void) | undefined;
+    let unlistenResized: (() => void) | undefined;
+    void getCurrentWindow().onMoved(update).then(stop => { if (disposed) stop(); else unlistenMoved = stop; });
+    void getCurrentWindow().onResized(update).then(stop => { if (disposed) stop(); else unlistenResized = stop; });
+    return () => { disposed = true; unlistenMoved?.(); unlistenResized?.(); };
+  }, [nativeAddressSuggestions, address, addressSuggestionsOpen, activeAddressSuggestion, history, bookmarks]);
   useEffect(() => () => { void externalBrowserMenuRef.current?.close(); }, []);
   const tabSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -712,8 +778,13 @@ export default function App() {
   }, [sidebarSide]);
 
   useEffect(() => {
+    if (isTauri) {
+      if (!bookmarksLoaded) return;
+      void invoke('save_bookmarks', { bookmarks }).catch(error => setMessage(String(error)));
+      return;
+    }
     localStorage.setItem('browser.bookmarks', JSON.stringify(bookmarks));
-  }, [bookmarks]);
+  }, [bookmarks, bookmarksLoaded, isTauri]);
 
   useEffect(() => {
     localStorage.setItem('browser.tabTree', JSON.stringify(tabNodes));
@@ -899,7 +970,7 @@ export default function App() {
     void (async () => {
       const available = Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
       setIsTauri(available);
-      if (!available) return;
+      if (!available) { setBookmarksLoaded(true); return; }
       unlisten = await listen<BrowserSnapshot>(tabEvent, event => applySnapshot(event.payload));
       const unlistenPagePointerDown = await listen(pagePointerDownEvent, () => addressRef.current?.blur());
       const unlistenSettings = await listen(settingsEvent, () => { void openSettingsPage(); });
@@ -907,6 +978,11 @@ export default function App() {
       const unlistenShowDownloads = await listen(showDownloadsEvent, () => void openDownloadsPopover(false));
       const unlistenShowShortcuts = await listen(showShortcutsEvent, () => { void openShortcutsPage(); });
       const unlistenHistory = await listen<HistoryEntry[]>(historyEvent, event => setHistory(event.payload));
+      const unlistenBookmarks = await listen<BookmarkNode[]>(bookmarksEvent, event => setBookmarks(event.payload));
+      const unlistenOpenUrlFromMenu = await listen<string>(openUrlFromMenuEvent, event => { void openUrlFromMenu(event.payload); });
+      const unlistenImportBookmarks = await listen(importBookmarksEvent, () => { void importBookmarksHtml(); });
+      const unlistenExportBookmarks = await listen(exportBookmarksEvent, () => { void exportBookmarksHtml(); });
+      const unlistenClearHistory = await listen(clearHistoryRequestEvent, () => { void clearHistory(); });
       const unlistenDownloads = await listen<Download[]>(downloadsEvent, event => setDownloads(event.payload));
       const unlistenCaptureStatus = await listen<string>(captureStatusEvent, event => {
         setMessage(event.payload);
@@ -957,18 +1033,22 @@ export default function App() {
         }
       });
       try {
+        const databaseBookmarks = await invoke<BookmarkNode[]>('load_bookmarks', { legacyBookmarks: initialBookmarks() });
+        setBookmarks(databaseBookmarks);
+        setBookmarksLoaded(true);
+        localStorage.removeItem('browser.bookmarks');
         applySnapshot(await invoke<BrowserSnapshot>('get_browser_state'));
         const launchRequest = await invoke<LaunchRequest | null>('take_launch_request');
         if (launchRequest) await openLaunchRequest(launchRequest);
         setHistory(await invoke<HistoryEntry[]>('get_history'));
         setDownloads(await invoke<Download[]>('get_downloads'));
       }
-      catch (error) { setMessage(String(error)); }
+      catch (error) { setBookmarksLoaded(true); setMessage(String(error)); }
       if (!cancelled) void runSessionIntegrationTest();
-      if (cancelled) { unlisten(); unlistenPagePointerDown(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenCaptureStatus(); unlistenCaptureProgress(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); }
+      if (cancelled) { unlisten(); unlistenPagePointerDown(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenBookmarks(); unlistenOpenUrlFromMenu(); unlistenImportBookmarks(); unlistenExportBookmarks(); unlistenClearHistory(); unlistenDownloads(); unlistenCaptureStatus(); unlistenCaptureProgress(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); }
       else {
         const originalUnlisten = unlisten;
-        unlisten = () => { originalUnlisten(); unlistenPagePointerDown(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenDownloads(); unlistenCaptureStatus(); unlistenCaptureProgress(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); };
+        unlisten = () => { originalUnlisten(); unlistenPagePointerDown(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenBookmarks(); unlistenOpenUrlFromMenu(); unlistenImportBookmarks(); unlistenExportBookmarks(); unlistenClearHistory(); unlistenDownloads(); unlistenCaptureStatus(); unlistenCaptureProgress(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); };
       }
     })();
     return () => { cancelled = true; unlisten?.(); };
@@ -1182,6 +1262,52 @@ export default function App() {
     } else void navigateTo(url);
   }
 
+  async function openUrlFromMenu(url: string) {
+    const tabId = activeTabIdRef.current;
+    try {
+      if (tabId) await invoke('navigate', { tabId, url });
+      else {
+        const snapshot = await invoke<BrowserSnapshot>('create_tab');
+        applySnapshot(snapshot);
+        await invoke('navigate', { tabId: snapshot.activeTabId, url });
+      }
+    } catch (error) { setMessage(String(error)); }
+  }
+
+  async function importBookmarksHtml() {
+    try {
+      const path = await openFileDialog({
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'Netscape Bookmarks', extensions: ['html', 'htm'] }],
+      });
+      if (typeof path !== 'string') return;
+      setBookmarks(await invoke<BookmarkNode[]>('import_bookmarks_html', { path }));
+      setMessage('Bookmarks imported.');
+    } catch (error) { setMessage(String(error)); }
+  }
+
+  async function exportBookmarksHtml() {
+    try {
+      const path = await saveFileDialog({
+        defaultPath: 'bookmarks.html',
+        filters: [{ name: 'Netscape Bookmarks', extensions: ['html'] }],
+      });
+      if (!path) return;
+      await invoke('export_bookmarks_html', { path });
+      setMessage('Bookmarks exported.');
+    } catch (error) { setMessage(String(error)); }
+  }
+
+  async function clearHistory() {
+    if (!window.confirm('Clear all browsing history? Bookmarks will stay.')) return;
+    try {
+      await invoke('clear_history');
+      setHistory([]);
+      setMessage('Browsing history cleared.');
+    } catch (error) { setMessage(String(error)); }
+  }
+
   async function openHistoryPage() {
     const existingHistoryTabId = [...historyTabIds].reverse().find(id => tabs.some(tab => tab.id === id));
     if (existingHistoryTabId) {
@@ -1202,6 +1328,17 @@ export default function App() {
     try { setHistory(await invoke<HistoryEntry[]>('get_history')); }
     catch (error) { setMessage(String(error)); }
   }
+
+  useEffect(() => {
+    if (!isTauri) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void invoke<HistoryEntry[]>('search_history', { query: historySearch })
+        .then(entries => { if (!cancelled) setHistory(entries); })
+        .catch(error => { if (!cancelled) setMessage(String(error)); });
+    }, 120);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [historySearch, isTauri]);
 
   async function openShortcutsPage() {
     const existingId = [...shortcutsTabIdsRef.current].reverse().find(id => tabsRef.current.some(tab => tab.id === id));
@@ -1372,6 +1509,7 @@ export default function App() {
   async function navigate(event: React.FormEvent) {
     event.preventDefault();
     if (!activeTabId) return;
+    setAddressSuggestionsOpen(false);
     try {
       await leaveHistoryTab(activeTabId);
       setMessage('');
@@ -1382,9 +1520,16 @@ export default function App() {
 
   async function navigateTo(url: string) {
     setAddress(url);
+    setAddressSuggestionsOpen(false);
     if (!activeTabId) return;
-    try { await leaveHistoryTab(activeTabId); setMessage(''); await invoke('navigate', { tabId: activeTabId, url }); }
+    try { await leaveHistoryTab(activeTabId); setMessage(''); await invoke('navigate', { tabId: activeTabId, url }); addressRef.current?.blur(); }
     catch (error) { setMessage(String(error)); }
+  }
+
+  function chooseAddressSuggestion(url: string) {
+    setAddress(url);
+    setAddressSuggestionsOpen(false);
+    void navigateTo(url);
   }
 
   async function runNavigationCommand(command: 'go_back' | 'go_forward' | 'reload' | 'stop_loading') {
@@ -1438,7 +1583,7 @@ export default function App() {
         setMessage('The destination folder no longer exists.');
         return;
       }
-      const bookmark: BookmarkLink = { id: crypto.randomUUID(), type: 'bookmark', title, url, description };
+      const bookmark: BookmarkLink = { id: crypto.randomUUID(), type: 'bookmark', title, url, description, favicon: activeTab && activeTab.url === url ? tabFavicons[activeTab.id] : undefined };
       setBookmarks(items => addingBookmarkFolderId
         ? appendBookmarkToFolder(items, addingBookmarkFolderId, bookmark).nodes
         : [bookmark, ...items]);
@@ -1482,7 +1627,7 @@ export default function App() {
       setMessage('This page is already bookmarked.');
       return;
     }
-    setBookmarks(items => [{ id: crypto.randomUUID(), type: 'bookmark', title: activeTab.title || activeTab.url, url: activeTab.url }, ...items]);
+    setBookmarks(items => [{ id: crypto.randomUUID(), type: 'bookmark', title: activeTab.title || activeTab.url, url: activeTab.url, favicon: tabFavicons[activeTab.id] }, ...items]);
     setMessage('Bookmark added.');
   }
 
@@ -2157,7 +2302,17 @@ export default function App() {
               if (!shown) setSecurityInfo(null);
             } catch (error) { setMessage(String(error)); }
           }}><Shield className="ui-icon" size={15} aria-hidden="true" /></AppButton>
-            <AppInput ref={addressRef} aria-label="Search or enter address" autoComplete="off" spellCheck={false} placeholder="Search or enter address" value={address} onChange={event => setAddress(event.target.value)} onFocus={event => event.currentTarget.select()} />
+            <AppInput ref={addressRef} aria-label="Search or enter address" aria-autocomplete="list" aria-controls="address-suggestions" aria-activedescendant={addressSuggestionsOpen && addressSuggestions.length ? `address-suggestion-${activeAddressSuggestion}` : undefined} aria-expanded={addressSuggestionsOpen && addressSuggestions.length > 0} autoComplete="off" spellCheck={false} placeholder="Search or enter address" value={address} onChange={event => { setAddress(event.target.value); setAddressSuggestionsOpen(true); setActiveAddressSuggestion(0); }} onFocus={event => event.currentTarget.select()} onBlur={() => window.setTimeout(() => setAddressSuggestionsOpen(false), 100)} onKeyDown={event => {
+              if (event.key === 'ArrowDown' && addressSuggestionsOpen && addressSuggestions.length) { event.preventDefault(); setActiveAddressSuggestion(index => (index + 1) % addressSuggestions.length); }
+              else if (event.key === 'ArrowUp' && addressSuggestionsOpen && addressSuggestions.length) { event.preventDefault(); setActiveAddressSuggestion(index => (index - 1 + addressSuggestions.length) % addressSuggestions.length); }
+              else if (event.key === 'Escape' && addressSuggestionsOpen) { event.preventDefault(); setAddressSuggestionsOpen(false); }
+              else if (event.key === 'Enter' && addressSuggestionsOpen && addressSuggestions[activeAddressSuggestion]) { event.preventDefault(); chooseAddressSuggestion(addressSuggestions[activeAddressSuggestion].url); }
+            }} />
+            {addressSuggestionsOpen && addressSuggestions.length > 0 && !nativeAddressSuggestions && <div className="address-suggestions" id="address-suggestions" role="listbox" aria-label="Bookmarks and history suggestions">
+              {addressSuggestions.map((suggestion, index) => <AppButton key={`${suggestion.source}-${suggestion.url}`} id={`address-suggestion-${index}`} type="button" role="option" aria-selected={index === activeAddressSuggestion} className={`address-suggestion${index === activeAddressSuggestion ? ' is-active' : ''}`} onMouseDown={event => event.preventDefault()} onClick={() => chooseAddressSuggestion(suggestion.url)}>
+                <span className="address-suggestion-copy"><strong>{suggestion.title}</strong><small>{suggestion.url}</small></span><span className="address-suggestion-source">{suggestion.source}</span>
+              </AppButton>)}
+            </div>}
             <AppButton className={`toolbar-action bookmark-toggle ${currentBookmark ? 'is-bookmarked' : ''}`} title={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-label={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-pressed={Boolean(currentBookmark)} disabled={!activeTab?.url} onClick={addCurrentPage}><Star className="ui-icon" size={15} aria-hidden="true" fill={currentBookmark ? 'currentColor' : 'none'} /></AppButton>
           </form>
           {findOpen ? <form className="find-form" aria-label="Find in page" onSubmit={event => { event.preventDefault(); void findInPage(findQuery); }}>
@@ -2257,7 +2412,7 @@ export default function App() {
               <label className="history-search"><Search className="ui-icon" size={16} aria-hidden="true" /><AppInput aria-label="Search history" placeholder="Search history" value={historySearch} onChange={event => setHistorySearch(event.target.value)} /></label>
               <div className="history-list" aria-label="History entries">
                 {history.filter(item => `${item.title} ${item.url}`.toLowerCase().includes(historySearch.trim().toLowerCase())).map((item, index) => <div className="history-entry" key={`${item.url}-${item.visitedAt}-${index}`}>
-                  <span className="history-entry-icon" aria-hidden="true"><Clock3 className="ui-icon" size={15} /></span>
+                  <span className="history-entry-icon" aria-hidden="true">{item.favicon ? <img className="history-favicon" src={item.favicon} alt="" onError={event => { event.currentTarget.hidden = true; }} /> : <Clock3 className="ui-icon" size={15} />}</span>
                   <AppButton className="history-entry-open" onClick={() => void openHistoryEntry(item.url)}><strong>{item.title || item.url}</strong><small>{item.url}</small></AppButton>
                   <time dateTime={new Date(item.visitedAt * 1000).toISOString()}>{new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(item.visitedAt * 1000)}</time>
                 </div>)}

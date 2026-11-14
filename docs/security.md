@@ -3,7 +3,8 @@
 ## Current controls
 
 - Remote website content is loaded in a distinct child WebView, not in the trusted React UI view.
-- The capability manifest scopes Tauri's core permission set to the `main` WebView label. The website view has no capability entry.
+- Capabilities scope trusted browser UI commands to `main` and `browser-window-*`, page commands to website child WebViews, and the address-suggestions popup to events and `select_address_suggestion`.
+- The popup selection command checks its caller label and owning browser window, then validates the HTTP(S) URL before navigating the active tab.
 - `navigate` checks the caller WebView label in Rust and rejects non-HTTP(S) schemes, missing hosts, and embedded URL credentials.
 - No filesystem, shell, or process plugins are included.
 - The UI has a restrictive Content Security Policy.

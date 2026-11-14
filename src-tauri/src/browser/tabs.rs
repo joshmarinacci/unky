@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use url::Url;
 
+pub use super::database::HistoryEntry;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TabState {
@@ -80,8 +82,8 @@ pub struct BrowserState {
     pub tab_drag_target: Arc<Mutex<Option<String>>>,
     pub recently_closed: Arc<Mutex<Vec<SessionTab>>>,
     pub session_file: Arc<Mutex<Option<PathBuf>>>,
+    pub database: Arc<Mutex<Option<super::database::BrowserDatabase>>>,
     pub history: Arc<Mutex<Vec<HistoryEntry>>>,
-    pub history_file: Arc<Mutex<Option<PathBuf>>>,
     pub filtering: Arc<Mutex<Option<super::filtering::FilterSettings>>>,
     pub filtering_file: Arc<Mutex<Option<PathBuf>>>,
     pub downloads: Arc<Mutex<Vec<DownloadEntry>>>,
@@ -94,14 +96,6 @@ pub struct BrowserState {
 pub struct TabFolderMenuEntry {
     pub id: String,
     pub title: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryEntry {
-    pub url: String,
-    pub title: String,
-    pub visited_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -121,25 +115,6 @@ pub enum DownloadStatus {
     Downloading,
     Completed,
     Failed,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PersistedHistory {
-    pub version: u32,
-    pub entries: Vec<HistoryEntry>,
-}
-
-pub fn record_history_entry(entries: &mut Vec<HistoryEntry>, entry: HistoryEntry) {
-    entries.retain(|existing| existing.url != entry.url);
-    entries.insert(0, entry);
-    entries.truncate(500);
-}
-
-pub fn update_history_title(entries: &mut [HistoryEntry], url: &str, title: &str) {
-    if let Some(entry) = entries.iter_mut().find(|entry| entry.url == url) {
-        entry.title = title.to_string();
-    }
 }
 
 pub fn cycle_active_tab(tabs: &mut [TabState], direction: isize) -> Option<String> {
@@ -422,9 +397,8 @@ pub fn snapshot(tabs: &[TabState]) -> BrowserSnapshot {
 #[cfg(test)]
 mod tests {
     use super::{
-        cycle_active_tab, download_filename, find_script, next_download_path, record_history_entry,
-        remember_closed_tab, take_recently_closed, update_history_title, HistoryEntry, SessionTab,
-        TabState,
+        cycle_active_tab, download_filename, find_script, next_download_path, remember_closed_tab,
+        take_recently_closed, SessionTab, TabState,
     };
     use std::{fs, time::SystemTime};
 
@@ -461,54 +435,6 @@ mod tests {
             take_recently_closed(&mut recently_closed).unwrap().id,
             "tab-24"
         );
-    }
-
-    #[test]
-    fn history_deduplicates_the_latest_page_updates_titles_and_keeps_a_limit() {
-        let mut history = Vec::new();
-        record_history_entry(
-            &mut history,
-            HistoryEntry {
-                url: "https://example.com".into(),
-                title: "Old title".into(),
-                visited_at: 1,
-            },
-        );
-        record_history_entry(
-            &mut history,
-            HistoryEntry {
-                url: "https://other.test".into(),
-                title: "Other".into(),
-                visited_at: 2,
-            },
-        );
-        record_history_entry(
-            &mut history,
-            HistoryEntry {
-                url: "https://example.com".into(),
-                title: "Updated title".into(),
-                visited_at: 3,
-            },
-        );
-        update_history_title(&mut history, "https://example.com", "Page title");
-
-        assert_eq!(history.len(), 2);
-        assert_eq!(history[0].url, "https://example.com");
-        assert_eq!(history[0].title, "Page title");
-        assert_eq!(history[0].visited_at, 3);
-
-        for index in 0..510 {
-            record_history_entry(
-                &mut history,
-                HistoryEntry {
-                    url: format!("https://example.com/{index}"),
-                    title: format!("Page {index}"),
-                    visited_at: index,
-                },
-            );
-        }
-        assert_eq!(history.len(), 500);
-        assert_eq!(history[0].url, "https://example.com/509");
     }
 
     #[test]

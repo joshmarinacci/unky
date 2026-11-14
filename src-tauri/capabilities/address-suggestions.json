@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "address-suggestions-capability",
+  "description": "Events for the address suggestions popup only.",
+  "webviews": ["address-suggestions-*"],
+  "permissions": ["core:event:default", "allow-address-popup-select"]
+}

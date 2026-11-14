@@ -5,6 +5,7 @@
     "security": {
       "capabilities": [
         "main-capability",
+        "address-suggestions-capability",
         "browser-pages-capability",
         "desktop-test-capability"
       ]

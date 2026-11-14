@@ -62,6 +62,7 @@ try {
     env: {
       ...process.env,
       MY_BROWSER_PROFILE_DIR: profile,
+      UNKY_DATABASE_PATH: resolve(profile, 'browser.sqlite'),
       RUST_LOG: 'info',
       DESKTOP_TEST_RESULTS: results,
     },
