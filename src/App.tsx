@@ -2451,13 +2451,13 @@ export default function App() {
               </div>
             </div>
           </section> : (!activeTab?.url || !isTauri) && <div className={`start-page${splitStartPageStyle ? ' start-page-in-split' : ''}`} style={splitStartPageStyle}>
-            <div className="start-orb"><Sparkles className="ui-icon" size={28} aria-hidden="true" /></div>
-            <p className="eyebrow">A CLEARER PLACE TO BROWSE</p>
+            <div className="start-brand"><span className="start-mark" aria-hidden="true">u</span><p className="eyebrow">A curious browser for curious people</p></div>
             <h1>Where to?</h1>
+            <p className="start-intro">A little less clutter. A little more room to explore.</p>
             <form className="start-search" onSubmit={navigate}><Search className="ui-icon" size={18} aria-hidden="true" /><AppInput aria-label="Search the web" placeholder="Search or enter a website" value={address} onChange={event => setAddress(event.target.value)} /><kbd>↵</kbd></form>
             {!isTauri && <p className="dev-note">Run the desktop app to open websites in the native browser view.</p>}
             {message && <p className="message" role="status">{message}</p>}
-            <div className="quick-links"><AppButton onClick={() => void navigateTo('https://www.google.com')}>Google</AppButton><AppButton onClick={() => void navigateTo('https://wikipedia.org')}>Wikipedia</AppButton><AppButton onClick={() => void navigateTo('https://github.com')}>GitHub</AppButton></div>
+            <div className="quick-links" aria-label="Suggested sites"><AppButton onClick={() => void navigateTo('https://www.google.com')}>Google</AppButton><AppButton onClick={() => void navigateTo('https://wikipedia.org')}>Wikipedia</AppButton><AppButton onClick={() => void navigateTo('https://github.com')}>GitHub</AppButton></div>
           </div>}
           {message && activeTab?.url && <div className={`toast${captureProgress ? ' toast-with-progress' : ''}`} role="status">
             <span>{message}</span>
