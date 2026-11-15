@@ -10,6 +10,7 @@ use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint, NSRect, NSRectEdge, 
 use std::{cell::RefCell, collections::HashMap, ffi::c_void, sync::Arc};
 
 pub type Reveal = Arc<dyn Fn(String) + Send + Sync>;
+pub type ViewAll = Arc<dyn Fn() + Send + Sync>;
 
 #[derive(Clone, PartialEq)]
 pub struct DownloadRow {
@@ -40,7 +41,22 @@ struct State {
     popover: Retained<NSPopover>,
     rows: Option<Vec<DownloadRow>>,
     targets: Vec<Retained<RevealTarget>>,
+    view_all_target: Option<Retained<RevealAllTarget>>,
 }
+
+struct ViewAllIvars { view_all: ViewAll }
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "UnkyViewAllDownloadsTarget"]
+    #[ivars = ViewAllIvars]
+    struct RevealAllTarget;
+    unsafe impl NSObjectProtocol for RevealAllTarget {}
+    impl RevealAllTarget {
+        #[unsafe(method(viewAll:))]
+        fn view_all(&self, _sender: &NSButton) { (self.ivars().view_all)(); }
+    }
+);
 thread_local! {
     static POPOVERS: RefCell<HashMap<String, State>> = RefCell::new(HashMap::new());
 }
@@ -64,12 +80,13 @@ unsafe fn refresh(
     state: &mut State,
     rows: Vec<DownloadRow>,
     reveal: Reveal,
+    view_all: ViewAll,
     mtm: MainThreadMarker,
 ) {
     if state.rows.as_ref() == Some(&rows) {
         return;
     }
-    let height = 60.0 + (rows.len().max(1) as f64 * 56.0);
+    let height = 112.0 + (rows.len().max(1) as f64 * 56.0);
     let root = NSView::initWithFrame(
         NSView::alloc(mtm),
         NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(380.0, height)),
@@ -110,12 +127,20 @@ unsafe fn refresh(
             targets.push(target);
         }
     }
+    let allocated = RevealAllTarget::alloc(mtm).set_ivars(ViewAllIvars { view_all });
+    let view_all_target: Retained<RevealAllTarget> = msg_send![super(allocated), init];
+    let view_all_button = NSButton::buttonWithTitle_target_action(
+        &NSString::from_str("View All Downloads"), Some(&view_all_target), Some(sel!(viewAll:)), mtm,
+    );
+    view_all_button.setFrame(NSRect::new(NSPoint::new(18.0, 12.0), NSSize::new(344.0, 30.0)));
+    root.addSubview(&view_all_button);
     let controller = NSViewController::init(NSViewController::alloc(mtm));
     controller.setView(&root);
     state.popover.setContentViewController(Some(&controller));
     state.popover.setContentSize(NSSize::new(380.0, height));
     state.rows = Some(rows);
     state.targets = targets;
+    state.view_all_target = Some(view_all_target);
 }
 
 /// `update` never opens a dismissed popover. Each browser window owns its instance.
@@ -127,6 +152,7 @@ pub unsafe fn control(
     inset: f64,
     rows: Vec<DownloadRow>,
     reveal: Reveal,
+    view_all: ViewAll,
 ) -> bool {
     let Some(mtm) = MainThreadMarker::new() else {
         return false;
@@ -153,13 +179,14 @@ pub unsafe fn control(
                 popover,
                 rows: None,
                 targets: Vec::new(),
+                    view_all_target: None,
             }
         });
         if action == "toggle" && state.popover.isShown() {
             state.popover.close();
             return false;
         }
-        refresh(state, rows, reveal, mtm);
+        refresh(state, rows, reveal, view_all, mtm);
         if action != "update" {
             let view = &*(main_view as *mut NSView);
             let edge = if view.isFlipped() {

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "site:dev": "vite site --config site/vite.config.mjs --host 127.0.0.1",
     "tauri-dev": "npm run tauri -- dev --config src-tauri/tauri.dev.conf.json",
     "build": "tsc -b && vite build",
     "check": "npm run build && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
