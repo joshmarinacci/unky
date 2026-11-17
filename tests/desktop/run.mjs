@@ -47,7 +47,9 @@ await new Promise((resolveReady, reject) => {
     try {
       const response = await fetch('http://127.0.0.1:4179/health');
       if (response.ok && (await response.json()).token === fixtureToken) return resolveReady();
-    } catch {}
+    } catch {
+      // The server is still starting; poll again.
+    }
     if (server.exitCode !== null) return reject(new Error(`Fixture server exited with ${server.exitCode}`));
     if (Date.now() > deadline) return reject(new Error('Fixture server did not start'));
     setTimeout(poll, 100);
@@ -55,7 +57,7 @@ await new Promise((resolveReady, reject) => {
   poll();
 });
 
-let code = 1;
+let code;
 try {
   const child = spawn('npx', ['wdio', 'run', 'tests/desktop/wdio.conf.ts', ...process.argv.slice(2)], {
     cwd: root,
@@ -78,6 +80,8 @@ try {
   try {
     const { copyFileSync } = await import('node:fs');
     copyFileSync(inventory, resolve(results, 'native-window-inventory.json'));
-  } catch {}
+  } catch {
+    // The window inventory is optional diagnostics.
+  }
 }
 process.exitCode = code;

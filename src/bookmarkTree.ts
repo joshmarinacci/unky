@@ -97,7 +97,7 @@ export function moveBookmarkToDepth<N extends TreeNode>(nodes: N[], activeId: st
   }
   const remaining = removeNode(nodes, activeId).nodes;
   let anchorId: string | null = null;
-  let parentId: string | null = null;
+  let parentId: string | null;
   if (targetDepth === over.depth + 1 && isFolder(over.node)) {
     parentId = over.node.id;
   } else {
