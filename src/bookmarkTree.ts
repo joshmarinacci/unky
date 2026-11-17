@@ -1,4 +1,11 @@
-export type BookmarkLink = { id: string; type: 'bookmark'; title: string; url: string; description?: string; favicon?: string };
+export type BookmarkLink = {
+  id: string;
+  type: 'bookmark';
+  title: string;
+  url: string;
+  description?: string;
+  favicon?: string;
+};
 export type BookmarkFolder = { id: string; type: 'folder'; title: string; children: BookmarkNode[] };
 export type BookmarkNode = BookmarkLink | BookmarkFolder;
 
@@ -16,11 +23,26 @@ function withChildren<N extends TreeNode>(folder: FolderOf<N>, children: N[]): N
   return { ...folder, children };
 }
 
-export function flattenBookmarkNodes<N extends TreeNode>(nodes: N[], expanded: Set<string>, depth = 0, parentId: string | null = null): FlatNode<N>[] {
-  return nodes.flatMap(node => [{ node, depth, parentId }, ...(isFolder(node) && expanded.has(node.id) ? flattenBookmarkNodes(node.children, expanded, depth + 1, node.id) : [])]);
+export function flattenBookmarkNodes<N extends TreeNode>(
+  nodes: N[],
+  expanded: Set<string>,
+  depth = 0,
+  parentId: string | null = null,
+): FlatNode<N>[] {
+  return nodes.flatMap((node) => [
+    { node, depth, parentId },
+    ...(isFolder(node) && expanded.has(node.id)
+      ? flattenBookmarkNodes(node.children, expanded, depth + 1, node.id)
+      : []),
+  ]);
 }
 
-export function locateBookmark<N extends TreeNode>(nodes: N[], id: string, parentId: string | null = null, depth = 0): FlatNode<N> | undefined {
+export function locateBookmark<N extends TreeNode>(
+  nodes: N[],
+  id: string,
+  parentId: string | null = null,
+  depth = 0,
+): FlatNode<N> | undefined {
   for (const node of nodes) {
     if (node.id === id) return { node, parentId, depth };
     if (isFolder(node)) {
@@ -38,29 +60,47 @@ export function resolveBookmarkDropDepth(originDepth: number, targetDepth: numbe
 export type BookmarkDropZone = 'before' | 'inside' | 'after';
 
 /** Classify where the dragged item's center sits within the hovered row. Folder rows have a middle band that nests. */
-export function resolveBookmarkDropZone(pointer: number, rowStart: number, rowSize: number, isFolderRow: boolean): BookmarkDropZone {
+export function resolveBookmarkDropZone(
+  pointer: number,
+  rowStart: number,
+  rowSize: number,
+  isFolderRow: boolean,
+): BookmarkDropZone {
   const ratio = rowSize > 0 ? (pointer - rowStart) / rowSize : 0.5;
   if (!isFolderRow) return ratio < 0.5 ? 'before' : 'after';
   return ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'inside';
 }
 
 /** Move an item according to the drop zone: `inside` appends to the hovered folder, otherwise it lands before/after the row. */
-export function moveBookmarkToDropZone<N extends TreeNode>(nodes: N[], activeId: string, overId: string, zone: BookmarkDropZone, originDepth: number, horizontalDelta: number): { nodes: N[]; parentId: string | null } {
+export function moveBookmarkToDropZone<N extends TreeNode>(
+  nodes: N[],
+  activeId: string,
+  overId: string,
+  zone: BookmarkDropZone,
+  originDepth: number,
+  horizontalDelta: number,
+): { nodes: N[]; parentId: string | null } {
   const over = locateBookmark(nodes, overId);
   if (!over) throw new Error(`Drop target ${overId} was not found`);
-  if (zone === 'inside' && isFolder(over.node)) return moveBookmarkToDepth(nodes, activeId, overId, over.depth + 1, true);
+  if (zone === 'inside' && isFolder(over.node))
+    return moveBookmarkToDepth(nodes, activeId, overId, over.depth + 1, true);
   const depth = resolveBookmarkDropDepth(originDepth, over.depth, horizontalDelta);
   return moveBookmarkToDepth(nodes, activeId, overId, depth, zone !== 'before');
 }
 
 function updateNode<N extends TreeNode>(nodes: N[], id: string, update: (node: N) => N): N[] {
-  return nodes.map(node => node.id === id ? update(node) : isFolder(node) ? withChildren(node, updateNode(node.children, id, update)) : node);
+  return nodes.map((node) =>
+    node.id === id ? update(node) : isFolder(node) ? withChildren(node, updateNode(node.children, id, update)) : node,
+  );
 }
 
 function removeNode<N extends TreeNode>(nodes: N[], id: string): { nodes: N[]; removed?: N } {
   let removed: N | undefined;
-  const remaining = nodes.flatMap<N>(node => {
-    if (node.id === id) { removed = node; return []; }
+  const remaining = nodes.flatMap<N>((node) => {
+    if (node.id === id) {
+      removed = node;
+      return [];
+    }
     if (isFolder(node)) {
       const nested = removeNode(node.children, id);
       if (nested.removed) removed = nested.removed;
@@ -72,7 +112,7 @@ function removeNode<N extends TreeNode>(nodes: N[], id: string): { nodes: N[]; r
 }
 
 function contains<N extends TreeNode>(node: N, id: string): boolean {
-  return node.id === id || (isFolder(node) && node.children.some(child => contains(child, id)));
+  return node.id === id || (isFolder(node) && node.children.some((child) => contains(child, id)));
 }
 
 function moveArray<T>(items: T[], from: number, to: number): T[] {
@@ -83,17 +123,30 @@ function moveArray<T>(items: T[], from: number, to: number): T[] {
   return next;
 }
 
-export function moveBookmarkToDepth<N extends TreeNode>(nodes: N[], activeId: string, overId: string, depth: number, after: boolean): { nodes: N[]; parentId: string | null } {
-  const active = locateBookmark(nodes, activeId), over = locateBookmark(nodes, overId);
+export function moveBookmarkToDepth<N extends TreeNode>(
+  nodes: N[],
+  activeId: string,
+  overId: string,
+  depth: number,
+  after: boolean,
+): { nodes: N[]; parentId: string | null } {
+  const active = locateBookmark(nodes, activeId),
+    over = locateBookmark(nodes, overId);
   if (!active || !over || contains(active.node, overId)) return { nodes, parentId: active?.parentId ?? null };
   const targetDepth = Math.max(0, Math.min(depth, over.depth + (isFolder(over.node) ? 1 : 0)));
   if (active.parentId === over.parentId && targetDepth === active.depth) {
     const parentNode = active.parentId ? locateBookmark(nodes, active.parentId)?.node : undefined;
     const siblings = parentNode && isFolder(parentNode) ? parentNode.children : nodes;
-    const from = siblings.findIndex(node => node.id === activeId), overIndex = siblings.findIndex(node => node.id === overId);
+    const from = siblings.findIndex((node) => node.id === activeId),
+      overIndex = siblings.findIndex((node) => node.id === overId);
     const to = overIndex + Number(after) - Number(from < overIndex);
     const next = moveArray(siblings, from, Math.max(0, Math.min(siblings.length - 1, to)));
-    return { nodes: active.parentId ? updateNode(nodes, active.parentId, node => isFolder(node) ? withChildren(node, next) : node) : next, parentId: active.parentId };
+    return {
+      nodes: active.parentId
+        ? updateNode(nodes, active.parentId, (node) => (isFolder(node) ? withChildren(node, next) : node))
+        : next,
+      parentId: active.parentId,
+    };
   }
   const remaining = removeNode(nodes, activeId).nodes;
   let anchorId: string | null = null;
@@ -102,7 +155,8 @@ export function moveBookmarkToDepth<N extends TreeNode>(nodes: N[], activeId: st
     parentId = over.node.id;
   } else {
     let anchor: FlatNode<N> | undefined = over;
-    while (anchor && anchor.depth > targetDepth) anchor = anchor.parentId ? locateBookmark(remaining, anchor.parentId) : undefined;
+    while (anchor && anchor.depth > targetDepth)
+      anchor = anchor.parentId ? locateBookmark(remaining, anchor.parentId) : undefined;
     if (!anchor) return { nodes, parentId: active.parentId };
     anchorId = anchor.node.id;
     parentId = anchor.parentId;
@@ -113,8 +167,13 @@ export function moveBookmarkToDepth<N extends TreeNode>(nodes: N[], activeId: st
     if (!parent || !isFolder(parent)) return { nodes, parentId: active.parentId };
     siblings = parent.children;
   } else siblings = remaining;
-  const index = anchorId ? siblings.findIndex(node => node.id === anchorId) : siblings.length;
+  const index = anchorId ? siblings.findIndex((node) => node.id === anchorId) : siblings.length;
   const insertAt = index < 0 ? siblings.length : Math.min(siblings.length, index + Number(after));
   const next = [...siblings.slice(0, insertAt), active.node, ...siblings.slice(insertAt)];
-  return { nodes: parentId ? updateNode(remaining, parentId, node => isFolder(node) ? withChildren(node, next) : node) : next, parentId };
+  return {
+    nodes: parentId
+      ? updateNode(remaining, parentId, (node) => (isFolder(node) ? withChildren(node, next) : node))
+      : next,
+    parentId,
+  };
 }

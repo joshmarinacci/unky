@@ -1,9 +1,5 @@
 import { forwardRef } from 'react';
-import {
-  Button as AriaButton,
-  Input as AriaInput,
-  TextField,
-} from 'react-aria-components';
+import { Button as AriaButton, Input as AriaInput, TextField } from 'react-aria-components';
 import type { ButtonProps as AriaButtonProps } from 'react-aria-components';
 
 type AppButtonProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'disabled'> & {
@@ -17,7 +13,16 @@ export const AppButton = forwardRef<HTMLButtonElement, AppButtonProps>(function 
   { onClick, disabled, className, ...props },
   ref,
 ) {
-  return <AriaButton {...(props as AriaButtonProps)} ref={ref} className={`button-base ${className ?? ''}`} data-variant="quiet" isDisabled={disabled} onPress={onClick} />;
+  return (
+    <AriaButton
+      {...(props as AriaButtonProps)}
+      ref={ref}
+      className={`button-base ${className ?? ''}`}
+      data-variant="quiet"
+      isDisabled={disabled}
+      onPress={onClick}
+    />
+  );
 });
 
 type AppInputProps = React.InputHTMLAttributes<HTMLInputElement>;

@@ -1,13 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { findAddressSuggestions, initialAddressSuggestions, moveAddressSuggestionSelection } from '../src/addressSuggestions.ts';
+import {
+  findAddressSuggestions,
+  initialAddressSuggestions,
+  moveAddressSuggestionSelection,
+} from '../src/addressSuggestions.ts';
 import type { BookmarkNode } from '../src/bookmarkTree.ts';
 
 const bookmarks: BookmarkNode[] = [
   { id: 'one', type: 'bookmark', title: 'Hacker News', url: 'https://news.ycombinator.com/' },
-  { id: 'folder', type: 'folder', title: 'Reading', children: [
-    { id: 'two', type: 'bookmark', title: '', url: 'https://news.example.com/archive' },
-  ] },
+  {
+    id: 'folder',
+    type: 'folder',
+    title: 'Reading',
+    children: [{ id: 'two', type: 'bookmark', title: '', url: 'https://news.example.com/archive' }],
+  },
 ];
 const history = [
   { title: 'Visited copy', url: 'https://news.ycombinator.com/' },
@@ -26,15 +33,21 @@ test('autocomplete matches nested bookmarks and history by title or URL, ignorin
 
 test('autocomplete keeps bookmark priority for duplicate URLs and limits the popup to eight results', () => {
   const manyBookmarks: BookmarkNode[] = Array.from({ length: 9 }, (_, index) => ({
-    id: String(index), type: 'bookmark', title: `Result ${index}`, url: `https://example.com/${index}`,
+    id: String(index),
+    type: 'bookmark',
+    title: `Result ${index}`,
+    url: `https://example.com/${index}`,
   }));
   const matches = findAddressSuggestions('example.com', manyBookmarks, [
     { title: 'Duplicate', url: 'https://example.com/0' },
     { title: 'History result', url: 'https://example.com/history' },
   ]);
   assert.equal(matches.length, 8);
-  assert.deepEqual(matches.map(match => match.url), Array.from({ length: 8 }, (_, index) => `https://example.com/${index}`));
-  assert.ok(matches.every(match => match.source === 'Bookmark'));
+  assert.deepEqual(
+    matches.map((match) => match.url),
+    Array.from({ length: 8 }, (_, index) => `https://example.com/${index}`),
+  );
+  assert.ok(matches.every((match) => match.source === 'Bookmark'));
 });
 
 test('arrow selection wraps at both ends of the popup', () => {
@@ -45,7 +58,10 @@ test('arrow selection wraps at both ends of the popup', () => {
 });
 
 test('popup restores its initial rows and falls back to empty state for invalid JSON', () => {
-  const state = { rows: [{ title: 'Hacker News', url: 'https://news.ycombinator.com/', source: 'Bookmark' as const }], selectedIndex: 0 };
+  const state = {
+    rows: [{ title: 'Hacker News', url: 'https://news.ycombinator.com/', source: 'Bookmark' as const }],
+    selectedIndex: 0,
+  };
   const params = new URLSearchParams({ initial: JSON.stringify(state) });
   assert.deepEqual(initialAddressSuggestions(`?${params}`), state);
   assert.deepEqual(initialAddressSuggestions('?initial=invalid'), { rows: [], selectedIndex: 0 });

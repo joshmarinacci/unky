@@ -1,7 +1,51 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import buildMetadata from './build-metadata.json';
-import { Button as AriaButton, Input, SearchField, ListBox, ListBoxItem, Popover, Select, SelectValue, Tab, TabList, TabPanel, TabPanels, Tabs } from 'react-aria-components';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronRight, CircleDot, Clock3, Columns2, Download, ExternalLink, EyeOff, Folder, FolderPlus, Globe2, LoaderCircle, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Settings, Shield, Sparkles, Star, Terminal, X } from 'lucide-react';
+import {
+  Button as AriaButton,
+  Input,
+  SearchField,
+  ListBox,
+  ListBoxItem,
+  Popover,
+  Select,
+  SelectValue,
+  Tab,
+  TabList,
+  TabPanel,
+  TabPanels,
+  Tabs,
+} from 'react-aria-components';
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  CircleDot,
+  Clock3,
+  Columns2,
+  Download,
+  ExternalLink,
+  EyeOff,
+  Folder,
+  FolderPlus,
+  Globe2,
+  LoaderCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
+  Pin,
+  Plus,
+  RotateCw,
+  Search,
+  Settings,
+  Shield,
+  Sparkles,
+  Star,
+  Terminal,
+  X,
+} from 'lucide-react';
 import { AppButton, AppInput } from './components/ui';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -9,7 +53,20 @@ import { Menu } from '@tauri-apps/api/menu';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
 import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog';
-import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, closestCenter, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragMoveEvent, type DragStartEvent } from '@dnd-kit/core';
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragMoveEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable';
 import { flattenBookmarkNodes, locateBookmark, moveBookmarkToDropZone, resolveBookmarkDropZone } from './bookmarkTree';
 import type { FlatNode, BookmarkDropZone, BookmarkFolder, BookmarkLink, BookmarkNode } from './bookmarkTree';
@@ -34,17 +91,45 @@ type Tab = {
 
 type BrowserSnapshot = { tabs: Tab[]; activeTabId: string };
 type ExternalBrowser = { id: string; name: string };
-type SplitLayout = { firstTabId: string; secondTabId: string; orientation: 'horizontal' | 'vertical'; firstPanePercent: number };
-type PageSecurityInfo = { secureHttps: boolean; location: string; camera: string; microphone: string; playingAudio: boolean };
+type SplitLayout = {
+  firstTabId: string;
+  secondTabId: string;
+  orientation: 'horizontal' | 'vertical';
+  firstPanePercent: number;
+};
+type PageSecurityInfo = {
+  secureHttps: boolean;
+  location: string;
+  camera: string;
+  microphone: string;
+  playingAudio: boolean;
+};
 type TabReference = { id: string; type: 'tab' };
 type TabFolder = { id: string; type: 'folder'; title: string; collapsed: boolean; children: TabNode[] };
 type TabNode = TabReference | TabFolder;
 type HistoryEntry = { id: string; url: string; title: string; visitedAt: number; favicon?: string };
-type Download = { id: string; url: string; filename: string; path: string; status: 'downloading' | 'completed' | 'failed'; bytesReceived: number };
+type Download = {
+  id: string;
+  url: string;
+  filename: string;
+  path: string;
+  status: 'downloading' | 'completed' | 'failed';
+  bytesReceived: number;
+};
 type Theme = 'system' | 'light' | 'dark';
 type SidebarSide = 'left' | 'right';
-type FilterSettingsView = { enabled: boolean; sourceUrl: string; updatedAt: number | null; acceptedRules: number; exceptions: string[] };
-type FilterUpdateProgress = { phase: 'downloading' | 'compiling' | 'complete'; receivedBytes: number; totalBytes: number | null };
+type FilterSettingsView = {
+  enabled: boolean;
+  sourceUrl: string;
+  updatedAt: number | null;
+  acceptedRules: number;
+  exceptions: string[];
+};
+type FilterUpdateProgress = {
+  phase: 'downloading' | 'compiling' | 'complete';
+  receivedBytes: number;
+  totalBytes: number | null;
+};
 type LaunchRequest = { url: string; private: boolean };
 type SessionTestPhase = 'exercise' | 'restore';
 const tabEvent = 'browser://tabs-changed';
@@ -85,11 +170,11 @@ const sessionTestUrls = [
 ];
 
 function assertSessionTestState(snapshot: BrowserSnapshot, expectedUrls: string[], activeUrl: string) {
-  const actualUrls = snapshot.tabs.map(tab => tab.url);
+  const actualUrls = snapshot.tabs.map((tab) => tab.url);
   if (JSON.stringify(actualUrls) !== JSON.stringify(expectedUrls)) {
     throw new Error(`Expected tab order ${JSON.stringify(expectedUrls)}, got ${JSON.stringify(actualUrls)}`);
   }
-  const active = snapshot.tabs.find(tab => tab.id === snapshot.activeTabId);
+  const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
   if (!active || active.url !== activeUrl) {
     throw new Error(`Expected active tab ${activeUrl}, got ${active?.url ?? 'none'}`);
   }
@@ -97,9 +182,7 @@ function assertSessionTestState(snapshot: BrowserSnapshot, expectedUrls: string[
 
 function initialSidebarWidth() {
   const saved = Number(localStorage.getItem('browser.sidebarWidth'));
-  return Number.isFinite(saved) && saved >= sidebarMinWidth && saved <= sidebarMaxWidth
-    ? saved
-    : sidebarDefaultWidth;
+  return Number.isFinite(saved) && saved >= sidebarMinWidth && saved <= sidebarMaxWidth ? saved : sidebarDefaultWidth;
 }
 
 function initialTabPosition(): TabPosition {
@@ -123,13 +206,15 @@ function normalizeTabNodes(value: unknown): TabNode[] {
     if (!item || typeof item !== 'object') return [];
     const node = item as Record<string, unknown>;
     if (node.type === 'folder' && typeof node.title === 'string') {
-      return [{
-        id: typeof node.id === 'string' ? node.id : crypto.randomUUID(),
-        type: 'folder',
-        title: node.title,
-        collapsed: node.collapsed === true,
-        children: normalizeTabNodes(node.children),
-      }];
+      return [
+        {
+          id: typeof node.id === 'string' ? node.id : crypto.randomUUID(),
+          type: 'folder',
+          title: node.title,
+          collapsed: node.collapsed === true,
+          children: normalizeTabNodes(node.children),
+        },
+      ];
     }
     if (node.type === 'tab' && typeof node.id === 'string') return [{ id: node.id, type: 'tab' }];
     return [];
@@ -137,67 +222,81 @@ function normalizeTabNodes(value: unknown): TabNode[] {
 }
 
 function initialTabNodes(): TabNode[] {
-  try { return normalizeTabNodes(JSON.parse(localStorage.getItem('browser.tabTree') ?? '[]')); }
-  catch { return []; }
+  try {
+    return normalizeTabNodes(JSON.parse(localStorage.getItem('browser.tabTree') ?? '[]'));
+  } catch {
+    return [];
+  }
 }
 
 function initialTabNameOverrides(): Record<string, string> {
   try {
     const value: unknown = JSON.parse(localStorage.getItem('browser.tabNames') ?? '{}');
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
-  } catch { return {}; }
+    return Object.fromEntries(
+      Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    );
+  } catch {
+    return {};
+  }
 }
 
 function initialHistoryTabIds(): string[] {
   try {
     const value: unknown = JSON.parse(localStorage.getItem('browser.historyTabs') ?? '[]');
     return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function initialSettingsTabIds(): string[] {
   try {
     const value: unknown = JSON.parse(localStorage.getItem('browser.settingsTabs') ?? '[]');
     return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function initialPinnedTabIds(): string[] {
   try {
     const value: unknown = JSON.parse(localStorage.getItem('browser.pinnedTabs') ?? '[]');
     return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function reconcileTabNodes(nodes: TabNode[], tabs: Tab[]): TabNode[] {
-  const validIds = new Set(tabs.map(tab => tab.id));
+  const validIds = new Set(tabs.map((tab) => tab.id));
   const seenIds = new Set<string>();
-  const visit = (items: TabNode[]): TabNode[] => items.flatMap((node): TabNode[] => {
-    if (node.type === 'tab') {
-      if (!validIds.has(node.id) || seenIds.has(node.id)) return [];
-      seenIds.add(node.id);
-      return [node];
-    }
-    return [{ ...node, children: visit(node.children) }];
-  });
+  const visit = (items: TabNode[]): TabNode[] =>
+    items.flatMap((node): TabNode[] => {
+      if (node.type === 'tab') {
+        if (!validIds.has(node.id) || seenIds.has(node.id)) return [];
+        seenIds.add(node.id);
+        return [node];
+      }
+      return [{ ...node, children: visit(node.children) }];
+    });
   const reconciled = visit(nodes);
   for (const tab of tabs) if (!seenIds.has(tab.id)) reconciled.push({ id: tab.id, type: 'tab' });
   return reconciled;
 }
 
 function flattenTabIds(nodes: TabNode[]): string[] {
-  return nodes.flatMap(node => node.type === 'tab' ? [node.id] : flattenTabIds(node.children));
+  return nodes.flatMap((node) => (node.type === 'tab' ? [node.id] : flattenTabIds(node.children)));
 }
 
 function expandedTabFolderIds(nodes: TabNode[]): string[] {
-  return nodes.flatMap(node => node.type === 'folder'
-    ? [...(!node.collapsed ? [node.id] : []), ...expandedTabFolderIds(node.children)]
-    : []);
+  return nodes.flatMap((node) =>
+    node.type === 'folder' ? [...(!node.collapsed ? [node.id] : []), ...expandedTabFolderIds(node.children)] : [],
+  );
 }
 
 function bookmarkFolderIds(nodes: BookmarkNode[]): string[] {
-  return nodes.flatMap(node => node.type === 'folder' ? [node.id, ...bookmarkFolderIds(node.children)] : []);
+  return nodes.flatMap((node) => (node.type === 'folder' ? [node.id, ...bookmarkFolderIds(node.children)] : []));
 }
 
 function findTabNode(nodes: TabNode[], id: string): TabNode | undefined {
@@ -212,17 +311,26 @@ function findTabNode(nodes: TabNode[], id: string): TabNode | undefined {
 }
 
 function tabFolders(nodes: TabNode[]): TabFolder[] {
-  return nodes.flatMap(node => node.type === 'folder' ? [node, ...tabFolders(node.children)] : []);
+  return nodes.flatMap((node) => (node.type === 'folder' ? [node, ...tabFolders(node.children)] : []));
 }
 
 function updateTabNode(nodes: TabNode[], id: string, update: (node: TabNode) => TabNode): TabNode[] {
-  return nodes.map(node => node.id === id ? update(node) : node.type === 'folder' ? { ...node, children: updateTabNode(node.children, id, update) } : node);
+  return nodes.map((node) =>
+    node.id === id
+      ? update(node)
+      : node.type === 'folder'
+        ? { ...node, children: updateTabNode(node.children, id, update) }
+        : node,
+  );
 }
 
 function removeTabNode(nodes: TabNode[], id: string): { nodes: TabNode[]; removed?: TabNode } {
   let removed: TabNode | undefined;
-  const result = nodes.flatMap<TabNode>(node => {
-    if (node.id === id) { removed = node; return []; }
+  const result = nodes.flatMap<TabNode>((node) => {
+    if (node.id === id) {
+      removed = node;
+      return [];
+    }
     if (node.type === 'folder') {
       const nested = removeTabNode(node.children, id);
       if (nested.removed) removed = nested.removed;
@@ -234,26 +342,46 @@ function removeTabNode(nodes: TabNode[], id: string): { nodes: TabNode[]; remove
 }
 
 function containsTabNode(node: TabNode, id: string): boolean {
-  return node.id === id || (node.type === 'folder' && node.children.some(child => containsTabNode(child, id)));
+  return node.id === id || (node.type === 'folder' && node.children.some((child) => containsTabNode(child, id)));
 }
 
-function insertTabNode(nodes: TabNode[], targetId: string, moving: TabNode, after: boolean): { nodes: TabNode[]; inserted: boolean } {
+function insertTabNode(
+  nodes: TabNode[],
+  targetId: string,
+  moving: TabNode,
+  after: boolean,
+): { nodes: TabNode[]; inserted: boolean } {
   const result: TabNode[] = [];
   for (const node of nodes) {
-    if (node.id === targetId) return { nodes: [...result, ...(after ? [node, moving] : [moving, node]), ...nodes.slice(result.length + 1)], inserted: true };
+    if (node.id === targetId)
+      return {
+        nodes: [...result, ...(after ? [node, moving] : [moving, node]), ...nodes.slice(result.length + 1)],
+        inserted: true,
+      };
     if (node.type === 'folder') {
       const nested = insertTabNode(node.children, targetId, moving, after);
-      if (nested.inserted) return { nodes: [...result, { ...node, children: nested.nodes }, ...nodes.slice(result.length + 1)], inserted: true };
+      if (nested.inserted)
+        return {
+          nodes: [...result, { ...node, children: nested.nodes }, ...nodes.slice(result.length + 1)],
+          inserted: true,
+        };
     }
     result.push(node);
   }
   return { nodes: result, inserted: false };
 }
 
-function appendTabNodeToFolder(nodes: TabNode[], folderId: string, moving: TabNode): { nodes: TabNode[]; inserted: boolean } {
+function appendTabNodeToFolder(
+  nodes: TabNode[],
+  folderId: string,
+  moving: TabNode,
+): { nodes: TabNode[]; inserted: boolean } {
   let inserted = false;
-  const result = nodes.map(node => {
-    if (node.id === folderId && node.type === 'folder') { inserted = true; return { ...node, children: [...node.children, moving], collapsed: false }; }
+  const result = nodes.map((node) => {
+    if (node.id === folderId && node.type === 'folder') {
+      inserted = true;
+      return { ...node, children: [...node.children, moving], collapsed: false };
+    }
     if (!inserted && node.type === 'folder') {
       const nested = appendTabNodeToFolder(node.children, folderId, moving);
       if (nested.inserted) inserted = true;
@@ -265,10 +393,13 @@ function appendTabNodeToFolder(nodes: TabNode[], folderId: string, moving: TabNo
 }
 
 function unwrapTabFolder(nodes: TabNode[], folderId: string): { nodes: TabNode[]; unwrapped: boolean } {
-  const rootIndex = nodes.findIndex(node => node.id === folderId && node.type === 'folder');
+  const rootIndex = nodes.findIndex((node) => node.id === folderId && node.type === 'folder');
   if (rootIndex >= 0) {
     const folder = nodes[rootIndex] as TabFolder;
-    return { nodes: [...nodes.slice(0, rootIndex), ...folder.children, ...nodes.slice(rootIndex + 1)], unwrapped: true };
+    return {
+      nodes: [...nodes.slice(0, rootIndex), ...folder.children, ...nodes.slice(rootIndex + 1)],
+      unwrapped: true,
+    };
   }
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
@@ -289,22 +420,26 @@ function normalizeBookmarkNodes(value: unknown): BookmarkNode[] {
     if (!item || typeof item !== 'object') return [];
     const node = item as Record<string, unknown>;
     if (node.type === 'folder' && typeof node.title === 'string') {
-      return [{
-        id: typeof node.id === 'string' ? node.id : crypto.randomUUID(),
-        type: 'folder',
-        title: node.title,
-        children: normalizeBookmarkNodes(node.children),
-      }];
+      return [
+        {
+          id: typeof node.id === 'string' ? node.id : crypto.randomUUID(),
+          type: 'folder',
+          title: node.title,
+          children: normalizeBookmarkNodes(node.children),
+        },
+      ];
     }
     if (typeof node.title === 'string' && typeof node.url === 'string') {
-      return [{
-        id: typeof node.id === 'string' ? node.id : crypto.randomUUID(),
-        type: 'bookmark',
-        title: node.title,
-        url: node.url,
-        description: typeof node.description === 'string' ? node.description : '',
-        favicon: typeof node.favicon === 'string' ? node.favicon : undefined,
-      }];
+      return [
+        {
+          id: typeof node.id === 'string' ? node.id : crypto.randomUUID(),
+          type: 'bookmark',
+          title: node.title,
+          url: node.url,
+          description: typeof node.description === 'string' ? node.description : '',
+          favicon: typeof node.favicon === 'string' ? node.favicon : undefined,
+        },
+      ];
     }
     return [];
   });
@@ -314,7 +449,9 @@ function initialBookmarks(): BookmarkNode[] {
   try {
     const saved = JSON.parse(localStorage.getItem('browser.bookmarks') ?? '[]');
     return normalizeBookmarkNodes(saved);
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function findBookmarkByUrl(nodes: BookmarkNode[], url: string): BookmarkLink | undefined {
@@ -328,8 +465,12 @@ function findBookmarkByUrl(nodes: BookmarkNode[], url: string): BookmarkLink | u
   return undefined;
 }
 
-function updateBookmarkNode(nodes: BookmarkNode[], id: string, update: (node: BookmarkNode) => BookmarkNode): BookmarkNode[] {
-  return nodes.map(node => {
+function updateBookmarkNode(
+  nodes: BookmarkNode[],
+  id: string,
+  update: (node: BookmarkNode) => BookmarkNode,
+): BookmarkNode[] {
+  return nodes.map((node) => {
     if (node.id === id) return update(node);
     return node.type === 'folder' ? { ...node, children: updateBookmarkNode(node.children, id, update) } : node;
   });
@@ -337,7 +478,7 @@ function updateBookmarkNode(nodes: BookmarkNode[], id: string, update: (node: Bo
 
 function removeBookmarkNode(nodes: BookmarkNode[], id: string): { nodes: BookmarkNode[]; removed?: BookmarkNode } {
   let removed: BookmarkNode | undefined;
-  const remaining = nodes.flatMap<BookmarkNode>(node => {
+  const remaining = nodes.flatMap<BookmarkNode>((node) => {
     if (node.id === id) {
       removed = node;
       return [];
@@ -352,9 +493,13 @@ function removeBookmarkNode(nodes: BookmarkNode[], id: string): { nodes: Bookmar
   return { nodes: remaining, removed };
 }
 
-function appendBookmarkToFolder(nodes: BookmarkNode[], folderId: string, moving: BookmarkNode): { nodes: BookmarkNode[]; inserted: boolean } {
+function appendBookmarkToFolder(
+  nodes: BookmarkNode[],
+  folderId: string,
+  moving: BookmarkNode,
+): { nodes: BookmarkNode[]; inserted: boolean } {
   let inserted = false;
-  const next = nodes.map(node => {
+  const next = nodes.map((node) => {
     if (node.id === folderId && node.type === 'folder') {
       inserted = true;
       return { ...node, children: [...node.children, moving] };
@@ -372,8 +517,9 @@ function appendBookmarkToFolder(nodes: BookmarkNode[], folderId: string, moving:
 function filterBookmarkNodes(nodes: BookmarkNode[], query: string): BookmarkNode[] {
   if (!query) return nodes;
   const normalized = query.toLowerCase();
-  return nodes.flatMap<BookmarkNode>(node => {
-    if (node.type === 'bookmark') return `${node.title} ${node.url} ${node.description ?? ''}`.toLowerCase().includes(normalized) ? [node] : [];
+  return nodes.flatMap<BookmarkNode>((node) => {
+    if (node.type === 'bookmark')
+      return `${node.title} ${node.url} ${node.description ?? ''}`.toLowerCase().includes(normalized) ? [node] : [];
     if (node.title.toLowerCase().includes(normalized)) return [node];
     const children = filterBookmarkNodes(node.children, query);
     return children.length ? [{ ...node, children }] : [];
@@ -381,126 +527,382 @@ function filterBookmarkNodes(nodes: BookmarkNode[], query: string): BookmarkNode
 }
 
 function BookmarkSortableRow({
-  node, depth, expanded, dropZone, editing, onToggle, onOpen, onEdit, onDelete, onNewFolder, onRename, onCancelRename, editingFolder, folderTitle, setFolderTitle, saveFolderTitle, editForm, onContextMenu,
+  node,
+  depth,
+  expanded,
+  dropZone,
+  editing,
+  onToggle,
+  onOpen,
+  onEdit,
+  onDelete,
+  onNewFolder,
+  onRename,
+  onCancelRename,
+  editingFolder,
+  folderTitle,
+  setFolderTitle,
+  saveFolderTitle,
+  editForm,
+  onContextMenu,
 }: {
-  node: BookmarkNode; depth: number; expanded: boolean; dropZone?: BookmarkDropZone; editing: boolean; onToggle: () => void; onOpen: (url: string) => void;
-  onEdit: (node: BookmarkLink) => void; onDelete: (node: BookmarkNode) => void; onNewFolder: (id: string) => void;
+  node: BookmarkNode;
+  depth: number;
+  expanded: boolean;
+  dropZone?: BookmarkDropZone;
+  editing: boolean;
+  onToggle: () => void;
+  onOpen: (url: string) => void;
+  onEdit: (node: BookmarkLink) => void;
+  onDelete: (node: BookmarkNode) => void;
+  onNewFolder: (id: string) => void;
   onContextMenu: (event: React.MouseEvent, bookmark: BookmarkNode) => void;
-  onRename: (node: BookmarkFolder) => void; onCancelRename: () => void; editingFolder: boolean; folderTitle: string; setFolderTitle: (value: string) => void; saveFolderTitle: () => void; editForm: React.ReactNode;
+  onRename: (node: BookmarkFolder) => void;
+  onCancelRename: () => void;
+  editingFolder: boolean;
+  folderTitle: string;
+  setFolderTitle: (value: string) => void;
+  saveFolderTitle: () => void;
+  editForm: React.ReactNode;
 }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id: node.id, disabled: editing || editingFolder });
-  const style = { opacity: isDragging ? .35 : 1 };
-  const itemProps = { ...attributes, role: 'treeitem', 'aria-level': depth + 1, 'aria-expanded': node.type === 'folder' ? expanded : undefined };
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({
+    id: node.id,
+    disabled: editing || editingFolder,
+  });
+  const style = { opacity: isDragging ? 0.35 : 1 };
+  const itemProps = {
+    ...attributes,
+    role: 'treeitem',
+    'aria-level': depth + 1,
+    'aria-expanded': node.type === 'folder' ? expanded : undefined,
+  };
   const itemClass = `bookmark-sortable-item ${dropZone ? `drop-${dropZone}` : ''}`;
   const stopDrag = (event: React.PointerEvent) => event.stopPropagation();
-  if (node.type === 'folder') return <div ref={setNodeRef} style={style} className={itemClass} {...itemProps} {...listeners}>
-    <div className="folder-row bookmark-dnd-folder" style={{ paddingLeft: depth * 14 }} onClick={() => { if (!editingFolder) onToggle(); }} onContextMenu={event => onContextMenu(event, node)}>
-      <button className="folder-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onToggle(); }}>{expanded ? <ChevronDown className="ui-icon" size={14} aria-hidden="true" /> : <ChevronRight className="ui-icon" size={14} aria-hidden="true" />}</button>
-      <span className="bookmark-icon folder-icon" aria-hidden="true"><Folder className="ui-icon" size={14} /></span>
-      {editingFolder ? <AppInput className="folder-title-input" aria-label="Folder name" autoFocus value={folderTitle} onPointerDown={stopDrag} onChange={event => setFolderTitle(event.target.value)} onBlur={saveFolderTitle} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveFolderTitle(); } if (event.key === 'Escape') { onCancelRename(); } }} /> : <span className="folder-title" title={node.title}>{node.title}</span>}
-      {!node.children.length && expanded && <span className="tree-empty-hint">Empty folder</span>}
-      <span className="folder-actions">
-        <button type="button" className="folder-action" aria-label={`Create subfolder in ${node.title}`} title="New subfolder" onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onNewFolder(node.id); }}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /></button>
-        <button type="button" className="folder-action" aria-label={`Rename ${node.title}`} title="Rename folder" onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onRename(node); }}><Pencil className="ui-icon" size={14} aria-hidden="true" /></button>
-        <button type="button" className="folder-action" aria-label={`Delete ${node.title}`} title="Delete folder and contents" onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onDelete(node); }}><X className="ui-icon" size={14} aria-hidden="true" /></button>
-      </span>
+  if (node.type === 'folder')
+    return (
+      <div ref={setNodeRef} style={style} className={itemClass} {...itemProps} {...listeners}>
+        <div
+          className="folder-row bookmark-dnd-folder"
+          style={{ paddingLeft: depth * 14 }}
+          onClick={() => {
+            if (!editingFolder) onToggle();
+          }}
+          onContextMenu={(event) => onContextMenu(event, node)}
+        >
+          <button
+            className="folder-toggle"
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`}
+            onPointerDown={stopDrag}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggle();
+            }}
+          >
+            {expanded ? (
+              <ChevronDown className="ui-icon" size={14} aria-hidden="true" />
+            ) : (
+              <ChevronRight className="ui-icon" size={14} aria-hidden="true" />
+            )}
+          </button>
+          <span className="bookmark-icon folder-icon" aria-hidden="true">
+            <Folder className="ui-icon" size={14} />
+          </span>
+          {editingFolder ? (
+            <AppInput
+              className="folder-title-input"
+              aria-label="Folder name"
+              autoFocus
+              value={folderTitle}
+              onPointerDown={stopDrag}
+              onChange={(event) => setFolderTitle(event.target.value)}
+              onBlur={saveFolderTitle}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  saveFolderTitle();
+                }
+                if (event.key === 'Escape') {
+                  onCancelRename();
+                }
+              }}
+            />
+          ) : (
+            <span className="folder-title" title={node.title}>
+              {node.title}
+            </span>
+          )}
+          {!node.children.length && expanded && <span className="tree-empty-hint">Empty folder</span>}
+          <span className="folder-actions">
+            <button
+              type="button"
+              className="folder-action"
+              aria-label={`Create subfolder in ${node.title}`}
+              title="New subfolder"
+              onPointerDown={stopDrag}
+              onClick={(event) => {
+                event.stopPropagation();
+                onNewFolder(node.id);
+              }}
+            >
+              <FolderPlus className="ui-icon" size={14} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="folder-action"
+              aria-label={`Rename ${node.title}`}
+              title="Rename folder"
+              onPointerDown={stopDrag}
+              onClick={(event) => {
+                event.stopPropagation();
+                onRename(node);
+              }}
+            >
+              <Pencil className="ui-icon" size={14} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="folder-action"
+              aria-label={`Delete ${node.title}`}
+              title="Delete folder and contents"
+              onPointerDown={stopDrag}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDelete(node);
+              }}
+            >
+              <X className="ui-icon" size={14} aria-hidden="true" />
+            </button>
+          </span>
+        </div>
+      </div>
+    );
+  if (editing)
+    return (
+      <div ref={setNodeRef} className="bookmark-sortable-item" style={{ paddingLeft: depth * 14 }}>
+        {editForm}
+      </div>
+    );
+  return (
+    <div ref={setNodeRef} style={style} className={itemClass} {...itemProps} {...listeners}>
+      <div
+        className="bookmark-row bookmark-tree-row bookmark-dnd-link"
+        style={{ paddingLeft: depth * 14 }}
+        onClick={() => onOpen(node.url)}
+        onContextMenu={(event) => onContextMenu(event, node)}
+      >
+        <span className="bookmark-open">
+          <span className="bookmark-icon">
+            {node.favicon ? (
+              <img
+                className="bookmark-favicon"
+                src={node.favicon}
+                alt=""
+                onError={(event) => {
+                  event.currentTarget.hidden = true;
+                }}
+              />
+            ) : (
+              <Star className="ui-icon" size={14} aria-hidden="true" />
+            )}
+          </span>
+          <span>
+            <strong>{node.title}</strong>
+            <small>{node.url}</small>
+          </span>
+        </span>
+        <button
+          type="button"
+          className="bookmark-edit"
+          aria-label={`Edit ${node.title}`}
+          onPointerDown={stopDrag}
+          onClick={(event) => {
+            event.stopPropagation();
+            onEdit(node);
+          }}
+        >
+          <Pencil className="ui-icon" size={14} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="bookmark-delete"
+          aria-label={`Delete ${node.title}`}
+          onPointerDown={stopDrag}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete(node);
+          }}
+        >
+          <X className="ui-icon" size={14} aria-hidden="true" />
+        </button>
+      </div>
     </div>
-  </div>;
-  if (editing) return <div ref={setNodeRef} className="bookmark-sortable-item" style={{ paddingLeft: depth * 14 }}>{editForm}</div>;
-  return <div ref={setNodeRef} style={style} className={itemClass} {...itemProps} {...listeners}>
-    <div className="bookmark-row bookmark-tree-row bookmark-dnd-link" style={{ paddingLeft: depth * 14 }} onClick={() => onOpen(node.url)} onContextMenu={event => onContextMenu(event, node)}>
-      <span className="bookmark-open"><span className="bookmark-icon">{node.favicon ? <img className="bookmark-favicon" src={node.favicon} alt="" onError={event => { event.currentTarget.hidden = true; }} /> : <Star className="ui-icon" size={14} aria-hidden="true" />}</span><span><strong>{node.title}</strong><small>{node.url}</small></span></span>
-      <button type="button" className="bookmark-edit" aria-label={`Edit ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onEdit(node); }}><Pencil className="ui-icon" size={14} aria-hidden="true" /></button>
-      <button type="button" className="bookmark-delete" aria-label={`Delete ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); onDelete(node); }}><X className="ui-icon" size={14} aria-hidden="true" /></button>
-    </div>
-  </div>;
+  );
 }
 
-function SortableRow({ id, depth, expanded, dropZone, disabled, className, label, current, onActivate, onContextMenu, children, style }: {
-  id: string; depth: number; expanded?: boolean; dropZone?: BookmarkDropZone; disabled: boolean; className: string; label: string;
-  current?: boolean; onActivate?: () => void; onContextMenu: (event: React.MouseEvent) => void; children: React.ReactNode; style?: React.CSSProperties;
+function SortableRow({
+  id,
+  depth,
+  expanded,
+  dropZone,
+  disabled,
+  className,
+  label,
+  current,
+  onActivate,
+  onContextMenu,
+  children,
+  style,
+}: {
+  id: string;
+  depth: number;
+  expanded?: boolean;
+  dropZone?: BookmarkDropZone;
+  disabled: boolean;
+  className: string;
+  label: string;
+  current?: boolean;
+  onActivate?: () => void;
+  onContextMenu: (event: React.MouseEvent) => void;
+  children: React.ReactNode;
+  style?: React.CSSProperties;
 }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id, disabled, data: { container: 'tabs', nodeId: id } });
-  return <div
-    ref={setNodeRef}
-    style={{ opacity: isDragging ? .35 : 1, ...style }}
-    className={`${className} ${dropZone ? `drop-${dropZone}` : ''}`}
-    data-tab-node-id={id}
-    {...attributes}
-    {...listeners}
-    role="treeitem"
-    aria-label={label}
-    aria-level={depth + 1}
-    aria-expanded={expanded}
-    aria-current={current ? 'page' : undefined}
-    onContextMenu={onContextMenu}
-    onKeyDown={event => {
-      listeners?.onKeyDown?.(event);
-      if (event.key === 'Enter' && event.target === event.currentTarget) onActivate?.();
-    }}
-  >{children}</div>;
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({
+    id,
+    disabled,
+    data: { container: 'tabs', nodeId: id },
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ opacity: isDragging ? 0.35 : 1, ...style }}
+      className={`${className} ${dropZone ? `drop-${dropZone}` : ''}`}
+      data-tab-node-id={id}
+      {...attributes}
+      {...listeners}
+      role="treeitem"
+      aria-label={label}
+      aria-level={depth + 1}
+      aria-expanded={expanded}
+      aria-current={current ? 'page' : undefined}
+      onContextMenu={onContextMenu}
+      onKeyDown={(event) => {
+        listeners?.onKeyDown?.(event);
+        if (event.key === 'Enter' && event.target === event.currentTarget) onActivate?.();
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
-function SortablePinnedTab({ id, tabId, title, selected, compact, dropZone, children, onClick, onContextMenu }: {
-  id: string; tabId: string; title: string; selected: boolean; compact?: boolean; dropZone?: BookmarkDropZone; children: React.ReactNode;
-  onClick: () => void; onContextMenu: (event: React.MouseEvent) => void;
+function SortablePinnedTab({
+  id,
+  tabId,
+  title,
+  selected,
+  compact,
+  dropZone,
+  children,
+  onClick,
+  onContextMenu,
+}: {
+  id: string;
+  tabId: string;
+  title: string;
+  selected: boolean;
+  compact?: boolean;
+  dropZone?: BookmarkDropZone;
+  children: React.ReactNode;
+  onClick: () => void;
+  onContextMenu: (event: React.MouseEvent) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useSortable({
     id,
     disabled: compact,
     data: { container: 'pinned', nodeId: tabId },
   });
-  return <button
-    ref={setNodeRef}
-    type="button"
-    className={`${compact ? 'rail-button' : 'pinned-tab-button'} ${selected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${dropZone ? `drop-${dropZone}` : ''}`}
-    style={{ opacity: isDragging ? .4 : 1 }}
-    title={title}
-    aria-label={`Pinned tab: ${title}`}
-    aria-current={selected ? 'page' : undefined}
-    data-tab-id={tabId}
-    onClick={onClick}
-    onContextMenu={onContextMenu}
-    {...attributes}
-    {...listeners}
-  >{children}</button>;
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      className={`${compact ? 'rail-button' : 'pinned-tab-button'} ${selected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${dropZone ? `drop-${dropZone}` : ''}`}
+      style={{ opacity: isDragging ? 0.4 : 1 }}
+      title={title}
+      aria-label={`Pinned tab: ${title}`}
+      aria-current={selected ? 'page' : undefined}
+      data-tab-id={tabId}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </button>
+  );
 }
 
 function PinnedTabsDock({ children, active, empty }: { children: React.ReactNode; active: boolean; empty: boolean }) {
   const { setNodeRef } = useDroppable({ id: pinnedTabsEndId, data: { container: 'pinned', nodeId: null } });
-  return <div ref={setNodeRef} className={`pinned-tabs-row${active ? ' drop-active' : ''}`} role="group" aria-label="Pinned tabs">
-    {children}
-    {empty && <span className="pinned-tabs-hint">Drop tabs here to pin</span>}
-  </div>;
+  return (
+    <div
+      ref={setNodeRef}
+      className={`pinned-tabs-row${active ? ' drop-active' : ''}`}
+      role="group"
+      aria-label="Pinned tabs"
+    >
+      {children}
+      {empty && <span className="pinned-tabs-hint">Drop tabs here to pin</span>}
+    </div>
+  );
 }
 
-const tabCollisionDetection: CollisionDetection = args => {
+const tabCollisionDetection: CollisionDetection = (args) => {
   const { pointerCoordinates: pointer, droppableContainers, droppableRects } = args;
   if (!pointer) return closestCenter(args);
 
-  const dock = droppableContainers.find(container => container.id === pinnedTabsEndId);
+  const dock = droppableContainers.find((container) => container.id === pinnedTabsEndId);
   const dockRect = dock && droppableRects.get(dock.id);
-  const inDock = Boolean(dockRect && pointer.x >= dockRect.left && pointer.x <= dockRect.right && pointer.y >= dockRect.top && pointer.y <= dockRect.bottom);
-  const candidates = droppableContainers.filter(container => container.data.current?.container === (inDock ? 'pinned' : 'tabs'));
+  const inDock = Boolean(
+    dockRect &&
+    pointer.x >= dockRect.left &&
+    pointer.x <= dockRect.right &&
+    pointer.y >= dockRect.top &&
+    pointer.y <= dockRect.bottom,
+  );
+  const candidates = droppableContainers.filter(
+    (container) => container.data.current?.container === (inDock ? 'pinned' : 'tabs'),
+  );
   if (!candidates.length) return [];
 
   if (inDock) {
-    const chips = candidates.filter(container => container.id !== pinnedTabsEndId);
+    const chips = candidates.filter((container) => container.id !== pinnedTabsEndId);
     if (!chips.length) return dock ? [{ id: dock.id, data: { droppableContainer: dock } }] : [];
-    return chips.map(container => {
-      const rect = droppableRects.get(container.id);
-      return { id: container.id, data: { droppableContainer: container, value: Math.abs(pointer.x - (rect ? rect.left + rect.width / 2 : pointer.x)) } };
-    }).sort((a, b) => (a.data?.value ?? 0) - (b.data?.value ?? 0));
+    return chips
+      .map((container) => {
+        const rect = droppableRects.get(container.id);
+        return {
+          id: container.id,
+          data: {
+            droppableContainer: container,
+            value: Math.abs(pointer.x - (rect ? rect.left + rect.width / 2 : pointer.x)),
+          },
+        };
+      })
+      .sort((a, b) => (a.data?.value ?? 0) - (b.data?.value ?? 0));
   }
 
-  const horizontal = document.querySelector('.browser-shell')?.getAttribute('data-tab-position') === 'top'
-    || document.querySelector('.browser-shell')?.getAttribute('data-tab-position') === 'bottom';
-  return candidates.map(container => {
-    const rect = droppableRects.get(container.id);
-    const center = rect ? (horizontal ? rect.left + rect.width / 2 : rect.top + rect.height / 2) : 0;
-    const coordinate = horizontal ? pointer.x : pointer.y;
-    return { id: container.id, data: { droppableContainer: container, value: Math.abs(coordinate - center) } };
-  }).sort((a, b) => (a.data?.value ?? 0) - (b.data?.value ?? 0));
+  const horizontal =
+    document.querySelector('.browser-shell')?.getAttribute('data-tab-position') === 'top' ||
+    document.querySelector('.browser-shell')?.getAttribute('data-tab-position') === 'bottom';
+  return candidates
+    .map((container) => {
+      const rect = droppableRects.get(container.id);
+      const center = rect ? (horizontal ? rect.left + rect.width / 2 : rect.top + rect.height / 2) : 0;
+      const coordinate = horizontal ? pointer.x : pointer.y;
+      return { id: container.id, data: { droppableContainer: container, value: Math.abs(coordinate - center) } };
+    })
+    .sort((a, b) => (a.data?.value ?? 0) - (b.data?.value ?? 0));
 };
 
 function initialTheme(): Theme {
@@ -526,7 +928,12 @@ export default function App() {
   const [editingTabId, setEditingTabId] = useState('');
   const [editingTabFolderId, setEditingTabFolderId] = useState('');
   const [tabFolderTitle, setTabFolderTitle] = useState('');
-  const [tabContextMenu, setTabContextMenu] = useState<{ id: string; type: 'tab' | 'folder'; x: number; y: number } | null>(null);
+  const [tabContextMenu, setTabContextMenu] = useState<{
+    id: string;
+    type: 'tab' | 'folder';
+    x: number;
+    y: number;
+  } | null>(null);
   const [tabGroupPickerOpen, setTabGroupPickerOpen] = useState(false);
   const [splitPickerOpen, setSplitPickerOpen] = useState(false);
   const [address, setAddress] = useState('');
@@ -534,7 +941,9 @@ export default function App() {
   const [activeAddressSuggestion, setActiveAddressSuggestion] = useState(0);
   const [message, setMessage] = useState('');
   const [captureProgress, setCaptureProgress] = useState<{ completed: number; total: number } | null>(null);
-  const [isTauri, setIsTauri] = useState(() => Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__));
+  const [isTauri, setIsTauri] = useState(() =>
+    Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__),
+  );
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialSidebarCollapsed);
   const [tabPosition, setTabPosition] = useState<TabPosition>(initialTabPosition);
@@ -544,7 +953,10 @@ export default function App() {
   const [bookmarks, setBookmarks] = useState<BookmarkNode[]>(initialBookmarks);
   const [bookmarksLoaded, setBookmarksLoaded] = useState(false);
   const [bookmarkDragOrigin, setBookmarkDragOrigin] = useState<{ id: string; depth: number } | null>(null);
-  const bookmarkSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
+  const bookmarkSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
   const [bookmarkDropTarget, setBookmarkDropTarget] = useState<{ overId: string; zone: BookmarkDropZone } | null>(null);
   const bookmarkExpandTimer = useRef<{ id: string; timer: number } | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -562,14 +974,23 @@ export default function App() {
   const controlDownloadsPopover = useCallback(async (action: 'show' | 'toggle' | 'update' | 'close') => {
     const rect = downloadsButtonRef.current?.getBoundingClientRect();
     if (!rect) return false;
-    return invoke<boolean>('control_downloads_popover', { action, anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } });
+    return invoke<boolean>('control_downloads_popover', {
+      action,
+      anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+    });
   }, []);
-  const openDownloadsPopover = useCallback(async (toggle = true) => {
-    if (/Mac/.test(navigator.platform) && '__TAURI_INTERNALS__' in window) {
-      try { setDownloadsPopoverOpen(await controlDownloadsPopover(toggle ? 'toggle' : 'show')); }
-      catch (error) { setMessage(String(error)); }
-    } else setDownloadsPopoverOpen(open => toggle ? !open : true);
-  }, [controlDownloadsPopover]);
+  const openDownloadsPopover = useCallback(
+    async (toggle = true) => {
+      if (/Mac/.test(navigator.platform) && '__TAURI_INTERNALS__' in window) {
+        try {
+          setDownloadsPopoverOpen(await controlDownloadsPopover(toggle ? 'toggle' : 'show'));
+        } catch (error) {
+          setMessage(String(error));
+        }
+      } else setDownloadsPopoverOpen((open) => (toggle ? !open : true));
+    },
+    [controlDownloadsPopover],
+  );
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [findMatches, setFindMatches] = useState<number | null>(null);
@@ -604,13 +1025,21 @@ export default function App() {
   const pinnedTabIdsRef = useRef(pinnedTabIds);
   pinnedTabIdsRef.current = pinnedTabIds;
   const cycleTabs = (backwards: boolean) => {
-    const openIds = new Set(tabsRef.current.map(tab => tab.id));
-    const ids = [...pinnedTabIdsRef.current, ...flattenBookmarkNodes(tabNodesRef.current, new Set(tabFolders(tabNodesRef.current).map(folder => folder.id))).map(row => row.node.id)].filter(id => openIds.has(id));
-    return invoke<BrowserSnapshot>('cycle_tab', { backwards, orderedTabIds: ids.length ? ids : null }).then(applySnapshot).catch(error => setMessage(String(error)));
+    const openIds = new Set(tabsRef.current.map((tab) => tab.id));
+    const ids = [
+      ...pinnedTabIdsRef.current,
+      ...flattenBookmarkNodes(
+        tabNodesRef.current,
+        new Set(tabFolders(tabNodesRef.current).map((folder) => folder.id)),
+      ).map((row) => row.node.id),
+    ].filter((id) => openIds.has(id));
+    return invoke<BrowserSnapshot>('cycle_tab', { backwards, orderedTabIds: ids.length ? ids : null })
+      .then(applySnapshot)
+      .catch((error) => setMessage(String(error)));
   };
   const faviconRequests = useRef(new Set<string>());
   const sessionTestStarted = useRef(false);
-  const activeTab = tabs.find(tab => tab.id === activeTabId);
+  const activeTab = tabs.find((tab) => tab.id === activeTabId);
   const splitStartPageStyle: React.CSSProperties | undefined = (() => {
     if (!activeTab || activeTab.url || !splitLayout) return undefined;
     const blankIsFirst = splitLayout.firstTabId === activeTab.id;
@@ -619,21 +1048,36 @@ export default function App() {
     if (splitLayout.orientation === 'horizontal') {
       return blankIsFirst
         ? { left: 0, top: 0, width: `calc((100% - 6px) * ${first})`, height: '100%' }
-        : { left: `calc((100% - 6px) * ${first} + 6px)`, top: 0, width: `calc((100% - 6px) * ${1 - first})`, height: '100%' };
+        : {
+            left: `calc((100% - 6px) * ${first} + 6px)`,
+            top: 0,
+            width: `calc((100% - 6px) * ${1 - first})`,
+            height: '100%',
+          };
     }
     return blankIsFirst
       ? { left: 0, top: 0, width: '100%', height: `calc((100% - 6px) * ${first})` }
-      : { left: 0, top: `calc((100% - 6px) * ${first} + 6px)`, width: '100%', height: `calc((100% - 6px) * ${1 - first})` };
+      : {
+          left: 0,
+          top: `calc((100% - 6px) * ${first} + 6px)`,
+          width: '100%',
+          height: `calc((100% - 6px) * ${1 - first})`,
+        };
   })();
   const activeTabTitle = activeTab ? tabNameOverrides[activeTab.id] || activeTab.title : '';
   useEffect(() => {
     if (!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return;
     const title = activeTabTitle && activeTabTitle !== 'New Tab' ? `${activeTabTitle} — Unky` : 'Unky';
-    void getCurrentWindow().setTitle(title).catch(error => setMessage(String(error)));
+    void getCurrentWindow()
+      .setTitle(title)
+      .catch((error) => setMessage(String(error)));
   }, [activeTabTitle]);
   const activeSiteDomain = (() => {
-    try { return activeTab?.url ? new URL(activeTab.url).hostname : ''; }
-    catch { return ''; }
+    try {
+      return activeTab?.url ? new URL(activeTab.url).hostname : '';
+    } catch {
+      return '';
+    }
   })();
   const historyPageOpen = historyTabIds.includes(activeTabId);
   const settingsPageOpen = settingsTabIds.includes(activeTabId);
@@ -650,10 +1094,17 @@ export default function App() {
       if (!tabId) return;
       setTabGroupPickerOpen(false);
       setSplitPickerOpen(false);
-      setTabContextMenu({ id: tabId, type: 'tab', x: Math.max(8, Math.min(100, window.innerWidth - tabContextMenuWidth - 8)), y: 100 });
+      setTabContextMenu({
+        id: tabId,
+        type: 'tab',
+        x: Math.max(8, Math.min(100, window.innerWidth - tabContextMenuWidth - 8)),
+        y: 100,
+      });
     };
     const seedTestTabFolders = () => {
-      const nodes: TabNode[] = [{ id: 'desktop-test-folder', type: 'folder', title: 'Desktop Test Folder', collapsed: false, children: [] }];
+      const nodes: TabNode[] = [
+        { id: 'desktop-test-folder', type: 'folder', title: 'Desktop Test Folder', collapsed: false, children: [] },
+      ];
       localStorage.setItem('browser.tabTree', JSON.stringify(nodes));
       setTabNodes(nodes);
     };
@@ -678,28 +1129,60 @@ export default function App() {
         anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         rows,
         selectedIndex: activeAddressSuggestion,
-      }).catch(error => setMessage(String(error)));
+      }).catch((error) => setMessage(String(error)));
     };
     update();
     if (!addressSuggestionsOpen) return;
     let disposed = false;
     let unlistenMoved: (() => void) | undefined;
     let unlistenResized: (() => void) | undefined;
-    void getCurrentWindow().onMoved(update).then(stop => { if (disposed) stop(); else unlistenMoved = stop; });
-    void getCurrentWindow().onResized(update).then(stop => { if (disposed) stop(); else unlistenResized = stop; });
-    return () => { disposed = true; unlistenMoved?.(); unlistenResized?.(); };
+    void getCurrentWindow()
+      .onMoved(update)
+      .then((stop) => {
+        if (disposed) stop();
+        else unlistenMoved = stop;
+      });
+    void getCurrentWindow()
+      .onResized(update)
+      .then((stop) => {
+        if (disposed) stop();
+        else unlistenResized = stop;
+      });
+    return () => {
+      disposed = true;
+      unlistenMoved?.();
+      unlistenResized?.();
+    };
   }, [nativeAddressSuggestions, address, addressSuggestionsOpen, activeAddressSuggestion, history, bookmarks]);
-  useEffect(() => () => { void externalBrowserMenuRef.current?.close(); }, []);
+  useEffect(
+    () => () => {
+      void externalBrowserMenuRef.current?.close();
+    },
+    [],
+  );
   const tabSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     // Space starts a keyboard drag so Enter stays free to select the tab.
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates, keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space'] } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+      keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space'] },
+    }),
   );
   const [tabDragOrigin, setTabDragOrigin] = useState<{
-    id: string; depth: number; type: TabNode['type']; container: 'tabs' | 'pinned';
-    grabX: number; grabY: number; width: number; height: number;
+    id: string;
+    depth: number;
+    type: TabNode['type'];
+    container: 'tabs' | 'pinned';
+    grabX: number;
+    grabY: number;
+    width: number;
+    height: number;
   } | null>(null);
-  const [tabDropTarget, setTabDropTarget] = useState<{ container: 'tabs' | 'pinned'; overId: string; zone: BookmarkDropZone } | null>(null);
+  const [tabDropTarget, setTabDropTarget] = useState<{
+    container: 'tabs' | 'pinned';
+    overId: string;
+    zone: BookmarkDropZone;
+  } | null>(null);
   const [tabDragPreview, setTabDragPreview] = useState<'split' | 'invalid' | null>(null);
   const tabExpandTimer = useRef<{ id: string; timer: number } | null>(null);
   useEffect(() => {
@@ -716,7 +1199,8 @@ export default function App() {
         if (!button) return;
         const rect = button.getBoundingClientRect();
         const shown = await invoke<boolean>('update_page_security_popover', {
-          anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, info,
+          anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+          info,
         });
         if (!cancelled) setSecurityOpen(shown);
       } catch {
@@ -725,12 +1209,17 @@ export default function App() {
     };
     void refresh();
     const timer = window.setInterval(() => void refresh(), 1200);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [securityOpen, activeTabId, activeTab?.url]);
 
   useEffect(() => {
     if (!securityOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setSecurityOpen(false); };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSecurityOpen(false);
+    };
     const closeOutside = (event: PointerEvent) => {
       if (!(event.target instanceof Element) || !event.target.closest('.security-control')) setSecurityOpen(false);
     };
@@ -741,11 +1230,20 @@ export default function App() {
       document.removeEventListener('pointerdown', closeOutside);
     };
   }, [securityOpen]);
-  const findInPage = useCallback(async (query: string, backwards = false) => {
-    if (!activeTabId || !query.trim()) { setFindMatches(null); return; }
-    try { setFindMatches(await invoke<number>('find_in_page', { tabId: activeTabId, query, backwards })); }
-    catch (error) { setMessage(String(error)); }
-  }, [activeTabId]);
+  const findInPage = useCallback(
+    async (query: string, backwards = false) => {
+      if (!activeTabId || !query.trim()) {
+        setFindMatches(null);
+        return;
+      }
+      try {
+        setFindMatches(await invoke<number>('find_in_page', { tabId: activeTabId, query, backwards }));
+      } catch (error) {
+        setMessage(String(error));
+      }
+    },
+    [activeTabId],
+  );
 
   useEffect(() => {
     localStorage.setItem('browser.sidebarWidth', String(sidebarWidth));
@@ -758,7 +1256,7 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('browser.tabPosition', tabPosition);
     if (isTauri) {
-      void invoke('sync_tab_position_menu', { position: tabPosition }).catch(error => setMessage(String(error)));
+      void invoke('sync_tab_position_menu', { position: tabPosition }).catch((error) => setMessage(String(error)));
     }
   }, [tabPosition, isTauri]);
 
@@ -766,12 +1264,21 @@ export default function App() {
     if (!isTauri) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<{ windowLabel: string; position: string }>(tabPositionMenuEvent, event => {
+    void listen<{ windowLabel: string; position: string }>(tabPositionMenuEvent, (event) => {
       if (event.payload.windowLabel !== getCurrentWindow().label || !isTabPosition(event.payload.position)) return;
       setTabPosition(event.payload.position);
-      if (event.payload.position === 'left' || event.payload.position === 'right') setSidebarSide(event.payload.position);
-    }).then(stop => { if (disposed) stop(); else unlisten = stop; }).catch(error => setMessage(String(error)));
-    return () => { disposed = true; unlisten?.(); };
+      if (event.payload.position === 'left' || event.payload.position === 'right')
+        setSidebarSide(event.payload.position);
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch((error) => setMessage(String(error)));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, [isTauri]);
 
   useEffect(() => {
@@ -781,7 +1288,7 @@ export default function App() {
   useEffect(() => {
     if (isTauri) {
       if (!bookmarksLoaded) return;
-      void invoke('save_bookmarks', { bookmarks }).catch(error => setMessage(String(error)));
+      void invoke('save_bookmarks', { bookmarks }).catch((error) => setMessage(String(error)));
       return;
     }
     localStorage.setItem('browser.bookmarks', JSON.stringify(bookmarks));
@@ -795,15 +1302,23 @@ export default function App() {
     if (!isTauri) return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
-    void listen<[string, string]>('browser://open-tab-in-folder', async event => {
+    void listen<[string, string]>('browser://open-tab-in-folder', async (event) => {
       const [tabId, folderId] = event.payload;
       try {
         applySnapshot(await invoke<BrowserSnapshot>('get_browser_state'));
         const inserted = appendTabNodeToFolder(tabNodesRef.current, folderId, { id: tabId, type: 'tab' });
         if (inserted.inserted) reorderTabsFromTree(inserted.nodes);
-      } catch (error) { setMessage(String(error)); }
-    }).then(listener => { if (cancelled) listener(); else unlisten = listener; });
-    return () => { cancelled = true; unlisten?.(); };
+      } catch (error) {
+        setMessage(String(error));
+      }
+    }).then((listener) => {
+      if (cancelled) listener();
+      else unlisten = listener;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, [isTauri]);
 
   useEffect(() => {
@@ -829,16 +1344,16 @@ export default function App() {
       tabNodesRef.current = reconciled;
       setTabNodes(reconciled);
     }
-    const openIds = new Set(tabs.map(tab => tab.id));
-    setTabNameOverrides(names => Object.fromEntries(Object.entries(names).filter(([id]) => openIds.has(id))));
-    setHistoryTabIds(ids => ids.filter(id => openIds.has(id)));
-    setSettingsTabIds(ids => {
-      const next = ids.filter(id => openIds.has(id));
+    const openIds = new Set(tabs.map((tab) => tab.id));
+    setTabNameOverrides((names) => Object.fromEntries(Object.entries(names).filter(([id]) => openIds.has(id))));
+    setHistoryTabIds((ids) => ids.filter((id) => openIds.has(id)));
+    setSettingsTabIds((ids) => {
+      const next = ids.filter((id) => openIds.has(id));
       settingsTabIdsRef.current = next;
       return next;
     });
-    setShortcutsTabIds(ids => {
-      const next = ids.filter(id => openIds.has(id));
+    setShortcutsTabIds((ids) => {
+      const next = ids.filter((id) => openIds.has(id));
       shortcutsTabIdsRef.current = next;
       return next;
     });
@@ -846,8 +1361,9 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauri || !tabsLoaded) return;
-    void invoke('set_settings_open', { open: settingsPageOpen || historyPageOpen || shortcutsPageOpen || downloadsPageOpen })
-      .catch(error => setMessage(String(error)));
+    void invoke('set_settings_open', {
+      open: settingsPageOpen || historyPageOpen || shortcutsPageOpen || downloadsPageOpen,
+    }).catch((error) => setMessage(String(error)));
   }, [isTauri, tabsLoaded, settingsPageOpen, historyPageOpen, shortcutsPageOpen, downloadsPageOpen]);
 
   useEffect(() => {
@@ -860,8 +1376,12 @@ export default function App() {
       faviconRequests.current.add(requestKey);
       window.setTimeout(() => {
         void invoke<string>('get_tab_favicon', { tabId: tab.id })
-          .then(favicon => { if (favicon) setTabFavicons(current => ({ ...current, [tab.id]: favicon })); })
-          .catch(() => { faviconRequests.current.delete(requestKey); });
+          .then((favicon) => {
+            if (favicon) setTabFavicons((current) => ({ ...current, [tab.id]: favicon }));
+          })
+          .catch(() => {
+            faviconRequests.current.delete(requestKey);
+          });
       }, 100);
     }
   }, [tabs]);
@@ -880,8 +1400,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('browser.customPageContextMenu', String(customPageContextMenuEnabled));
     if (isTauri && tabsLoaded) {
-      void invoke('set_page_context_menu_enabled', { enabled: customPageContextMenuEnabled })
-        .catch(error => setMessage(String(error)));
+      void invoke('set_page_context_menu_enabled', { enabled: customPageContextMenuEnabled }).catch((error) =>
+        setMessage(String(error)),
+      );
     }
   }, [customPageContextMenuEnabled, isTauri, tabsLoaded]);
 
@@ -927,7 +1448,7 @@ export default function App() {
     setActiveTabId(snapshot.activeTabId);
     activeTabIdRef.current = snapshot.activeTabId;
     setTabsLoaded(true);
-    const active = snapshot.tabs.find(tab => tab.id === snapshot.activeTabId);
+    const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
     setAddress(active?.url ?? '');
   }, []);
 
@@ -949,12 +1470,12 @@ export default function App() {
       setTabContextMenu(null);
       storeTabTree(reconcileTabNodes([], tabsRef.current));
     };
-    testWindow.__myBrowserTestSyncTabSnapshot = snapshot => {
+    testWindow.__myBrowserTestSyncTabSnapshot = (snapshot) => {
       applySnapshot(snapshot);
       setPinnedTabIds([]);
       storeTabTree(reconcileTabNodes([], snapshot.tabs));
     };
-    testWindow.__myBrowserTestSetTabPosition = position => {
+    testWindow.__myBrowserTestSetTabPosition = (position) => {
       if (!isTabPosition(position)) return;
       setTabPosition(position);
       if (position === 'left' || position === 'right') setSidebarSide(position);
@@ -972,71 +1493,138 @@ export default function App() {
     void (async () => {
       const available = Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
       setIsTauri(available);
-      if (!available) { setBookmarksLoaded(true); return; }
-      unlisten = await listen<BrowserSnapshot>(tabEvent, event => applySnapshot(event.payload));
+      if (!available) {
+        setBookmarksLoaded(true);
+        return;
+      }
+      unlisten = await listen<BrowserSnapshot>(tabEvent, (event) => applySnapshot(event.payload));
       const unlistenPagePointerDown = await listen(pagePointerDownEvent, () => addressRef.current?.blur());
-      const unlistenSettings = await listen(settingsEvent, () => { void openSettingsPage(); });
-      const unlistenShowHistory = await listen(showHistoryEvent, () => { void openHistoryPage(); });
+      const unlistenSettings = await listen(settingsEvent, () => {
+        void openSettingsPage();
+      });
+      const unlistenShowHistory = await listen(showHistoryEvent, () => {
+        void openHistoryPage();
+      });
       const unlistenShowDownloads = await listen(showDownloadsEvent, () => void openDownloadsPopover(false));
-      const unlistenShowAllDownloads = await listen(showAllDownloadsEvent, () => { void openAllDownloadsPage(); });
-      const unlistenShowShortcuts = await listen(showShortcutsEvent, () => { void openShortcutsPage(); });
-      const unlistenHistory = await listen<HistoryEntry[]>(historyEvent, event => setHistory(event.payload));
-      const unlistenBookmarks = await listen<BookmarkNode[]>(bookmarksEvent, event => setBookmarks(event.payload));
-      const unlistenOpenUrlFromMenu = await listen<string>(openUrlFromMenuEvent, event => { void openUrlFromMenu(event.payload); });
-      const unlistenImportBookmarks = await listen(importBookmarksEvent, () => { void importBookmarksHtml(); });
-      const unlistenExportBookmarks = await listen(exportBookmarksEvent, () => { void exportBookmarksHtml(); });
-      const unlistenClearHistory = await listen(clearHistoryRequestEvent, () => { void clearHistory(); });
-      const unlistenDownloads = await listen<Download[]>(downloadsEvent, event => setDownloads(event.payload));
-      const unlistenCaptureStatus = await listen<string>(captureStatusEvent, event => {
+      const unlistenShowAllDownloads = await listen(showAllDownloadsEvent, () => {
+        void openAllDownloadsPage();
+      });
+      const unlistenShowShortcuts = await listen(showShortcutsEvent, () => {
+        void openShortcutsPage();
+      });
+      const unlistenHistory = await listen<HistoryEntry[]>(historyEvent, (event) => setHistory(event.payload));
+      const unlistenBookmarks = await listen<BookmarkNode[]>(bookmarksEvent, (event) => setBookmarks(event.payload));
+      const unlistenOpenUrlFromMenu = await listen<string>(openUrlFromMenuEvent, (event) => {
+        void openUrlFromMenu(event.payload);
+      });
+      const unlistenImportBookmarks = await listen(importBookmarksEvent, () => {
+        void importBookmarksHtml();
+      });
+      const unlistenExportBookmarks = await listen(exportBookmarksEvent, () => {
+        void exportBookmarksHtml();
+      });
+      const unlistenClearHistory = await listen(clearHistoryRequestEvent, () => {
+        void clearHistory();
+      });
+      const unlistenDownloads = await listen<Download[]>(downloadsEvent, (event) => setDownloads(event.payload));
+      const unlistenCaptureStatus = await listen<string>(captureStatusEvent, (event) => {
         setMessage(event.payload);
         if (event.payload !== 'Capturing full page…') setCaptureProgress(null);
       });
-      const unlistenCaptureProgress = await listen<{ completed: number; total: number }>(captureProgressEvent, event => setCaptureProgress(event.payload));
-      const unlistenLaunchRequest = await listen<LaunchRequest>(launchRequestEvent, event => { void openLaunchRequest(event.payload); });
-      const unlistenFilterProgress = await listen<FilterUpdateProgress>(filterUpdateProgressEvent, event => {
+      const unlistenCaptureProgress = await listen<{ completed: number; total: number }>(
+        captureProgressEvent,
+        (event) => setCaptureProgress(event.payload),
+      );
+      const unlistenLaunchRequest = await listen<LaunchRequest>(launchRequestEvent, (event) => {
+        void openLaunchRequest(event.payload);
+      });
+      const unlistenFilterProgress = await listen<FilterUpdateProgress>(filterUpdateProgressEvent, (event) => {
         if (event.payload.phase === 'complete') {
           setFilterProgress(null);
           return;
         }
         setFilterProgress(event.payload);
       });
-      const unlistenSplit = await listen<SplitLayout | null>(splitEvent, event => setSplitLayout(event.payload));
-      const unlistenSplitResize = await listen<number>('browser://split-resize', event => {
-        void invoke('resize_tab_split', { firstPanePercent: event.payload }).catch(error => setMessage(String(error)));
+      const unlistenSplit = await listen<SplitLayout | null>(splitEvent, (event) => setSplitLayout(event.payload));
+      const unlistenSplitResize = await listen<number>('browser://split-resize', (event) => {
+        void invoke('resize_tab_split', { firstPanePercent: event.payload }).catch((error) =>
+          setMessage(String(error)),
+        );
       });
-      const unlistenTabDragDrop = await listen<{ tabId: string; targetTabId: string; target: 'left' | 'right' | 'top' | 'bottom' | 'new-window' }>('browser://tab-drag-drop', event => {
+      const unlistenTabDragDrop = await listen<{
+        tabId: string;
+        targetTabId: string;
+        target: 'left' | 'right' | 'top' | 'bottom' | 'new-window';
+      }>('browser://tab-drag-drop', (event) => {
         if (event.payload.target === 'new-window') void dropTabIntoNewWindow(event.payload.tabId);
         else void dropTabIntoSplit(event.payload.target, event.payload.tabId, event.payload.targetTabId);
       });
-      void invoke<SplitLayout | null>('get_split_tabs').then(setSplitLayout).catch(error => setMessage(String(error)));
-      void invoke<FilterSettingsView>('get_filter_settings').then(setFilterSettings).catch(error => setMessage(String(error)));
-      const unlistenShortcuts = await listen<string>(shortcutEvent, event => {
+      void invoke<SplitLayout | null>('get_split_tabs')
+        .then(setSplitLayout)
+        .catch((error) => setMessage(String(error)));
+      void invoke<FilterSettingsView>('get_filter_settings')
+        .then(setFilterSettings)
+        .catch((error) => setMessage(String(error)));
+      const unlistenShortcuts = await listen<string>(shortcutEvent, (event) => {
         switch (event.payload) {
-          case 'new-tab': void createTab(); break;
-          case 'new-private-tab': void createTab(true); break;
-          case 'open-in-browser': externalBrowserButtonRef.current?.click(); break;
-          case 'close-tab': if (activeTabIdRef.current) void closeTab(activeTabIdRef.current); break;
-          case 'reopen-closed-tab': void reopenClosedTab(); break;
-          case 'focus-address': addressRef.current?.focus(); addressRef.current?.select(); break;
-          case 'reload': void runNavigationCommand('reload'); break;
-          case 'go-back': void runNavigationCommand('go_back'); break;
-          case 'go-forward': void runNavigationCommand('go_forward'); break;
-          case 'find': openFindPanel(); break;
-          case 'next-tab': case 'next-tab-page': case 'next-tab-mac': case 'next-tab-safari': void cycleTabs(false); break;
-          case 'previous-tab': case 'previous-tab-page': case 'previous-tab-mac': case 'previous-tab-safari': void cycleTabs(true); break;
+          case 'new-tab':
+            void createTab();
+            break;
+          case 'new-private-tab':
+            void createTab(true);
+            break;
+          case 'open-in-browser':
+            externalBrowserButtonRef.current?.click();
+            break;
+          case 'close-tab':
+            if (activeTabIdRef.current) void closeTab(activeTabIdRef.current);
+            break;
+          case 'reopen-closed-tab':
+            void reopenClosedTab();
+            break;
+          case 'focus-address':
+            addressRef.current?.focus();
+            addressRef.current?.select();
+            break;
+          case 'reload':
+            void runNavigationCommand('reload');
+            break;
+          case 'go-back':
+            void runNavigationCommand('go_back');
+            break;
+          case 'go-forward':
+            void runNavigationCommand('go_forward');
+            break;
+          case 'find':
+            openFindPanel();
+            break;
+          case 'next-tab':
+          case 'next-tab-page':
+          case 'next-tab-mac':
+          case 'next-tab-safari':
+            void cycleTabs(false);
+            break;
+          case 'previous-tab':
+          case 'previous-tab-page':
+          case 'previous-tab-mac':
+          case 'previous-tab-safari':
+            void cycleTabs(true);
+            break;
           case 'capture-full-page': {
             const tabId = activeTabIdRef.current;
             if (!tabId) break;
             setMessage('Capturing full page…');
             void invoke<boolean>('save_full_page_screenshot', { tabId })
-              .then(saved => setMessage(saved ? 'Full page screenshot saved.' : 'Screenshot cancelled.'))
-              .catch(error => setMessage(String(error)));
+              .then((saved) => setMessage(saved ? 'Full page screenshot saved.' : 'Screenshot cancelled.'))
+              .catch((error) => setMessage(String(error)));
             break;
           }
         }
       });
       try {
-        const databaseBookmarks = await invoke<BookmarkNode[]>('load_bookmarks', { legacyBookmarks: initialBookmarks() });
+        const databaseBookmarks = await invoke<BookmarkNode[]>('load_bookmarks', {
+          legacyBookmarks: initialBookmarks(),
+        });
         setBookmarks(databaseBookmarks);
         setBookmarksLoaded(true);
         localStorage.removeItem('browser.bookmarks');
@@ -1045,22 +1633,72 @@ export default function App() {
         if (launchRequest) await openLaunchRequest(launchRequest);
         setHistory(await invoke<HistoryEntry[]>('get_history'));
         setDownloads(await invoke<Download[]>('get_downloads'));
+      } catch (error) {
+        setBookmarksLoaded(true);
+        setMessage(String(error));
       }
-      catch (error) { setBookmarksLoaded(true); setMessage(String(error)); }
       if (!cancelled) void runSessionIntegrationTest();
-      if (cancelled) { unlisten(); unlistenPagePointerDown(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowAllDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenBookmarks(); unlistenOpenUrlFromMenu(); unlistenImportBookmarks(); unlistenExportBookmarks(); unlistenClearHistory(); unlistenDownloads(); unlistenCaptureStatus(); unlistenCaptureProgress(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); }
-      else {
+      if (cancelled) {
+        unlisten();
+        unlistenPagePointerDown();
+        unlistenSettings();
+        unlistenShowHistory();
+        unlistenShowDownloads();
+        unlistenShowAllDownloads();
+        unlistenShowShortcuts();
+        unlistenShortcuts();
+        unlistenHistory();
+        unlistenBookmarks();
+        unlistenOpenUrlFromMenu();
+        unlistenImportBookmarks();
+        unlistenExportBookmarks();
+        unlistenClearHistory();
+        unlistenDownloads();
+        unlistenCaptureStatus();
+        unlistenCaptureProgress();
+        unlistenSplit();
+        unlistenSplitResize();
+        unlistenTabDragDrop();
+        unlistenFilterProgress();
+        unlistenLaunchRequest();
+      } else {
         const originalUnlisten = unlisten;
-        unlisten = () => { originalUnlisten(); unlistenPagePointerDown(); unlistenSettings(); unlistenShowHistory(); unlistenShowDownloads(); unlistenShowAllDownloads(); unlistenShowShortcuts(); unlistenShortcuts(); unlistenHistory(); unlistenBookmarks(); unlistenOpenUrlFromMenu(); unlistenImportBookmarks(); unlistenExportBookmarks(); unlistenClearHistory(); unlistenDownloads(); unlistenCaptureStatus(); unlistenCaptureProgress(); unlistenSplit(); unlistenSplitResize(); unlistenTabDragDrop(); unlistenFilterProgress(); unlistenLaunchRequest(); };
+        unlisten = () => {
+          originalUnlisten();
+          unlistenPagePointerDown();
+          unlistenSettings();
+          unlistenShowHistory();
+          unlistenShowDownloads();
+          unlistenShowAllDownloads();
+          unlistenShowShortcuts();
+          unlistenShortcuts();
+          unlistenHistory();
+          unlistenBookmarks();
+          unlistenOpenUrlFromMenu();
+          unlistenImportBookmarks();
+          unlistenExportBookmarks();
+          unlistenClearHistory();
+          unlistenDownloads();
+          unlistenCaptureStatus();
+          unlistenCaptureProgress();
+          unlistenSplit();
+          unlistenSplitResize();
+          unlistenTabDragDrop();
+          unlistenFilterProgress();
+          unlistenLaunchRequest();
+        };
       }
     })();
-    return () => { cancelled = true; unlisten?.(); };
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, [applySnapshot]);
 
   useEffect(() => {
     if (!nativeDownloadsPopover) return;
     if (!downloadsPopoverOpen) {
-      void controlDownloadsPopover('close').catch(error => setMessage(String(error)));
+      void controlDownloadsPopover('close').catch((error) => setMessage(String(error)));
       return;
     }
     let cancelled = false;
@@ -1068,11 +1706,16 @@ export default function App() {
       try {
         const shown = await controlDownloadsPopover('update');
         if (!cancelled) setDownloadsPopoverOpen(shown);
-      } catch (error) { if (!cancelled) setMessage(String(error)); }
+      } catch (error) {
+        if (!cancelled) setMessage(String(error));
+      }
     };
     void refresh();
     const timer = window.setInterval(() => void refresh(), 500);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [nativeDownloadsPopover, downloadsPopoverOpen, downloads, controlDownloadsPopover]);
 
   useEffect(() => {
@@ -1112,78 +1755,99 @@ export default function App() {
         }
         let renderedFavicon = '';
         for (let attempt = 0; attempt < 100; attempt += 1) {
-          const row = Array.from(document.querySelectorAll<HTMLElement>('.tab-row'))
-            .find(item => item.dataset.tabId === snapshot?.activeTabId);
+          const row = Array.from(document.querySelectorAll<HTMLElement>('.tab-row')).find(
+            (item) => item.dataset.tabId === snapshot?.activeTabId,
+          );
           const image = row?.querySelector<HTMLImageElement>('.tab-favicon img');
           if (image?.complete && image.naturalWidth > 0) {
             renderedFavicon = image.src;
             break;
           }
-          await new Promise(resolve => window.setTimeout(resolve, 50));
+          await new Promise((resolve) => window.setTimeout(resolve, 50));
         }
         if (renderedFavicon !== expectedFavicon) {
           throw new Error(`Native tab favicon was not loaded after page navigation: ${renderedFavicon || 'missing'}`);
         }
         const survivor = await invoke<BrowserSnapshot>('close_tab', { tabId: snapshot.activeTabId });
         assertSessionTestState(survivor, [sessionTestUrls[0]], sessionTestUrls[0]);
-        window.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 't',
-          metaKey: true,
-          shiftKey: true,
-          bubbles: true,
-        }));
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 't',
+            metaKey: true,
+            shiftKey: true,
+            bubbles: true,
+          }),
+        );
         for (let attempt = 0; attempt < 40; attempt += 1) {
-          await new Promise(resolve => window.setTimeout(resolve, 100));
+          await new Promise((resolve) => window.setTimeout(resolve, 100));
           snapshot = await invoke<BrowserSnapshot>('get_browser_state');
           if (snapshot.tabs.length === 2 && snapshot.activeTabId !== survivor.activeTabId) break;
         }
         assertSessionTestState(snapshot, sessionTestUrls, sessionTestUrls[1]);
-        const reopened = snapshot.tabs.find(tab => tab.id === snapshot?.activeTabId);
+        const reopened = snapshot.tabs.find((tab) => tab.id === snapshot?.activeTabId);
         if (reopened?.zoom !== 1.5) throw new Error(`Expected reopened tab zoom 1.5, got ${reopened?.zoom}`);
-        if ((await invoke<number>('find_in_page', { tabId: snapshot.activeTabId, query: 'Native find marker', backwards: false })) < 1) {
+        if (
+          (await invoke<number>('find_in_page', {
+            tabId: snapshot.activeTabId,
+            query: 'Native find marker',
+            backwards: false,
+          })) < 1
+        ) {
           throw new Error('Native find failed to locate text in the WKWebView');
         }
-        if ((await invoke<number>('find_in_page', { tabId: snapshot.activeTabId, query: 'missing integration phrase', backwards: false })) !== 0) {
+        if (
+          (await invoke<number>('find_in_page', {
+            tabId: snapshot.activeTabId,
+            query: 'missing integration phrase',
+            backwards: false,
+          })) !== 0
+        ) {
           throw new Error('Native find reported a match for missing text');
         }
         const linkHook = await invoke<string>('session_test_open_new_tab');
         const parsedLinkHook: unknown = JSON.parse(linkHook);
-        const hookState: { hook: boolean; tauri: string; result: string } = typeof parsedLinkHook === 'string'
-          ? JSON.parse(parsedLinkHook)
-          : parsedLinkHook as { hook: boolean; tauri: string; result: string };
+        const hookState: { hook: boolean; tauri: string; result: string } =
+          typeof parsedLinkHook === 'string'
+            ? JSON.parse(parsedLinkHook)
+            : (parsedLinkHook as { hook: boolean; tauri: string; result: string });
         if (!hookState.hook || hookState.tauri !== 'function' || hookState.result !== 'opened') {
           throw new Error(`The native page link handler failed: ${linkHook}`);
         }
         for (let attempt = 0; attempt < 50; attempt += 1) {
-          await new Promise(resolve => window.setTimeout(resolve, 100));
+          await new Promise((resolve) => window.setTimeout(resolve, 100));
           snapshot = await invoke<BrowserSnapshot>('get_browser_state');
-          if (snapshot.tabs.some(tab => tab.url.includes('session=from-link'))) break;
+          if (snapshot.tabs.some((tab) => tab.url.includes('session=from-link'))) break;
         }
-        if (!snapshot.tabs.some(tab => tab.url === 'http://127.0.0.1:4179/index.html?session=from-link')) {
+        if (!snapshot.tabs.some((tab) => tab.url === 'http://127.0.0.1:4179/index.html?session=from-link')) {
           throw new Error('A target=_blank link did not open in a new native tab');
         }
         const previousSnapshot = await invoke<BrowserSnapshot>('cycle_tab', { backwards: true });
         snapshot = previousSnapshot;
-        if (previousSnapshot.tabs.find(tab => tab.id === previousSnapshot.activeTabId)?.url !== sessionTestUrls[1]) {
+        if (previousSnapshot.tabs.find((tab) => tab.id === previousSnapshot.activeTabId)?.url !== sessionTestUrls[1]) {
           throw new Error('Previous-tab cycling did not select the prior tab');
         }
         const nextSnapshot = await invoke<BrowserSnapshot>('cycle_tab', { backwards: false });
         snapshot = nextSnapshot;
-        if (nextSnapshot.tabs.find(tab => tab.id === nextSnapshot.activeTabId)?.url !== 'http://127.0.0.1:4179/index.html?session=from-link') {
+        if (
+          nextSnapshot.tabs.find((tab) => tab.id === nextSnapshot.activeTabId)?.url !==
+          'http://127.0.0.1:4179/index.html?session=from-link'
+        ) {
           throw new Error('Next-tab cycling did not wrap to the link tab');
         }
         const history = await invoke<HistoryEntry[]>('get_history');
-        if (!history.some(item => item.url.includes('session=from-link'))) throw new Error('Visited link tab was not added to history');
+        if (!history.some((item) => item.url.includes('session=from-link')))
+          throw new Error('Visited link tab was not added to history');
         snapshot = await invoke<BrowserSnapshot>('close_tab', { tabId: snapshot.activeTabId });
         await invoke('session_test_start_download');
         let downloads: Download[] = [];
         for (let attempt = 0; attempt < 100; attempt += 1) {
-          await new Promise(resolve => window.setTimeout(resolve, 100));
+          await new Promise((resolve) => window.setTimeout(resolve, 100));
           downloads = await invoke<Download[]>('get_downloads');
-          if (downloads.some(item => item.status === 'completed')) break;
+          if (downloads.some((item) => item.status === 'completed')) break;
         }
-        const completed = downloads.find(item => item.filename === 'download.txt' && item.status === 'completed');
-        if (!completed || completed.bytesReceived === 0) throw new Error(`Native download failed or had no bytes: ${JSON.stringify(downloads)}`);
+        const completed = downloads.find((item) => item.filename === 'download.txt' && item.status === 'completed');
+        if (!completed || completed.bytesReceived === 0)
+          throw new Error(`Native download failed or had no bytes: ${JSON.stringify(downloads)}`);
         await invoke('reveal_download', { downloadId: completed.id });
       } else {
         assertSessionTestState(snapshot, sessionTestUrls, sessionTestUrls[1]);
@@ -1191,7 +1855,8 @@ export default function App() {
           throw new Error('Restored tabs did not preserve their zoom values');
         }
         const history = await invoke<HistoryEntry[]>('get_history');
-        if (!history.some(item => item.url.includes('session=from-link'))) throw new Error('History did not persist across app restart');
+        if (!history.some((item) => item.url.includes('session=from-link')))
+          throw new Error('History did not persist across app restart');
       }
       await invoke('report_session_test', {
         success: true,
@@ -1223,36 +1888,66 @@ export default function App() {
         y: rect.top,
         width: Math.max(1, rect.width - reservedWidth),
         height: rect.height,
-      })
-        .catch(error => setMessage(String(error)));
+      }).catch((error) => setMessage(String(error)));
     };
     const observer = new ResizeObserver(updateBounds);
     observer.observe(view);
     updateBounds();
     window.addEventListener('resize', updateBounds);
-    return () => { observer.disconnect(); window.removeEventListener('resize', updateBounds); };
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateBounds);
+    };
   }, [isTauri, downloadsPopoverOpen, nativeDownloadsPopover]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'ArrowLeft' && event.target instanceof HTMLElement && event.target.dataset.sidebarSizer) {
         event.preventDefault();
-        setSidebarWidth(width => Math.max(sidebarMinWidth, width - 12));
+        setSidebarWidth((width) => Math.max(sidebarMinWidth, width - 12));
       }
       if (event.key === 'ArrowRight' && event.target instanceof HTMLElement && event.target.dataset.sidebarSizer) {
         event.preventDefault();
-        setSidebarWidth(width => Math.min(sidebarMaxWidth, width + 12));
+        setSidebarWidth((width) => Math.min(sidebarMaxWidth, width + 12));
       }
-      if (event.key === 'Escape' && findOpen) { setFindOpen(false); setFindQuery(''); setFindMatches(null); return; }
+      if (event.key === 'Escape' && findOpen) {
+        setFindOpen(false);
+        setFindQuery('');
+        setFindMatches(null);
+        return;
+      }
       if (!(event.metaKey || event.ctrlKey)) return;
       const key = event.key.toLowerCase();
-      if (key === 'f') { event.preventDefault(); openFindPanel(); }
-      if (key === 'l') { event.preventDefault(); addressRef.current?.focus(); addressRef.current?.select(); }
-      if (key === 't') { event.preventDefault(); if (event.shiftKey) void reopenClosedTab(); else void createTab(); }
-      if (key === 'n' && event.shiftKey) { event.preventDefault(); void createTab(true); }
-      if (key === 'w' && activeTabId) { event.preventDefault(); void closeTab(activeTabId); }
-      if (key === 'r' && activeTabId) { event.preventDefault(); void runNavigationCommand('reload'); }
-      if (event.ctrlKey && key === 'tab') { event.preventDefault(); void cycleTabs(event.shiftKey); }
+      if (key === 'f') {
+        event.preventDefault();
+        openFindPanel();
+      }
+      if (key === 'l') {
+        event.preventDefault();
+        addressRef.current?.focus();
+        addressRef.current?.select();
+      }
+      if (key === 't') {
+        event.preventDefault();
+        if (event.shiftKey) void reopenClosedTab();
+        else void createTab();
+      }
+      if (key === 'n' && event.shiftKey) {
+        event.preventDefault();
+        void createTab(true);
+      }
+      if (key === 'w' && activeTabId) {
+        event.preventDefault();
+        void closeTab(activeTabId);
+      }
+      if (key === 'r' && activeTabId) {
+        event.preventDefault();
+        void runNavigationCommand('reload');
+      }
+      if (event.ctrlKey && key === 'tab') {
+        event.preventDefault();
+        void cycleTabs(event.shiftKey);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -1260,8 +1955,13 @@ export default function App() {
 
   async function openHistoryEntry(url: string) {
     if (!activeTabId) {
-      try { const snapshot = await invoke<BrowserSnapshot>('create_tab'); applySnapshot(snapshot); await invoke('navigate', { tabId: snapshot.activeTabId, url }); }
-      catch (error) { setMessage(String(error)); }
+      try {
+        const snapshot = await invoke<BrowserSnapshot>('create_tab');
+        applySnapshot(snapshot);
+        await invoke('navigate', { tabId: snapshot.activeTabId, url });
+      } catch (error) {
+        setMessage(String(error));
+      }
     } else void navigateTo(url);
   }
 
@@ -1274,7 +1974,9 @@ export default function App() {
         applySnapshot(snapshot);
         await invoke('navigate', { tabId: snapshot.activeTabId, url });
       }
-    } catch (error) { setMessage(String(error)); }
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function importBookmarksHtml() {
@@ -1287,7 +1989,9 @@ export default function App() {
       if (typeof path !== 'string') return;
       setBookmarks(await invoke<BookmarkNode[]>('import_bookmarks_html', { path }));
       setMessage('Bookmarks imported.');
-    } catch (error) { setMessage(String(error)); }
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function exportBookmarksHtml() {
@@ -1299,7 +2003,9 @@ export default function App() {
       if (!path) return;
       await invoke('export_bookmarks_html', { path });
       setMessage('Bookmarks exported.');
-    } catch (error) { setMessage(String(error)); }
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function clearHistory() {
@@ -1308,11 +2014,13 @@ export default function App() {
       await invoke('clear_history');
       setHistory([]);
       setMessage('Browsing history cleared.');
-    } catch (error) { setMessage(String(error)); }
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function openHistoryPage() {
-    const existingHistoryTabId = [...historyTabIds].reverse().find(id => tabs.some(tab => tab.id === id));
+    const existingHistoryTabId = [...historyTabIds].reverse().find((id) => tabs.some((tab) => tab.id === id));
     if (existingHistoryTabId) {
       await selectTab(existingHistoryTabId);
     } else {
@@ -1320,29 +2028,37 @@ export default function App() {
         await invoke('set_settings_open', { open: true });
         const snapshot = await invoke<BrowserSnapshot>('create_tab');
         applySnapshot(snapshot);
-        setHistoryTabIds(ids => [...ids, snapshot.activeTabId]);
-        setTabNameOverrides(names => ({ ...names, [snapshot.activeTabId]: 'history' }));
+        setHistoryTabIds((ids) => [...ids, snapshot.activeTabId]);
+        setTabNameOverrides((names) => ({ ...names, [snapshot.activeTabId]: 'history' }));
       } catch (error) {
         setMessage(String(error));
         void invoke('set_settings_open', { open: false }).catch(() => {});
         return;
       }
     }
-    try { setHistory(await invoke<HistoryEntry[]>('get_history')); }
-    catch (error) { setMessage(String(error)); }
+    try {
+      setHistory(await invoke<HistoryEntry[]>('get_history'));
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function openAllDownloadsPage() {
     setDownloadsPopoverOpen(false);
-    const existing = [...downloadsTabIds].reverse().find(id => tabs.some(tab => tab.id === id));
-    if (existing) { await selectTab(existing); return; }
+    const existing = [...downloadsTabIds].reverse().find((id) => tabs.some((tab) => tab.id === id));
+    if (existing) {
+      await selectTab(existing);
+      return;
+    }
     try {
       await invoke('set_settings_open', { open: true });
       const snapshot = await invoke<BrowserSnapshot>('create_tab');
       applySnapshot(snapshot);
-      setDownloadsTabIds(ids => [...ids, snapshot.activeTabId]);
-      setTabNameOverrides(names => ({ ...names, [snapshot.activeTabId]: 'Downloads' }));
-    } catch (error) { setMessage(String(error)); }
+      setDownloadsTabIds((ids) => [...ids, snapshot.activeTabId]);
+      setTabNameOverrides((names) => ({ ...names, [snapshot.activeTabId]: 'Downloads' }));
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   useEffect(() => {
@@ -1350,70 +2066,102 @@ export default function App() {
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void invoke<HistoryEntry[]>('search_history', { query: historySearch })
-        .then(entries => { if (!cancelled) setHistory(entries); })
-        .catch(error => { if (!cancelled) setMessage(String(error)); });
+        .then((entries) => {
+          if (!cancelled) setHistory(entries);
+        })
+        .catch((error) => {
+          if (!cancelled) setMessage(String(error));
+        });
     }, 120);
-    return () => { cancelled = true; window.clearTimeout(timer); };
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [historySearch, isTauri]);
 
   async function openShortcutsPage() {
-    const existingId = [...shortcutsTabIdsRef.current].reverse().find(id => tabsRef.current.some(tab => tab.id === id));
-    if (existingId) { await selectTab(existingId); return; }
+    const existingId = [...shortcutsTabIdsRef.current]
+      .reverse()
+      .find((id) => tabsRef.current.some((tab) => tab.id === id));
+    if (existingId) {
+      await selectTab(existingId);
+      return;
+    }
     try {
       const snapshot = await invoke<BrowserSnapshot>('create_tab');
       applySnapshot(snapshot);
-      setShortcutsTabIds(ids => {
+      setShortcutsTabIds((ids) => {
         const next = [...ids, snapshot.activeTabId];
         shortcutsTabIdsRef.current = next;
         return next;
       });
-      setTabNameOverrides(names => ({ ...names, [snapshot.activeTabId]: 'Keyboard Shortcuts' }));
-    } catch (error) { setMessage(String(error)); }
+      setTabNameOverrides((names) => ({ ...names, [snapshot.activeTabId]: 'Keyboard Shortcuts' }));
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function openSettingsPage() {
-    const existingId = [...settingsTabIdsRef.current].reverse().find(id => tabsRef.current.some(tab => tab.id === id));
-    if (existingId) { await selectTab(existingId); return; }
+    const existingId = [...settingsTabIdsRef.current]
+      .reverse()
+      .find((id) => tabsRef.current.some((tab) => tab.id === id));
+    if (existingId) {
+      await selectTab(existingId);
+      return;
+    }
     try {
       await invoke('set_settings_open', { open: true });
       const snapshot = await invoke<BrowserSnapshot>('create_tab');
       applySnapshot(snapshot);
-      setSettingsTabIds(ids => {
+      setSettingsTabIds((ids) => {
         const next = [...ids, snapshot.activeTabId];
         settingsTabIdsRef.current = next;
         return next;
       });
-      setTabNameOverrides(names => ({ ...names, [snapshot.activeTabId]: 'Settings' }));
-    } catch (error) { setMessage(String(error)); }
+      setTabNameOverrides((names) => ({ ...names, [snapshot.activeTabId]: 'Settings' }));
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function leaveHistoryTab(tabId: string) {
-    const wasInternalPage = historyTabIds.includes(tabId) || settingsTabIds.includes(tabId) || shortcutsTabIds.includes(tabId) || downloadsTabIds.includes(tabId);
+    const wasInternalPage =
+      historyTabIds.includes(tabId) ||
+      settingsTabIds.includes(tabId) ||
+      shortcutsTabIds.includes(tabId) ||
+      downloadsTabIds.includes(tabId);
     if (!wasInternalPage) return;
-    setHistoryTabIds(ids => ids.filter(id => id !== tabId));
-    setSettingsTabIds(ids => {
-      const next = ids.filter(id => id !== tabId);
+    setHistoryTabIds((ids) => ids.filter((id) => id !== tabId));
+    setSettingsTabIds((ids) => {
+      const next = ids.filter((id) => id !== tabId);
       settingsTabIdsRef.current = next;
       return next;
     });
-    setShortcutsTabIds(ids => {
-      const next = ids.filter(id => id !== tabId);
+    setShortcutsTabIds((ids) => {
+      const next = ids.filter((id) => id !== tabId);
       shortcutsTabIdsRef.current = next;
       return next;
     });
-    setDownloadsTabIds(ids => ids.filter(id => id !== tabId));
-    setTabNameOverrides(names => {
+    setDownloadsTabIds((ids) => ids.filter((id) => id !== tabId));
+    setTabNameOverrides((names) => {
       const next = { ...names };
       delete next[tabId];
       return next;
     });
-    try { await invoke('set_settings_open', { open: settingsPageOpen || shortcutsPageOpen }); }
-    catch (error) { setMessage(String(error)); }
+    try {
+      await invoke('set_settings_open', { open: settingsPageOpen || shortcutsPageOpen });
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function createTab(privateMode = false) {
-    try { applySnapshot(await invoke<BrowserSnapshot>('create_tab', { private: privateMode })); addressRef.current?.focus(); }
-    catch (error) { setMessage(String(error)); }
+    try {
+      applySnapshot(await invoke<BrowserSnapshot>('create_tab', { private: privateMode }));
+      addressRef.current?.focus();
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function openLaunchRequest(request: LaunchRequest) {
@@ -1421,40 +2169,63 @@ export default function App() {
       const snapshot = await invoke<BrowserSnapshot>('create_tab', { private: request.private });
       applySnapshot(snapshot);
       await invoke('navigate', { tabId: snapshot.activeTabId, url: request.url });
-    } catch (error) { setMessage(String(error)); }
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function clearBrowsingData() {
     try {
       await invoke('clear_browsing_data');
       setMessage('Website data clearing started; it may take a moment. History was cleared.');
-    } catch (error) { setMessage(String(error)); }
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function changeFilteringEnabled(enabled: boolean) {
     setFilterBusy(true);
-    try { setFilterSettings(await invoke<FilterSettingsView>('set_filtering_enabled', { enabled })); }
-    catch (error) { setMessage(String(error)); }
-    finally { setFilterBusy(false); }
+    try {
+      setFilterSettings(await invoke<FilterSettingsView>('set_filtering_enabled', { enabled }));
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setFilterBusy(false);
+    }
   }
 
   async function updateFilterList() {
     setFilterBusy(true);
     setFilterProgress({ phase: 'downloading', receivedBytes: 0, totalBytes: null });
-    try { setFilterSettings(await invoke<FilterSettingsView>('update_filter_list')); }
-    catch (error) { setMessage(String(error)); }
-    finally { setFilterBusy(false); setFilterProgress(null); }
+    try {
+      setFilterSettings(await invoke<FilterSettingsView>('update_filter_list'));
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setFilterBusy(false);
+      setFilterProgress(null);
+    }
   }
 
   async function changeSiteFilterException(enabled: boolean) {
     if (!activeSiteDomain) return;
     setFilterBusy(true);
-    try { setFilterSettings(await invoke<FilterSettingsView>('set_filter_site_exception', { domain: activeSiteDomain, enabled })); }
-    catch (error) { setMessage(String(error)); }
-    finally { setFilterBusy(false); }
+    try {
+      setFilterSettings(
+        await invoke<FilterSettingsView>('set_filter_site_exception', { domain: activeSiteDomain, enabled }),
+      );
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setFilterBusy(false);
+    }
   }
 
-  async function dropTabIntoSplit(side: 'left' | 'right' | 'top' | 'bottom', draggedTabId = draggingTabId, targetTabId = activeTabIdRef.current) {
+  async function dropTabIntoSplit(
+    side: 'left' | 'right' | 'top' | 'bottom',
+    draggedTabId = draggingTabId,
+    targetTabId = activeTabIdRef.current,
+  ) {
     const tabId = draggedTabId;
     if (!tabId) {
       setMessage('Choose a loaded tab to create a split view.');
@@ -1475,9 +2246,13 @@ export default function App() {
         orientation: side === 'left' || side === 'right' ? 'horizontal' : 'vertical',
         firstPanePercent: 50,
       });
-    } catch (error) { setMessage(String(error)); }
+    } catch (error) {
+      setMessage(String(error));
+    }
     setDraggingTabId('');
-    void invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null }).catch(error => setMessage(String(error)));
+    void invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null }).catch((error) =>
+      setMessage(String(error)),
+    );
   }
 
   async function dropTabIntoNewWindow(draggedTabId = draggingTabId) {
@@ -1486,41 +2261,58 @@ export default function App() {
     try {
       await invoke<string>('move_tab_to_new_window', { tabId });
       setMessage('Tab moved to a new window.');
-    } catch (error) { setMessage(String(error)); }
+    } catch (error) {
+      setMessage(String(error));
+    }
     setDraggingTabId('');
-    void invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null }).catch(error => setMessage(String(error)));
+    void invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null }).catch((error) =>
+      setMessage(String(error)),
+    );
   }
 
   async function closeSplitView() {
     try {
       await invoke('clear_tab_split');
       setSplitLayout(null);
-    } catch (error) { setMessage(String(error)); }
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function selectTab(id: string) {
-    try { applySnapshot(await invoke<BrowserSnapshot>('select_tab', { tabId: id })); }
-    catch (error) { setMessage(String(error)); }
+    try {
+      applySnapshot(await invoke<BrowserSnapshot>('select_tab', { tabId: id }));
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function closeTab(id: string) {
-    try { applySnapshot(await invoke<BrowserSnapshot>('close_tab', { tabId: id })); }
-    catch (error) { setMessage(String(error)); }
+    try {
+      applySnapshot(await invoke<BrowserSnapshot>('close_tab', { tabId: id }));
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function duplicateTab(id: string) {
-    const source = tabsRef.current.find(tab => tab.id === id);
+    const source = tabsRef.current.find((tab) => tab.id === id);
     if (!source) return;
     try {
       const snapshot = await invoke<BrowserSnapshot>('create_tab', { private: source.private });
       applySnapshot(snapshot);
       if (source.url) await invoke('navigate', { tabId: snapshot.activeTabId, url: source.url });
-    } catch (error) { setMessage(String(error)); }
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function reopenClosedTab() {
-    try { applySnapshot(await invoke<BrowserSnapshot>('reopen_closed_tab')); }
-    catch (error) { setMessage(String(error)); }
+    try {
+      applySnapshot(await invoke<BrowserSnapshot>('reopen_closed_tab'));
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function navigate(event: React.FormEvent) {
@@ -1532,15 +2324,23 @@ export default function App() {
       setMessage('');
       await invoke('navigate', { tabId: activeTabId, url: address });
       addressRef.current?.blur();
-    } catch (error) { setMessage(String(error)); }
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function navigateTo(url: string) {
     setAddress(url);
     setAddressSuggestionsOpen(false);
     if (!activeTabId) return;
-    try { await leaveHistoryTab(activeTabId); setMessage(''); await invoke('navigate', { tabId: activeTabId, url }); addressRef.current?.blur(); }
-    catch (error) { setMessage(String(error)); }
+    try {
+      await leaveHistoryTab(activeTabId);
+      setMessage('');
+      await invoke('navigate', { tabId: activeTabId, url });
+      addressRef.current?.blur();
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   function chooseAddressSuggestion(url: string) {
@@ -1552,13 +2352,16 @@ export default function App() {
   async function runNavigationCommand(command: 'go_back' | 'go_forward' | 'reload' | 'stop_loading') {
     const tabId = activeTabIdRef.current;
     if (!tabId) return;
-    try { await invoke(command, { tabId }); }
-    catch (error) { setMessage(String(error)); }
+    try {
+      await invoke(command, { tabId });
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function showExternalBrowsers(tabId = activeTabIdRef.current, position?: { x: number; y: number }) {
     const rect = externalBrowserButtonRef.current?.getBoundingClientRect();
-    const targetTab = tabs.find(tab => tab.id === tabId);
+    const targetTab = tabs.find((tab) => tab.id === tabId);
     const anchor = position ?? (rect ? { x: rect.left, y: rect.bottom } : undefined);
     if (!targetTab?.url.match(/^https?:\/\//) || !anchor || externalBrowserMenuLoading.current) return;
     externalBrowserMenuLoading.current = true;
@@ -1568,11 +2371,12 @@ export default function App() {
       const menu = await Menu.new({
         items: [
           { text: targetTab.private ? 'Opens using the other browser’s session' : 'Open page in…', enabled: false },
-          ...browsers.map(browser => ({
+          ...browsers.map((browser) => ({
             text: browser.name,
             action: () => {
-              void invoke('open_in_external_browser', { tabId, browserId: browser.id })
-                .catch(error => setMessage(String(error)));
+              void invoke('open_in_external_browser', { tabId, browserId: browser.id }).catch((error) =>
+                setMessage(String(error)),
+              );
             },
           })),
           ...(browsers.length ? [] : [{ text: 'No other browsers found', enabled: false }]),
@@ -1580,8 +2384,11 @@ export default function App() {
       });
       externalBrowserMenuRef.current = menu;
       await menu.popup(new LogicalPosition(anchor.x, anchor.y));
-    } catch (error) { setMessage(String(error)); }
-    finally { externalBrowserMenuLoading.current = false; }
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      externalBrowserMenuLoading.current = false;
+    }
   }
 
   function saveBookmarkEdit(event: React.FormEvent) {
@@ -1600,12 +2407,25 @@ export default function App() {
         setMessage('The destination folder no longer exists.');
         return;
       }
-      const bookmark: BookmarkLink = { id: crypto.randomUUID(), type: 'bookmark', title, url, description, favicon: activeTab && activeTab.url === url ? tabFavicons[activeTab.id] : undefined };
-      setBookmarks(items => addingBookmarkFolderId
-        ? appendBookmarkToFolder(items, addingBookmarkFolderId, bookmark).nodes
-        : [bookmark, ...items]);
-    }
-    else setBookmarks(items => updateBookmarkNode(items, editingBookmarkId, node => node.type === 'bookmark' ? { ...node, title, url, description } : node));
+      const bookmark: BookmarkLink = {
+        id: crypto.randomUUID(),
+        type: 'bookmark',
+        title,
+        url,
+        description,
+        favicon: activeTab && activeTab.url === url ? tabFavicons[activeTab.id] : undefined,
+      };
+      setBookmarks((items) =>
+        addingBookmarkFolderId
+          ? appendBookmarkToFolder(items, addingBookmarkFolderId, bookmark).nodes
+          : [bookmark, ...items],
+      );
+    } else
+      setBookmarks((items) =>
+        updateBookmarkNode(items, editingBookmarkId, (node) =>
+          node.type === 'bookmark' ? { ...node, title, url, description } : node,
+        ),
+      );
     cancelBookmarkEdit();
     setMessage('');
   }
@@ -1619,7 +2439,7 @@ export default function App() {
   function startAddBookmark(parentId?: string) {
     setAddingBookmarkFolderId(parentId ?? null);
     if (parentId) {
-      setExpandedFolderIds(ids => ids.includes(parentId) ? ids : [...ids, parentId]);
+      setExpandedFolderIds((ids) => (ids.includes(parentId) ? ids : [...ids, parentId]));
       setBookmarkSearch('');
     }
     setEditingBookmarkId('');
@@ -1644,7 +2464,16 @@ export default function App() {
       setMessage('This page is already bookmarked.');
       return;
     }
-    setBookmarks(items => [{ id: crypto.randomUUID(), type: 'bookmark', title: activeTab.title || activeTab.url, url: activeTab.url, favicon: tabFavicons[activeTab.id] }, ...items]);
+    setBookmarks((items) => [
+      {
+        id: crypto.randomUUID(),
+        type: 'bookmark',
+        title: activeTab.title || activeTab.url,
+        url: activeTab.url,
+        favicon: tabFavicons[activeTab.id],
+      },
+      ...items,
+    ]);
     setMessage('Bookmark added.');
   }
 
@@ -1665,48 +2494,70 @@ export default function App() {
     try {
       await bookmarkContextMenuRef.current?.close();
       if (bookmark.type === 'folder') {
-        const menu = await Menu.new({ items: [
-          { text: 'New Bookmark', action: () => startAddBookmark(bookmark.id) },
-          { text: 'New Folder', action: () => { setBookmarkSearch(''); createBookmarkFolder(bookmark.id); } },
-          { text: 'Rename', action: () => { setFolderTitle(bookmark.title); setEditingFolderId(bookmark.id); } },
-          { text: 'Delete Folder', action: () => deleteBookmarkNode(bookmark) },
-        ] });
+        const menu = await Menu.new({
+          items: [
+            { text: 'New Bookmark', action: () => startAddBookmark(bookmark.id) },
+            {
+              text: 'New Folder',
+              action: () => {
+                setBookmarkSearch('');
+                createBookmarkFolder(bookmark.id);
+              },
+            },
+            {
+              text: 'Rename',
+              action: () => {
+                setFolderTitle(bookmark.title);
+                setEditingFolderId(bookmark.id);
+              },
+            },
+            { text: 'Delete Folder', action: () => deleteBookmarkNode(bookmark) },
+          ],
+        });
         bookmarkContextMenuRef.current = menu;
         await menu.popup(position);
         return;
       }
-      const open = (command: string) => { void invoke(command, { url: bookmark.url }).catch(error => setMessage(String(error))); };
-      const menu = await Menu.new({ items: [
-        { text: 'Open Link in New Tab', action: () => open('open_link_in_new_tab') },
-        { text: 'Open Link in New Window', action: () => open('open_link_in_new_window') },
-        { text: 'Edit', action: () => editBookmark(bookmark) },
-      ] });
+      const open = (command: string) => {
+        void invoke(command, { url: bookmark.url }).catch((error) => setMessage(String(error)));
+      };
+      const menu = await Menu.new({
+        items: [
+          { text: 'Open Link in New Tab', action: () => open('open_link_in_new_tab') },
+          { text: 'Open Link in New Window', action: () => open('open_link_in_new_window') },
+          { text: 'Edit', action: () => editBookmark(bookmark) },
+        ],
+      });
       bookmarkContextMenuRef.current = menu;
       await menu.popup(position);
-    } catch (error) { setMessage(String(error)); }
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   function createBookmarkFolder(parentId?: string) {
     const folder: BookmarkFolder = { id: crypto.randomUUID(), type: 'folder', title: 'New Folder', children: [] };
-    setBookmarks(items => {
+    setBookmarks((items) => {
       if (!parentId) return [folder, ...items];
       return appendBookmarkToFolder(items, parentId, folder).nodes;
     });
-    if (parentId) setExpandedFolderIds(ids => ids.includes(parentId) ? ids : [...ids, parentId]);
-    setExpandedFolderIds(ids => ids.includes(folder.id) ? ids : [...ids, folder.id]);
+    if (parentId) setExpandedFolderIds((ids) => (ids.includes(parentId) ? ids : [...ids, parentId]));
+    setExpandedFolderIds((ids) => (ids.includes(folder.id) ? ids : [...ids, folder.id]));
     setFolderTitle(folder.title);
     setEditingFolderId(folder.id);
   }
 
   function saveFolderTitle(folderId: string) {
     const title = folderTitle.trim() || 'New Folder';
-    setBookmarks(items => updateBookmarkNode(items, folderId, node => node.type === 'folder' ? { ...node, title } : node));
+    setBookmarks((items) =>
+      updateBookmarkNode(items, folderId, (node) => (node.type === 'folder' ? { ...node, title } : node)),
+    );
     setEditingFolderId('');
   }
 
   function deleteBookmarkNode(node: BookmarkNode) {
     if (node.type === 'folder' && !window.confirm(`Delete “${node.title}” and everything inside it?`)) return;
-    setBookmarks(items => removeBookmarkNode(items, node.id).nodes);
+    setBookmarks((items) => removeBookmarkNode(items, node.id).nodes);
   }
 
   function clearBookmarkExpandTimer() {
@@ -1725,7 +2576,12 @@ export default function App() {
     if (!over || !rect || over.id === active.id) return null;
     const target = locateBookmark(bookmarks, String(over.id));
     if (!target) throw new Error(`Bookmark drop target ${String(over.id)} was not found`);
-    return resolveBookmarkDropZone(rect.top + rect.height / 2, over.rect.top, over.rect.height, target.node.type === 'folder');
+    return resolveBookmarkDropZone(
+      rect.top + rect.height / 2,
+      over.rect.top,
+      over.rect.height,
+      target.node.type === 'folder',
+    );
   }
 
   function handleBookmarkDragStart({ active }: DragStartEvent) {
@@ -1736,23 +2592,39 @@ export default function App() {
   function handleBookmarkDragMove(event: DragMoveEvent) {
     const zone = bookmarkDropZoneFor(event);
     const overId = event.over ? String(event.over.id) : '';
-    setBookmarkDropTarget(current => !zone ? null : current?.overId === overId && current.zone === zone ? current : { overId, zone });
+    setBookmarkDropTarget((current) =>
+      !zone ? null : current?.overId === overId && current.zone === zone ? current : { overId, zone },
+    );
     const hoveredCollapsedFolder = zone === 'inside' && !bookmarkExpanded.has(overId);
-    if (!hoveredCollapsedFolder) { clearBookmarkExpandTimer(); return; }
+    if (!hoveredCollapsedFolder) {
+      clearBookmarkExpandTimer();
+      return;
+    }
     if (bookmarkExpandTimer.current?.id === overId) return;
     clearBookmarkExpandTimer();
-    bookmarkExpandTimer.current = { id: overId, timer: window.setTimeout(() => {
-      bookmarkExpandTimer.current = null;
-      setExpandedFolderIds(ids => ids.includes(overId) ? ids : [...ids, overId]);
-    }, 600) };
+    bookmarkExpandTimer.current = {
+      id: overId,
+      timer: window.setTimeout(() => {
+        bookmarkExpandTimer.current = null;
+        setExpandedFolderIds((ids) => (ids.includes(overId) ? ids : [...ids, overId]));
+      }, 600),
+    };
   }
 
   function handleBookmarkDragEnd(event: DragEndEvent) {
     const zone = bookmarkDropZoneFor(event);
     if (zone && bookmarkDragOrigin) {
-      const result = moveBookmarkToDropZone(bookmarks, String(event.active.id), String(event.over!.id), zone, bookmarkDragOrigin.depth, event.delta.x);
+      const result = moveBookmarkToDropZone(
+        bookmarks,
+        String(event.active.id),
+        String(event.over!.id),
+        zone,
+        bookmarkDragOrigin.depth,
+        event.delta.x,
+      );
       setBookmarks(result.nodes);
-      if (result.parentId) setExpandedFolderIds(ids => ids.includes(result.parentId!) ? ids : [...ids, result.parentId!]);
+      if (result.parentId)
+        setExpandedFolderIds((ids) => (ids.includes(result.parentId!) ? ids : [...ids, result.parentId!]));
     }
     endBookmarkDrag();
   }
@@ -1766,11 +2638,17 @@ export default function App() {
     storeTabTree(nodes);
     void invoke<BrowserSnapshot>('reorder_tabs', { tabIds: flattenTabIds(nodes) })
       .then(applySnapshot)
-      .catch(error => setMessage(String(error)));
+      .catch((error) => setMessage(String(error)));
   }
 
   function createTabFolder() {
-    const folder: TabFolder = { id: crypto.randomUUID(), type: 'folder', title: 'New Folder', collapsed: false, children: [] };
+    const folder: TabFolder = {
+      id: crypto.randomUUID(),
+      type: 'folder',
+      title: 'New Folder',
+      collapsed: false,
+      children: [],
+    };
     storeTabTree([folder, ...tabNodesRef.current]);
     setEditingTabFolderId(folder.id);
     setTabFolderTitle(folder.title);
@@ -1778,7 +2656,9 @@ export default function App() {
 
   function saveTabFolderTitle(folderId: string) {
     const title = tabFolderTitle.trim() || 'New Folder';
-    storeTabTree(updateTabNode(tabNodesRef.current, folderId, node => node.type === 'folder' ? { ...node, title } : node));
+    storeTabTree(
+      updateTabNode(tabNodesRef.current, folderId, (node) => (node.type === 'folder' ? { ...node, title } : node)),
+    );
     setEditingTabFolderId('');
   }
 
@@ -1794,12 +2674,13 @@ export default function App() {
 
   function finishTabDrag(cancelled: boolean) {
     // Folders get the native invalid preview but can never split into a page or window.
-    if (tabDragOrigin) void invoke('set_tab_dragging', {
-      dragging: false,
-      tabId: null,
-      targetTabId: null,
-      cancelled: cancelled || tabDragOrigin.type === 'folder',
-    }).catch(error => setMessage(String(error)));
+    if (tabDragOrigin)
+      void invoke('set_tab_dragging', {
+        dragging: false,
+        tabId: null,
+        targetTabId: null,
+        cancelled: cancelled || tabDragOrigin.type === 'folder',
+      }).catch((error) => setMessage(String(error)));
     clearTabExpandTimer();
     setDraggingTabId('');
     setTabDropTarget(null);
@@ -1816,19 +2697,40 @@ export default function App() {
   function tabPointerOverPage({ activatorEvent, delta }: Pick<DragMoveEvent, 'activatorEvent' | 'delta'>): boolean {
     const point = tabDragPoint({ activatorEvent, delta });
     const rect = viewRef.current?.getBoundingClientRect();
-    return Boolean(point && rect && point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom);
+    return Boolean(
+      point && rect && point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom,
+    );
   }
 
-  function tabDropZoneFor(event: Pick<DragMoveEvent, 'active' | 'over' | 'activatorEvent' | 'delta'>): BookmarkDropZone | null {
+  function tabDropZoneFor(
+    event: Pick<DragMoveEvent, 'active' | 'over' | 'activatorEvent' | 'delta'>,
+  ): BookmarkDropZone | null {
     const rect = event.active.rect.current.translated;
-    if (!event.over || !rect || event.over.data.current?.container !== 'tabs' || event.over.id === event.active.id || tabPointerOverPage(event)) return null;
+    if (
+      !event.over ||
+      !rect ||
+      event.over.data.current?.container !== 'tabs' ||
+      event.over.id === event.active.id ||
+      tabPointerOverPage(event)
+    )
+      return null;
     const targetId = String(event.over.data.current.nodeId ?? event.over.id);
     const target = locateBookmark(tabNodesRef.current, targetId);
     if (!target) throw new Error(`Tab drop target ${String(event.over.id)} was not found`);
     const horizontal = tabAxisForPosition(tabPosition) === 'horizontal';
     return horizontal
-      ? resolveBookmarkDropZone(rect.left + rect.width / 2, event.over.rect.left, event.over.rect.width, target.node.type === 'folder')
-      : resolveBookmarkDropZone(rect.top + rect.height / 2, event.over.rect.top, event.over.rect.height, target.node.type === 'folder');
+      ? resolveBookmarkDropZone(
+          rect.left + rect.width / 2,
+          event.over.rect.left,
+          event.over.rect.width,
+          target.node.type === 'folder',
+        )
+      : resolveBookmarkDropZone(
+          rect.top + rect.height / 2,
+          event.over.rect.top,
+          event.over.rect.height,
+          target.node.type === 'folder',
+        );
   }
 
   function handleTabDragStart({ active, activatorEvent }: DragStartEvent) {
@@ -1836,13 +2738,15 @@ export default function App() {
     const container = active.data.current?.container === 'pinned' ? 'pinned' : 'tabs';
     const found = locateBookmark(tabNodesRef.current, nodeId);
     if (!found) throw new Error(`Dragged tab node ${String(active.id)} was not found`);
-    const source = activatorEvent.target instanceof HTMLElement
-      ? activatorEvent.target.closest<HTMLElement>('.tab-sortable-item, .pinned-tab-button')
-      : null;
+    const source =
+      activatorEvent.target instanceof HTMLElement
+        ? activatorEvent.target.closest<HTMLElement>('.tab-sortable-item, .pinned-tab-button')
+        : null;
     const sourceRect = source?.getBoundingClientRect() ?? active.rect.current.initial;
-    const pointer = 'clientX' in activatorEvent && 'clientY' in activatorEvent
-      ? { x: Number(activatorEvent.clientX), y: Number(activatorEvent.clientY) }
-      : null;
+    const pointer =
+      'clientX' in activatorEvent && 'clientY' in activatorEvent
+        ? { x: Number(activatorEvent.clientX), y: Number(activatorEvent.clientY) }
+        : null;
     setTabDragOrigin({
       id: found.node.id,
       depth: found.depth,
@@ -1860,13 +2764,13 @@ export default function App() {
       tabId: found.node.type === 'tab' ? found.node.id : null,
       targetTabId: activeTabIdRef.current,
       dragType: found.node.type,
-    }).catch(error => setMessage(String(error)));
+    }).catch((error) => setMessage(String(error)));
   }
 
   function handleTabDragMove(event: DragMoveEvent) {
     const overPage = tabPointerOverPage(event);
     const preview = resolveTabDragPreview(tabDragOrigin?.type === 'folder', overPage);
-    setTabDragPreview(current => current === preview ? current : preview);
+    setTabDragPreview((current) => (current === preview ? current : preview));
     if (overPage) {
       setTabDropTarget(null);
       clearTabExpandTimer();
@@ -1882,23 +2786,47 @@ export default function App() {
       const coordinate = pointer && (horizontal ? pointer.x : pointer.y);
       const start = rect && (horizontal ? rect.left : rect.top);
       const size = rect && (horizontal ? rect.width : rect.height);
-      const zone: BookmarkDropZone = !event.over || event.over.id === pinnedTabsEndId || coordinate === null || coordinate === undefined || start === undefined || size === undefined
-        ? 'after'
-        : coordinate >= start + size / 2 ? 'after' : 'before';
+      const zone: BookmarkDropZone =
+        !event.over ||
+        event.over.id === pinnedTabsEndId ||
+        coordinate === null ||
+        coordinate === undefined ||
+        start === undefined ||
+        size === undefined
+          ? 'after'
+          : coordinate >= start + size / 2
+            ? 'after'
+            : 'before';
       setTabDropTarget(folder ? null : { container: 'pinned', overId, zone });
       clearTabExpandTimer();
       return;
     }
     const zone = tabDropZoneFor(event);
-    setTabDropTarget(current => !zone ? null : current?.container === 'tabs' && current.overId === overId && current.zone === zone ? current : { container: 'tabs', overId, zone });
+    setTabDropTarget((current) =>
+      !zone
+        ? null
+        : current?.container === 'tabs' && current.overId === overId && current.zone === zone
+          ? current
+          : { container: 'tabs', overId, zone },
+    );
     const over = zone === 'inside' ? findTabNode(tabNodesRef.current, overId) : undefined;
-    if (!over || over.type !== 'folder' || !over.collapsed) { clearTabExpandTimer(); return; }
+    if (!over || over.type !== 'folder' || !over.collapsed) {
+      clearTabExpandTimer();
+      return;
+    }
     if (tabExpandTimer.current?.id === overId) return;
     clearTabExpandTimer();
-    tabExpandTimer.current = { id: overId, timer: window.setTimeout(() => {
-      tabExpandTimer.current = null;
-      storeTabTree(updateTabNode(tabNodesRef.current, overId, node => node.type === 'folder' ? { ...node, collapsed: false } : node));
-    }, 600) };
+    tabExpandTimer.current = {
+      id: overId,
+      timer: window.setTimeout(() => {
+        tabExpandTimer.current = null;
+        storeTabTree(
+          updateTabNode(tabNodesRef.current, overId, (node) =>
+            node.type === 'folder' ? { ...node, collapsed: false } : node,
+          ),
+        );
+      }, 600),
+    };
   }
 
   function handleTabDragEnd(event: DragEndEvent) {
@@ -1914,7 +2842,11 @@ export default function App() {
         const coordinate = point && (horizontal ? point.x : point.y);
         const start = horizontal ? rect.left : rect.top;
         const size = horizontal ? rect.width : rect.height;
-        const after = event.over.id === pinnedTabsEndId || coordinate === null || coordinate === undefined || coordinate >= start + size / 2;
+        const after =
+          event.over.id === pinnedTabsEndId ||
+          coordinate === null ||
+          coordinate === undefined ||
+          coordinate >= start + size / 2;
         const targetId = event.over.data.current?.nodeId ? String(event.over.data.current.nodeId) : null;
         const current = pinnedTabIdsRef.current;
         const base = current.includes(activeId) ? current : [...current, activeId];
@@ -1926,11 +2858,23 @@ export default function App() {
           const targetId = String(event.over.data.current?.nodeId ?? event.over.id);
           const horizontal = tabAxisForPosition(tabPosition) === 'horizontal';
           const indentDelta = horizontal ? event.delta.y : event.delta.x;
-          const result = moveBookmarkToDropZone(tabNodesRef.current, activeId, targetId, zone, tabDragOrigin.depth, indentDelta);
-          if (activeContainer === 'pinned') setPinnedTabIds(ids => ids.filter(id => id !== activeId));
+          const result = moveBookmarkToDropZone(
+            tabNodesRef.current,
+            activeId,
+            targetId,
+            zone,
+            tabDragOrigin.depth,
+            indentDelta,
+          );
+          if (activeContainer === 'pinned') setPinnedTabIds((ids) => ids.filter((id) => id !== activeId));
           reorderTabsFromTree(result.nodes);
           const parentId = result.parentId;
-          if (parentId) storeTabTree(updateTabNode(tabNodesRef.current, parentId, node => node.type === 'folder' ? { ...node, collapsed: false } : node));
+          if (parentId)
+            storeTabTree(
+              updateTabNode(tabNodesRef.current, parentId, (node) =>
+                node.type === 'folder' ? { ...node, collapsed: false } : node,
+              ),
+            );
         }
       }
     }
@@ -1938,10 +2882,19 @@ export default function App() {
   }
 
   function toggleTabFolder(folderId: string) {
-    storeTabTree(updateTabNode(tabNodesRef.current, folderId, node => node.type === 'folder' ? { ...node, collapsed: !node.collapsed } : node));
+    storeTabTree(
+      updateTabNode(tabNodesRef.current, folderId, (node) =>
+        node.type === 'folder' ? { ...node, collapsed: !node.collapsed } : node,
+      ),
+    );
   }
 
-  function moveTabNode(draggedId: string, targetId?: string, folderId?: string, position: 'before' | 'after' = 'before') {
+  function moveTabNode(
+    draggedId: string,
+    targetId?: string,
+    folderId?: string,
+    position: 'before' | 'after' = 'before',
+  ) {
     if (!draggedId || draggedId === targetId || draggedId === folderId) return;
     const moving = findTabNode(tabNodesRef.current, draggedId);
     const destinationId = folderId ?? targetId;
@@ -1952,12 +2905,17 @@ export default function App() {
     else if (targetId) result = insertTabNode(remaining, targetId, moving, position === 'after').nodes;
     else result = [...remaining, moving];
     reorderTabsFromTree(result);
-    if (folderId) storeTabTree(updateTabNode(tabNodesRef.current, folderId, node => node.type === 'folder' ? { ...node, collapsed: false } : node));
+    if (folderId)
+      storeTabTree(
+        updateTabNode(tabNodesRef.current, folderId, (node) =>
+          node.type === 'folder' ? { ...node, collapsed: false } : node,
+        ),
+      );
   }
 
   function saveTabName(tabId: string) {
     const title = tabNameDraft.trim();
-    setTabNameOverrides(names => {
+    setTabNameOverrides((names) => {
       const next = { ...names };
       if (title) next[tabId] = title;
       else delete next[tabId];
@@ -1968,116 +2926,300 @@ export default function App() {
 
   function renderTabIcon(tab: Tab): React.ReactNode {
     const icon = tabFavicons[tab.id];
-    return <span className={`tab-favicon ${tab.loading ? 'is-loading' : ''}`}>{tab.loading ? <LoaderCircle className="ui-icon" size={14} aria-hidden="true" /> : icon ? <img src={icon} alt="" onError={() => setTabFavicons(current => { const next = { ...current }; delete next[tab.id]; return next; })} /> : tab.url ? <Globe2 className="ui-icon" size={14} aria-hidden="true" /> : <Sparkles className="ui-icon" size={14} aria-hidden="true" />}</span>;
+    return (
+      <span className={`tab-favicon ${tab.loading ? 'is-loading' : ''}`}>
+        {tab.loading ? (
+          <LoaderCircle className="ui-icon" size={14} aria-hidden="true" />
+        ) : icon ? (
+          <img
+            src={icon}
+            alt=""
+            onError={() =>
+              setTabFavicons((current) => {
+                const next = { ...current };
+                delete next[tab.id];
+                return next;
+              })
+            }
+          />
+        ) : tab.url ? (
+          <Globe2 className="ui-icon" size={14} aria-hidden="true" />
+        ) : (
+          <Sparkles className="ui-icon" size={14} aria-hidden="true" />
+        )}
+      </span>
+    );
   }
 
   // Same menu as the full-width rows, opened to the right of the narrow rail.
   function openRailContextMenu(event: React.MouseEvent, id: string, type: 'tab' | 'folder') {
     event.preventDefault();
     setTabGroupPickerOpen(false);
-    setTabContextMenu({ id, type, x: Math.max(8, Math.min(event.clientX + 8, window.innerWidth - tabContextMenuWidth - 8)), y: Math.min(event.clientY, window.innerHeight - 90) });
+    setTabContextMenu({
+      id,
+      type,
+      x: Math.max(8, Math.min(event.clientX + 8, window.innerWidth - tabContextMenuWidth - 8)),
+      y: Math.min(event.clientY, window.innerHeight - 90),
+    });
   }
 
   function renderRailItem({ node }: FlatNode<TabNode>): React.ReactNode {
     if (node.type === 'folder') {
-      return <button key={node.id} type="button" className="rail-button" title={node.title} aria-label={`${node.collapsed ? 'Expand' : 'Collapse'} folder ${node.title}`} onClick={() => toggleTabFolder(node.id)} onContextMenu={event => openRailContextMenu(event, node.id, 'folder')}><Folder className="ui-icon" size={16} aria-hidden="true" /></button>;
+      return (
+        <button
+          key={node.id}
+          type="button"
+          className="rail-button"
+          title={node.title}
+          aria-label={`${node.collapsed ? 'Expand' : 'Collapse'} folder ${node.title}`}
+          onClick={() => toggleTabFolder(node.id)}
+          onContextMenu={(event) => openRailContextMenu(event, node.id, 'folder')}
+        >
+          <Folder className="ui-icon" size={16} aria-hidden="true" />
+        </button>
+      );
     }
-    const tab = tabs.find(item => item.id === node.id);
+    const tab = tabs.find((item) => item.id === node.id);
     if (!tab) return null;
     const title = tabNameOverrides[tab.id] || tab.title || 'New Tab';
-    return <button key={node.id} type="button" className={`rail-button ${tab.id === activeTabId ? 'selected' : ''}`} title={title} aria-label={title} aria-current={tab.id === activeTabId ? 'page' : undefined} onClick={() => void selectTab(tab.id)} onContextMenu={event => openRailContextMenu(event, tab.id, 'tab')}>{renderTabIcon(tab)}</button>;
+    return (
+      <button
+        key={node.id}
+        type="button"
+        className={`rail-button ${tab.id === activeTabId ? 'selected' : ''}`}
+        title={title}
+        aria-label={title}
+        aria-current={tab.id === activeTabId ? 'page' : undefined}
+        onClick={() => void selectTab(tab.id)}
+        onContextMenu={(event) => openRailContextMenu(event, tab.id, 'tab')}
+      >
+        {renderTabIcon(tab)}
+      </button>
+    );
   }
 
   function renderPinnedTab(tab: Tab, compact = false, dropZone?: BookmarkDropZone): React.ReactNode {
     const title = tabNameOverrides[tab.id] || tab.title || 'New Tab';
-    if (editingTabId === tab.id) return <div key={tab.id} className="pinned-tab-edit" title={`Rename ${title}`}>
-      <AppInput
-        className="tab-rename-input"
-        aria-label="Tab name"
-        autoFocus
-        value={tabNameDraft}
-        onFocus={event => selectInputText(event.currentTarget)}
-        onChange={event => setTabNameDraft(event.target.value)}
-        onBlur={() => saveTabName(tab.id)}
-        onKeyDown={event => {
-          event.stopPropagation();
-          if (event.key === 'Enter') { event.preventDefault(); saveTabName(tab.id); }
-          if (event.key === 'Escape') setEditingTabId('');
-        }}
-      />
-    </div>;
-    return <SortablePinnedTab
-      key={tab.id}
-      id={compact ? `rail-pin:${tab.id}` : `pinned:${tab.id}`}
-      tabId={tab.id}
-      title={title}
-      selected={tab.id === activeTabId}
-      compact={compact}
-      dropZone={dropZone}
-      onClick={() => void selectTab(tab.id)}
-      onContextMenu={event => openRailContextMenu(event, tab.id, 'tab')}
-    >{renderTabIcon(tab)}</SortablePinnedTab>;
+    if (editingTabId === tab.id)
+      return (
+        <div key={tab.id} className="pinned-tab-edit" title={`Rename ${title}`}>
+          <AppInput
+            className="tab-rename-input"
+            aria-label="Tab name"
+            autoFocus
+            value={tabNameDraft}
+            onFocus={(event) => selectInputText(event.currentTarget)}
+            onChange={(event) => setTabNameDraft(event.target.value)}
+            onBlur={() => saveTabName(tab.id)}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                saveTabName(tab.id);
+              }
+              if (event.key === 'Escape') setEditingTabId('');
+            }}
+          />
+        </div>
+      );
+    return (
+      <SortablePinnedTab
+        key={tab.id}
+        id={compact ? `rail-pin:${tab.id}` : `pinned:${tab.id}`}
+        tabId={tab.id}
+        title={title}
+        selected={tab.id === activeTabId}
+        compact={compact}
+        dropZone={dropZone}
+        onClick={() => void selectTab(tab.id)}
+        onContextMenu={(event) => openRailContextMenu(event, tab.id, 'tab')}
+      >
+        {renderTabIcon(tab)}
+      </SortablePinnedTab>
+    );
   }
 
   function renderTabRow({ node, depth }: FlatNode<TabNode>, compact = false): React.ReactNode {
-    const dropZone = tabDropTarget?.container === 'tabs' && tabDropTarget.overId === node.id ? tabDropTarget.zone : undefined;
+    const dropZone =
+      tabDropTarget?.container === 'tabs' && tabDropTarget.overId === node.id ? tabDropTarget.zone : undefined;
     const stopDrag = (event: React.PointerEvent) => event.stopPropagation();
     if (node.type === 'folder') {
       const expanded = !node.collapsed && tabDragOrigin?.id !== node.id;
-      return <SortableRow
+      return (
+        <SortableRow
+          key={node.id}
+          id={node.id}
+          depth={depth}
+          expanded={expanded}
+          dropZone={dropZone}
+          style={horizontalTabStrip ? { marginTop: depth * 10 } : undefined}
+          disabled={editingTabFolderId === node.id}
+          className="tab-sortable-item"
+          label={`Folder ${node.title}`}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setTabGroupPickerOpen(false);
+            setSplitPickerOpen(false);
+            setTabContextMenu({
+              id: node.id,
+              type: 'folder',
+              x: Math.max(8, Math.min(event.clientX, window.innerWidth - tabContextMenuWidth - 8)),
+              y: Math.min(event.clientY, window.innerHeight - 90),
+            });
+          }}
+        >
+          <div
+            className="tab-folder-row"
+            style={{ paddingLeft: tabAxisForPosition(tabPosition) === 'horizontal' ? 6 : depth * 14 }}
+            onClick={() => toggleTabFolder(node.id)}
+          >
+            <button
+              type="button"
+              className="tab-folder-toggle"
+              aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`}
+              onPointerDown={stopDrag}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleTabFolder(node.id);
+              }}
+            >
+              {expanded ? (
+                <ChevronDown className="ui-icon" size={14} aria-hidden="true" />
+              ) : (
+                <ChevronRight className="ui-icon" size={14} aria-hidden="true" />
+              )}
+            </button>
+            <span className="tab-folder-icon" aria-hidden="true">
+              <Folder className="ui-icon" size={14} />
+            </span>
+            {editingTabFolderId === node.id ? (
+              <AppInput
+                className="tab-folder-name-input"
+                aria-label="Tab folder name"
+                autoFocus
+                value={tabFolderTitle}
+                onFocus={(event) => selectInputText(event.currentTarget)}
+                onPointerDown={stopDrag}
+                onChange={(event) => setTabFolderTitle(event.target.value)}
+                onBlur={() => saveTabFolderTitle(node.id)}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    saveTabFolderTitle(node.id);
+                  }
+                  if (event.key === 'Escape') {
+                    setEditingTabFolderId('');
+                    setTabFolderTitle(node.title);
+                  }
+                }}
+              />
+            ) : (
+              <span className="tab-folder-title">{node.title}</span>
+            )}
+            {!node.children.length && expanded && <span className="tree-empty-hint">Drop tabs here</span>}
+          </div>
+        </SortableRow>
+      );
+    }
+    const tab = tabs.find((item) => item.id === node.id);
+    if (!tab) return null;
+    const title = tabNameOverrides[tab.id] || tab.title || 'New Tab';
+    return (
+      <SortableRow
         key={node.id}
         id={node.id}
         depth={depth}
-        expanded={expanded}
         dropZone={dropZone}
         style={horizontalTabStrip ? { marginTop: depth * 10 } : undefined}
-        disabled={editingTabFolderId === node.id}
+        disabled={editingTabId === tab.id}
         className="tab-sortable-item"
-        label={`Folder ${node.title}`}
-        onContextMenu={event => { event.preventDefault(); setTabGroupPickerOpen(false); setSplitPickerOpen(false); setTabContextMenu({ id: node.id, type: 'folder', x: Math.max(8, Math.min(event.clientX, window.innerWidth - tabContextMenuWidth - 8)), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
+        label={title}
+        current={tab.id === activeTabId}
+        onActivate={() => void selectTab(tab.id)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setTabGroupPickerOpen(false);
+          setSplitPickerOpen(false);
+          setTabContextMenu({
+            id: tab.id,
+            type: 'tab',
+            x: Math.max(8, Math.min(event.clientX, window.innerWidth - tabContextMenuWidth - 8)),
+            y: Math.min(event.clientY, window.innerHeight - 90),
+          });
+        }}
       >
-        <div className="tab-folder-row" style={{ paddingLeft: tabAxisForPosition(tabPosition) === 'horizontal' ? 6 : depth * 14 }} onClick={() => toggleTabFolder(node.id)}>
-          <button type="button" className="tab-folder-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); toggleTabFolder(node.id); }}>{expanded ? <ChevronDown className="ui-icon" size={14} aria-hidden="true" /> : <ChevronRight className="ui-icon" size={14} aria-hidden="true" />}</button>
-          <span className="tab-folder-icon" aria-hidden="true"><Folder className="ui-icon" size={14} /></span>
-          {editingTabFolderId === node.id
-            ? <AppInput className="tab-folder-name-input" aria-label="Tab folder name" autoFocus value={tabFolderTitle} onFocus={event => selectInputText(event.currentTarget)} onPointerDown={stopDrag} onChange={event => setTabFolderTitle(event.target.value)} onBlur={() => saveTabFolderTitle(node.id)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveTabFolderTitle(node.id); } if (event.key === 'Escape') { setEditingTabFolderId(''); setTabFolderTitle(node.title); } }} />
-            : <span className="tab-folder-title">{node.title}</span>}
-          {!node.children.length && expanded && <span className="tree-empty-hint">Drop tabs here</span>}
+        <div
+          className={`tab-row ${depth > 0 ? 'nested-tab-row' : ''} ${tab.id === activeTabId ? 'selected' : ''}`}
+          style={
+            compact || depth === 0 || tabAxisForPosition(tabPosition) === 'horizontal'
+              ? undefined
+              : { marginLeft: depth * 14 + 7, width: `calc(100% - ${depth * 14 + 7}px)` }
+          }
+          data-tab-id={tab.id}
+          title={title}
+          onClick={() => void selectTab(tab.id)}
+        >
+          {renderTabIcon(tab)}
+          {pinnedTabIds.includes(tab.id) && (
+            <Pin className="ui-icon tab-pin-indicator" size={12} aria-label="Pinned tab" />
+          )}
+          {editingTabId === tab.id ? (
+            <AppInput
+              className="tab-rename-input"
+              aria-label="Tab name"
+              value={tabNameDraft}
+              autoFocus
+              onFocus={(event) => selectInputText(event.currentTarget)}
+              onPointerDown={stopDrag}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => setTabNameDraft(event.target.value)}
+              onBlur={() => saveTabName(tab.id)}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  saveTabName(tab.id);
+                }
+                if (event.key === 'Escape') {
+                  setEditingTabId('');
+                }
+              }}
+            />
+          ) : (
+            <span className="tab-title">{title}</span>
+          )}
+          {tab.private && (
+            <span className="private-tab-indicator" title="Private tab" aria-label="Private tab">
+              <EyeOff className="ui-icon" size={13} aria-hidden="true" />
+            </span>
+          )}
+          <button
+            type="button"
+            className="tab-close"
+            aria-label={`Close ${title}`}
+            onPointerDown={stopDrag}
+            onClick={(event) => {
+              event.stopPropagation();
+              void closeTab(tab.id);
+            }}
+          >
+            <X className="ui-icon" size={14} aria-hidden="true" />
+          </button>
         </div>
-      </SortableRow>;
-    }
-    const tab = tabs.find(item => item.id === node.id);
-    if (!tab) return null;
-    const title = tabNameOverrides[tab.id] || tab.title || 'New Tab';
-    return <SortableRow
-      key={node.id}
-      id={node.id}
-      depth={depth}
-      dropZone={dropZone}
-      style={horizontalTabStrip ? { marginTop: depth * 10 } : undefined}
-      disabled={editingTabId === tab.id}
-      className="tab-sortable-item"
-      label={title}
-      current={tab.id === activeTabId}
-      onActivate={() => void selectTab(tab.id)}
-      onContextMenu={event => { event.preventDefault(); setTabGroupPickerOpen(false); setSplitPickerOpen(false); setTabContextMenu({ id: tab.id, type: 'tab', x: Math.max(8, Math.min(event.clientX, window.innerWidth - tabContextMenuWidth - 8)), y: Math.min(event.clientY, window.innerHeight - 90) }); }}
-    >
-      <div className={`tab-row ${depth > 0 ? 'nested-tab-row' : ''} ${tab.id === activeTabId ? 'selected' : ''}`} style={compact || depth === 0 || tabAxisForPosition(tabPosition) === 'horizontal' ? undefined : { marginLeft: depth * 14 + 7, width: `calc(100% - ${depth * 14 + 7}px)` }} data-tab-id={tab.id} title={title} onClick={() => void selectTab(tab.id)}>
-        {renderTabIcon(tab)}
-        {pinnedTabIds.includes(tab.id) && <Pin className="ui-icon tab-pin-indicator" size={12} aria-label="Pinned tab" />}
-        {editingTabId === tab.id
-          ? <AppInput className="tab-rename-input" aria-label="Tab name" value={tabNameDraft} autoFocus onFocus={event => selectInputText(event.currentTarget)} onPointerDown={stopDrag} onClick={event => event.stopPropagation()} onChange={event => setTabNameDraft(event.target.value)} onBlur={() => saveTabName(tab.id)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); saveTabName(tab.id); } if (event.key === 'Escape') { setEditingTabId(''); } }} />
-          : <span className="tab-title">{title}</span>}
-        {tab.private && <span className="private-tab-indicator" title="Private tab" aria-label="Private tab"><EyeOff className="ui-icon" size={13} aria-hidden="true" /></span>}
-        <button type="button" className="tab-close" aria-label={`Close ${title}`} onPointerDown={stopDrag} onClick={event => { event.stopPropagation(); void closeTab(tab.id); }}><X className="ui-icon" size={14} aria-hidden="true" /></button>
-      </div>
-    </SortableRow>;
+      </SortableRow>
+    );
   }
 
   async function openBookmark(url: string) {
     if (!activeTabId) {
-      try { const snapshot = await invoke<BrowserSnapshot>('create_tab'); applySnapshot(snapshot); await invoke('navigate', { tabId: snapshot.activeTabId, url }); }
-      catch (error) { setMessage(String(error)); }
+      try {
+        const snapshot = await invoke<BrowserSnapshot>('create_tab');
+        applySnapshot(snapshot);
+        await invoke('navigate', { tabId: snapshot.activeTabId, url });
+      } catch (error) {
+        setMessage(String(error));
+      }
       return;
     }
     void navigateTo(url);
@@ -2087,385 +3229,1410 @@ export default function App() {
     if (activeTabId) void closeTab(activeTabId);
   }
 
-  const bookmarkExpanded = new Set(bookmarkSearch.trim() ? bookmarkFolderIds(filterBookmarkNodes(bookmarks, bookmarkSearch.trim())) : expandedFolderIds);
+  const bookmarkExpanded = new Set(
+    bookmarkSearch.trim()
+      ? bookmarkFolderIds(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()))
+      : expandedFolderIds,
+  );
   // A dragged folder collapses so its own children are not drop targets.
   if (bookmarkDragOrigin) bookmarkExpanded.delete(bookmarkDragOrigin.id);
   const draggedBookmark = bookmarkDragOrigin ? locateBookmark(bookmarks, bookmarkDragOrigin.id)?.node : undefined;
   // A dragged folder collapses so its own children are not drop targets.
   const expandedTabFolders = new Set(expandedTabFolderIds(tabNodes));
   if (tabDragOrigin) expandedTabFolders.delete(tabDragOrigin.id);
-  const unpinnedTabNodes = (nodes: TabNode[]): TabNode[] => nodes.flatMap<TabNode>(node => {
-    if (node.type === 'tab') return pinnedTabIds.includes(node.id) ? [] : [node];
-    return [{ ...node, children: unpinnedTabNodes(node.children) }];
-  });
+  const unpinnedTabNodes = (nodes: TabNode[]): TabNode[] =>
+    nodes.flatMap<TabNode>((node) => {
+      if (node.type === 'tab') return pinnedTabIds.includes(node.id) ? [] : [node];
+      return [{ ...node, children: unpinnedTabNodes(node.children) }];
+    });
   const unpinnedTree = unpinnedTabNodes(tabNodes);
   const visibleTabRows = flattenBookmarkNodes(unpinnedTree, expandedTabFolders);
-  const allTabRows = flattenBookmarkNodes(unpinnedTree, new Set(tabFolders(unpinnedTree).map(folder => folder.id)));
-  const visibleSplitLayout = splitLayout && !pinnedTabIds.includes(splitLayout.firstTabId) && !pinnedTabIds.includes(splitLayout.secondTabId) ? splitLayout : null;
+  const allTabRows = flattenBookmarkNodes(unpinnedTree, new Set(tabFolders(unpinnedTree).map((folder) => folder.id)));
+  const visibleSplitLayout =
+    splitLayout && !pinnedTabIds.includes(splitLayout.firstTabId) && !pinnedTabIds.includes(splitLayout.secondTabId)
+      ? splitLayout
+      : null;
   const sidebarTabRows = groupSplitTabRows(visibleTabRows, allTabRows, visibleSplitLayout);
-  const displayedTabRows = sidebarTabRows.flatMap(row => row.type === 'single' ? [row.row] : [row.first, row.second]);
-  const pinnedTabs = pinnedTabIds.flatMap(id => {
-    const tab = tabs.find(item => item.id === id);
+  const displayedTabRows = sidebarTabRows.flatMap((row) =>
+    row.type === 'single' ? [row.row] : [row.first, row.second],
+  );
+  const pinnedTabs = pinnedTabIds.flatMap((id) => {
+    const tab = tabs.find((item) => item.id === id);
     return tab ? [tab] : [];
   });
   const draggedTabNode = tabDragOrigin ? findTabNode(tabNodes, tabDragOrigin.id) : undefined;
-  const bookmarkEditForm = <form className="bookmark-form bookmark-inline-form" onSubmit={saveBookmarkEdit} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); cancelBookmarkEdit(); } }}>
-    {addingBookmarkFolderId && <small>New bookmark in {locateBookmark(bookmarks, addingBookmarkFolderId)?.node.title ?? 'folder'}</small>}
-    <AppInput aria-label="Bookmark title" placeholder="Name" autoFocus value={editBookmarkTitle} onChange={event => setEditBookmarkTitle(event.target.value)} />
-    <AppInput aria-label="Bookmark address" placeholder="https://example.com" value={editBookmarkUrl} onChange={event => setEditBookmarkUrl(event.target.value)} />
-    <AppInput aria-label="Bookmark description" placeholder="Description" value={editBookmarkDescription} onChange={event => setEditBookmarkDescription(event.target.value)} />
-    <div className="bookmark-inline-actions"><AppButton type="submit">{addingBookmark ? 'Add' : 'Save'}</AppButton><AppButton type="button" className="cancel-edit" onClick={cancelBookmarkEdit}>Cancel</AppButton></div>
-  </form>;
-  const visibleBookmarkRows = flattenBookmarkNodes(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()), bookmarkExpanded);
+  const bookmarkEditForm = (
+    <form
+      className="bookmark-form bookmark-inline-form"
+      onSubmit={saveBookmarkEdit}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation();
+          cancelBookmarkEdit();
+        }
+      }}
+    >
+      {addingBookmarkFolderId && (
+        <small>New bookmark in {locateBookmark(bookmarks, addingBookmarkFolderId)?.node.title ?? 'folder'}</small>
+      )}
+      <AppInput
+        aria-label="Bookmark title"
+        placeholder="Name"
+        autoFocus
+        value={editBookmarkTitle}
+        onChange={(event) => setEditBookmarkTitle(event.target.value)}
+      />
+      <AppInput
+        aria-label="Bookmark address"
+        placeholder="https://example.com"
+        value={editBookmarkUrl}
+        onChange={(event) => setEditBookmarkUrl(event.target.value)}
+      />
+      <AppInput
+        aria-label="Bookmark description"
+        placeholder="Description"
+        value={editBookmarkDescription}
+        onChange={(event) => setEditBookmarkDescription(event.target.value)}
+      />
+      <div className="bookmark-inline-actions">
+        <AppButton type="submit">{addingBookmark ? 'Add' : 'Save'}</AppButton>
+        <AppButton type="button" className="cancel-edit" onClick={cancelBookmarkEdit}>
+          Cancel
+        </AppButton>
+      </div>
+    </form>
+  );
+  const visibleBookmarkRows = flattenBookmarkNodes(
+    filterBookmarkNodes(bookmarks, bookmarkSearch.trim()),
+    bookmarkExpanded,
+  );
   const horizontalTabStrip = tabAxisForPosition(tabPosition) === 'horizontal';
 
   function renderTabManager() {
-    return <DndContext sensors={tabSensors} collisionDetection={tabCollisionDetection} onDragStart={handleTabDragStart} onDragMove={handleTabDragMove} onDragEnd={handleTabDragEnd} onDragCancel={() => finishTabDrag(true)}>
-      <div className="bookmark-toolbar tab-toolbar">
-        <AppButton className="new-folder-button" title={`New tab (${commandKey}+T)`} onClick={() => void createTab()}><Plus className="ui-icon" size={14} aria-hidden="true" /> Tab</AppButton>
-        <AppButton className="new-folder-button" title="Create tab folder" aria-label="Create tab folder" onClick={createTabFolder}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
-      </div>
-      <PinnedTabsDock active={tabDropTarget?.container === 'pinned'} empty={pinnedTabs.length === 0}>
-        <SortableContext items={pinnedTabs.map(tab => `pinned:${tab.id}`)} strategy={() => null}>
-          {pinnedTabs.map(tab => renderPinnedTab(tab, false, tabDropTarget?.container === 'pinned' && tabDropTarget.overId === tab.id ? tabDropTarget.zone : undefined))}
-        </SortableContext>
-      </PinnedTabsDock>
-      <div className={`tab-list tab-tree ${horizontalTabStrip ? 'horizontal' : 'vertical'} ${tabDragOrigin ? 'is-dragging' : ''}`} role="tree" aria-orientation={horizontalTabStrip ? 'horizontal' : 'vertical'} aria-label="Open tabs">
-        <SortableContext items={displayedTabRows.map(row => row.node.id)} strategy={() => null}>
-          {sidebarTabRows.map(row => row.type === 'single' ? renderTabRow(row.row) : <div
-            key={`split-${row.first.node.id}-${row.second.node.id}`}
-            className={`tab-split-row ${[row.first.node.id, row.second.node.id].includes(activeTabId) ? 'split-active' : ''}`}
-            style={horizontalTabStrip ? { marginTop: row.depth * 10 } : { marginLeft: row.depth * 14 }} role="group" aria-label="Split view"
-            data-split-first={row.first.node.id} data-split-second={row.second.node.id}
-          >{renderTabRow({ ...row.first, depth: row.depth }, true)}{renderTabRow({ ...row.second, depth: row.depth }, true)}</div>)}
-        </SortableContext>
-      </div>
-      <div className="tab-actions"><AppButton className="new-tab" title={`New private tab (${commandKey}+Shift+N)`} onClick={() => void createTab(true)}><EyeOff className="ui-icon" size={16} aria-hidden="true" /> New private tab</AppButton></div>
-      <DragOverlay dropAnimation={null}>
-        {draggedTabNode && tabDragOrigin && tabDragPreview !== 'split' ? (() => {
-          const dockShape = tabDropTarget ? tabDropTarget.container === 'pinned' : tabDragOrigin.container === 'pinned';
-          const width = dockShape ? 36 : horizontalTabStrip ? 170 : tabDragOrigin.width;
-          const height = dockShape ? 36 : horizontalTabStrip ? 40 : tabDragOrigin.height;
-          const resized = width !== tabDragOrigin.width || height !== tabDragOrigin.height;
-          const tab = draggedTabNode.type === 'tab' ? tabs.find(item => item.id === draggedTabNode.id) : undefined;
-          const title = draggedTabNode.type === 'folder' ? draggedTabNode.title : tabNameOverrides[draggedTabNode.id] || tab?.title || 'New Tab';
-          return <div className={`tab-drag-morph${tabDragPreview === 'invalid' ? ' invalid' : ''}`} style={{ width, height, transform: resized ? `translate(${tabDragOrigin.grabX - width / 2}px, ${tabDragOrigin.grabY - height / 2}px)` : undefined }}>
-            <div className="tab-drag-card" style={{ opacity: dockShape ? 0 : 1 }}>
-              {draggedTabNode.type === 'folder' ? <Folder className="ui-icon" size={14} aria-hidden="true" /> : tab ? renderTabIcon(tab) : <Globe2 className="ui-icon" size={14} aria-hidden="true" />}
-              <span>{title}</span>
-            </div>
-            {tab && <div className="tab-drag-icon" style={{ opacity: dockShape ? 1 : 0 }}>{renderTabIcon(tab)}</div>}
-          </div>;
-        })() : null}
-      </DragOverlay>
-    </DndContext>;
+    return (
+      <DndContext
+        sensors={tabSensors}
+        collisionDetection={tabCollisionDetection}
+        onDragStart={handleTabDragStart}
+        onDragMove={handleTabDragMove}
+        onDragEnd={handleTabDragEnd}
+        onDragCancel={() => finishTabDrag(true)}
+      >
+        <div className="bookmark-toolbar tab-toolbar">
+          <AppButton className="new-folder-button" title={`New tab (${commandKey}+T)`} onClick={() => void createTab()}>
+            <Plus className="ui-icon" size={14} aria-hidden="true" /> Tab
+          </AppButton>
+          <AppButton
+            className="new-folder-button"
+            title="Create tab folder"
+            aria-label="Create tab folder"
+            onClick={createTabFolder}
+          >
+            <FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder
+          </AppButton>
+        </div>
+        <PinnedTabsDock active={tabDropTarget?.container === 'pinned'} empty={pinnedTabs.length === 0}>
+          <SortableContext items={pinnedTabs.map((tab) => `pinned:${tab.id}`)} strategy={() => null}>
+            {pinnedTabs.map((tab) =>
+              renderPinnedTab(
+                tab,
+                false,
+                tabDropTarget?.container === 'pinned' && tabDropTarget.overId === tab.id
+                  ? tabDropTarget.zone
+                  : undefined,
+              ),
+            )}
+          </SortableContext>
+        </PinnedTabsDock>
+        <div
+          className={`tab-list tab-tree ${horizontalTabStrip ? 'horizontal' : 'vertical'} ${tabDragOrigin ? 'is-dragging' : ''}`}
+          role="tree"
+          aria-orientation={horizontalTabStrip ? 'horizontal' : 'vertical'}
+          aria-label="Open tabs"
+        >
+          <SortableContext items={displayedTabRows.map((row) => row.node.id)} strategy={() => null}>
+            {sidebarTabRows.map((row) =>
+              row.type === 'single' ? (
+                renderTabRow(row.row)
+              ) : (
+                <div
+                  key={`split-${row.first.node.id}-${row.second.node.id}`}
+                  className={`tab-split-row ${[row.first.node.id, row.second.node.id].includes(activeTabId) ? 'split-active' : ''}`}
+                  style={horizontalTabStrip ? { marginTop: row.depth * 10 } : { marginLeft: row.depth * 14 }}
+                  role="group"
+                  aria-label="Split view"
+                  data-split-first={row.first.node.id}
+                  data-split-second={row.second.node.id}
+                >
+                  {renderTabRow({ ...row.first, depth: row.depth }, true)}
+                  {renderTabRow({ ...row.second, depth: row.depth }, true)}
+                </div>
+              ),
+            )}
+          </SortableContext>
+        </div>
+        <div className="tab-actions">
+          <AppButton
+            className="new-tab"
+            title={`New private tab (${commandKey}+Shift+N)`}
+            onClick={() => void createTab(true)}
+          >
+            <EyeOff className="ui-icon" size={16} aria-hidden="true" /> New private tab
+          </AppButton>
+        </div>
+        <DragOverlay dropAnimation={null}>
+          {draggedTabNode && tabDragOrigin && tabDragPreview !== 'split'
+            ? (() => {
+                const dockShape = tabDropTarget
+                  ? tabDropTarget.container === 'pinned'
+                  : tabDragOrigin.container === 'pinned';
+                const width = dockShape ? 36 : horizontalTabStrip ? 170 : tabDragOrigin.width;
+                const height = dockShape ? 36 : horizontalTabStrip ? 40 : tabDragOrigin.height;
+                const resized = width !== tabDragOrigin.width || height !== tabDragOrigin.height;
+                const tab =
+                  draggedTabNode.type === 'tab' ? tabs.find((item) => item.id === draggedTabNode.id) : undefined;
+                const title =
+                  draggedTabNode.type === 'folder'
+                    ? draggedTabNode.title
+                    : tabNameOverrides[draggedTabNode.id] || tab?.title || 'New Tab';
+                return (
+                  <div
+                    className={`tab-drag-morph${tabDragPreview === 'invalid' ? ' invalid' : ''}`}
+                    style={{
+                      width,
+                      height,
+                      transform: resized
+                        ? `translate(${tabDragOrigin.grabX - width / 2}px, ${tabDragOrigin.grabY - height / 2}px)`
+                        : undefined,
+                    }}
+                  >
+                    <div className="tab-drag-card" style={{ opacity: dockShape ? 0 : 1 }}>
+                      {draggedTabNode.type === 'folder' ? (
+                        <Folder className="ui-icon" size={14} aria-hidden="true" />
+                      ) : tab ? (
+                        renderTabIcon(tab)
+                      ) : (
+                        <Globe2 className="ui-icon" size={14} aria-hidden="true" />
+                      )}
+                      <span>{title}</span>
+                    </div>
+                    {tab && (
+                      <div className="tab-drag-icon" style={{ opacity: dockShape ? 1 : 0 }}>
+                        {renderTabIcon(tab)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
+            : null}
+        </DragOverlay>
+      </DndContext>
+    );
   }
 
   function renderBookmarkManager() {
-    return <div className="bookmark-manager">
-      <div className="bookmark-toolbar">
-        <SearchField className="bookmark-search-field" aria-label="Search bookmarks" value={bookmarkSearch} onChange={setBookmarkSearch}>
-          <Input className="bookmark-search" type="search" placeholder="Find a bookmark" />
-          <AriaButton className="bookmark-search-clear" aria-label="Clear bookmarks search"><X className="ui-icon" size={14} aria-hidden="true" /></AriaButton>
-        </SearchField>
-        <AppButton className="new-folder-button" onClick={() => startAddBookmark()}><Plus className="ui-icon" size={14} aria-hidden="true" /> Bookmark</AppButton><AppButton className="new-folder-button" onClick={() => createBookmarkFolder()}><FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder</AppButton>
-      </div>
-      {addingBookmark && bookmarkEditForm}
-      <DndContext sensors={bookmarkSensors} collisionDetection={closestCenter} onDragStart={handleBookmarkDragStart} onDragMove={handleBookmarkDragMove} onDragEnd={handleBookmarkDragEnd} onDragCancel={endBookmarkDrag}>
-        <div className={`bookmark-list bookmark-tree bookmark-dnd-list ${bookmarkDragOrigin ? 'is-dragging' : ''}`} role="tree" aria-label="Saved bookmarks">
-          {visibleBookmarkRows.length ? <SortableContext items={visibleBookmarkRows.map(item => item.node.id)} strategy={() => null}>
-            {visibleBookmarkRows.map(({ node, depth }) => <BookmarkSortableRow
-              key={node.id} node={node} depth={depth} expanded={bookmarkExpanded.has(node.id)} dropZone={bookmarkDropTarget?.overId === node.id ? bookmarkDropTarget.zone : undefined} editing={editingBookmarkId === node.id}
-              onToggle={() => setExpandedFolderIds(ids => ids.includes(node.id) ? ids.filter(id => id !== node.id) : [...ids, node.id])}
-              onOpen={url => void openBookmark(url)} onEdit={editBookmark} onDelete={deleteBookmarkNode} onNewFolder={createBookmarkFolder}
-              onContextMenu={(event, bookmark) => void openBookmarkContextMenu(event, bookmark)}
-              onRename={folder => { setFolderTitle(folder.title); setEditingFolderId(folder.id); }}
-              onCancelRename={() => { setEditingFolderId(''); setFolderTitle(node.type === 'folder' ? node.title : ''); }}
-              editingFolder={node.type === 'folder' && editingFolderId === node.id} folderTitle={folderTitle} setFolderTitle={setFolderTitle}
-              saveFolderTitle={() => saveFolderTitle(node.id)} editForm={bookmarkEditForm}
-            />)}
-          </SortableContext> : <p className="bookmark-empty">{bookmarks.length === 0 ? 'Your saved pages will appear here.' : 'No matching bookmarks.'}</p>}
+    return (
+      <div className="bookmark-manager">
+        <div className="bookmark-toolbar">
+          <SearchField
+            className="bookmark-search-field"
+            aria-label="Search bookmarks"
+            value={bookmarkSearch}
+            onChange={setBookmarkSearch}
+          >
+            <Input className="bookmark-search" type="search" placeholder="Find a bookmark" />
+            <AriaButton className="bookmark-search-clear" aria-label="Clear bookmarks search">
+              <X className="ui-icon" size={14} aria-hidden="true" />
+            </AriaButton>
+          </SearchField>
+          <AppButton className="new-folder-button" onClick={() => startAddBookmark()}>
+            <Plus className="ui-icon" size={14} aria-hidden="true" /> Bookmark
+          </AppButton>
+          <AppButton className="new-folder-button" onClick={() => createBookmarkFolder()}>
+            <FolderPlus className="ui-icon" size={14} aria-hidden="true" /> Folder
+          </AppButton>
         </div>
-        <DragOverlay dropAnimation={null}>{draggedBookmark ? <div className="bookmark-drag-overlay">{draggedBookmark.type === 'folder' ? <Folder className="ui-icon" size={14} aria-hidden="true" /> : <Star className="ui-icon" size={14} aria-hidden="true" />}<span>{draggedBookmark.title}</span></div> : null}</DragOverlay>
-      </DndContext>
-    </div>;
+        {addingBookmark && bookmarkEditForm}
+        <DndContext
+          sensors={bookmarkSensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleBookmarkDragStart}
+          onDragMove={handleBookmarkDragMove}
+          onDragEnd={handleBookmarkDragEnd}
+          onDragCancel={endBookmarkDrag}
+        >
+          <div
+            className={`bookmark-list bookmark-tree bookmark-dnd-list ${bookmarkDragOrigin ? 'is-dragging' : ''}`}
+            role="tree"
+            aria-label="Saved bookmarks"
+          >
+            {visibleBookmarkRows.length ? (
+              <SortableContext items={visibleBookmarkRows.map((item) => item.node.id)} strategy={() => null}>
+                {visibleBookmarkRows.map(({ node, depth }) => (
+                  <BookmarkSortableRow
+                    key={node.id}
+                    node={node}
+                    depth={depth}
+                    expanded={bookmarkExpanded.has(node.id)}
+                    dropZone={bookmarkDropTarget?.overId === node.id ? bookmarkDropTarget.zone : undefined}
+                    editing={editingBookmarkId === node.id}
+                    onToggle={() =>
+                      setExpandedFolderIds((ids) =>
+                        ids.includes(node.id) ? ids.filter((id) => id !== node.id) : [...ids, node.id],
+                      )
+                    }
+                    onOpen={(url) => void openBookmark(url)}
+                    onEdit={editBookmark}
+                    onDelete={deleteBookmarkNode}
+                    onNewFolder={createBookmarkFolder}
+                    onContextMenu={(event, bookmark) => void openBookmarkContextMenu(event, bookmark)}
+                    onRename={(folder) => {
+                      setFolderTitle(folder.title);
+                      setEditingFolderId(folder.id);
+                    }}
+                    onCancelRename={() => {
+                      setEditingFolderId('');
+                      setFolderTitle(node.type === 'folder' ? node.title : '');
+                    }}
+                    editingFolder={node.type === 'folder' && editingFolderId === node.id}
+                    folderTitle={folderTitle}
+                    setFolderTitle={setFolderTitle}
+                    saveFolderTitle={() => saveFolderTitle(node.id)}
+                    editForm={bookmarkEditForm}
+                  />
+                ))}
+              </SortableContext>
+            ) : (
+              <p className="bookmark-empty">
+                {bookmarks.length === 0 ? 'Your saved pages will appear here.' : 'No matching bookmarks.'}
+              </p>
+            )}
+          </div>
+          <DragOverlay dropAnimation={null}>
+            {draggedBookmark ? (
+              <div className="bookmark-drag-overlay">
+                {draggedBookmark.type === 'folder' ? (
+                  <Folder className="ui-icon" size={14} aria-hidden="true" />
+                ) : (
+                  <Star className="ui-icon" size={14} aria-hidden="true" />
+                )}
+                <span>{draggedBookmark.title}</span>
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      </div>
+    );
   }
 
   return (
-    <main className="browser-shell" data-tab-position={tabPosition} data-sidebar-side={sidebarSide} data-sidebar-collapsed={sidebarCollapsed}>
-      {horizontalTabStrip && <div className={`detached-tab-strip ${tabPosition}`} role="region" aria-label="Open tabs">
-        <div className="detached-tab-manager">{renderTabManager()}</div>
-      </div>}
+    <main
+      className="browser-shell"
+      data-tab-position={tabPosition}
+      data-sidebar-side={sidebarSide}
+      data-sidebar-collapsed={sidebarCollapsed}
+    >
+      {horizontalTabStrip && (
+        <div className={`detached-tab-strip ${tabPosition}`} role="region" aria-label="Open tabs">
+          <div className="detached-tab-manager">{renderTabManager()}</div>
+        </div>
+      )}
       <aside
         className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''} ${horizontalTabStrip ? 'tabs-detached' : ''}`}
         data-sidebar-side={sidebarSide}
-        style={{ width: sidebarCollapsed ? 48 : sidebarWidth, flexBasis: sidebarCollapsed ? 48 : sidebarWidth, height: '100%' }}
+        style={{
+          width: sidebarCollapsed ? 48 : sidebarWidth,
+          flexBasis: sidebarCollapsed ? 48 : sidebarWidth,
+          height: '100%',
+        }}
       >
         <div className="brand-row">
-          <div className="brand-mark" aria-hidden="true"><CircleDot className="ui-icon" size={17} /></div>
-          <span className="brand-name">Unky</span>
-          <AppButton className="sidebar-collapse-button" type="button" aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!sidebarCollapsed} aria-controls="sidebar-content" onClick={() => setSidebarCollapsed(collapsed => !collapsed)}>{sidebarCollapsed ? <PanelLeftOpen className="ui-icon" size={16} aria-hidden="true" /> : <PanelLeftClose className="ui-icon" size={16} aria-hidden="true" />}</AppButton>
-        </div>
-        {sidebarCollapsed && !horizontalTabStrip && <div className="sidebar-rail">
-          <button type="button" className="rail-button" title={`New tab (${commandKey}+T)`} aria-label="New tab" onClick={() => void createTab()}><Plus className="ui-icon" size={16} aria-hidden="true" /></button>
-          {pinnedTabs.length > 0 && <div className="pinned-tabs-row pinned-tabs-row-rail" role="group" aria-label="Pinned tabs">{pinnedTabs.map(tab => renderPinnedTab(tab, true))}</div>}
-          <div className="rail-tabs">{sidebarTabRows.map(row => row.type === 'single' ? renderRailItem(row.row) : <div className="rail-split-row" role="group" aria-label="Split view" key={`split-${row.first.node.id}-${row.second.node.id}`}>{renderRailItem(row.first)}{renderRailItem(row.second)}</div>)}</div>
-          <button type="button" className="rail-button" title="Toggle developer console" aria-label="Toggle developer console" onClick={() => void invoke('toggle_devtools').catch(error => setMessage(String(error)))}><Terminal className="ui-icon" size={16} aria-hidden="true" /></button>
-        </div>}
-        <div className="sidebar-content" id="sidebar-content">
-          {horizontalTabStrip ? renderBookmarkManager() : <Tabs className="sidebar-tabs" selectedKey={sidebarView} onSelectionChange={key => setSidebarView(key as typeof sidebarView)}>
-            <TabList className="sidebar-switcher" aria-label="Sidebar views">
-              <Tab id="tabs">Tabs</Tab>
-              <Tab id="bookmarks">Bookmarks</Tab>
-            </TabList>
-            <TabPanels className="sidebar-panels">
-              <TabPanel id={sidebarView} className="sidebar-panel">
-                {sidebarView === 'tabs' ? renderTabManager() : renderBookmarkManager()}
-              </TabPanel>
-            </TabPanels>
-          </Tabs>}
-        </div>
-        {tabContextMenu && <>
-          <div className="sidebar-context-dismiss" onClick={() => setTabContextMenu(null)} />
-          <div className="sidebar-context-menu" style={{ left: tabContextMenu.x, top: tabContextMenu.y, width: tabContextMenu.type === 'tab' ? tabContextMenuWidth : undefined }} role="menu">
-            {tabContextMenu.type === 'folder' && <AppButton role="menuitem" onClick={() => {
-              // The rename field lives in the full tab list, so open it first from the icon rail.
-              if (sidebarCollapsed) { setSidebarCollapsed(false); setSidebarView('tabs'); }
-              if (tabContextMenu.type === 'tab') {
-                const tab = tabs.find(item => item.id === tabContextMenu.id);
-                setTabNameDraft(tabNameOverrides[tabContextMenu.id] || tab?.title || '');
-                setEditingTabId(tabContextMenu.id);
-              } else {
-                const folder = findTabNode(tabNodesRef.current, tabContextMenu.id);
-                if (folder?.type === 'folder') { setTabFolderTitle(folder.title); setEditingTabFolderId(folder.id); }
-              }
-              setTabContextMenu(null);
-            }}>Rename</AppButton>}
-            {tabContextMenu.type === 'tab' && <>
-              <AppButton role="menuitemcheckbox" aria-checked={pinnedTabIds.includes(tabContextMenu.id)} onClick={() => {
-                const id = tabContextMenu.id;
-                setPinnedTabIds(ids => ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id]);
-                setTabContextMenu(null);
-              }}>{pinnedTabIds.includes(tabContextMenu.id) ? 'Unpin' : 'Pin'}</AppButton>
-              <AppButton role="menuitem" disabled={!tabs.find(tab => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)} onClick={() => {
-                const tab = tabs.find(item => item.id === tabContextMenu.id);
-                if (tab) void invoke('reload', { tabId: tab.id }).catch(error => setMessage(String(error)));
-                setTabContextMenu(null);
-              }}>Reload</AppButton>
-              <AppButton role="menuitem" onClick={async () => {
-                const targetId = tabContextMenu.id;
-                setTabContextMenu(null);
-                try {
-                  const snapshot = await invoke<BrowserSnapshot>('create_tab');
-                  applySnapshot(snapshot);
-                  const nodes = insertTabNode(tabNodesRef.current, targetId, { id: snapshot.activeTabId, type: 'tab' }, true).nodes;
-                  reorderTabsFromTree(nodes);
-                } catch (error) { setMessage(String(error)); }
-              }}>New tab below</AppButton>
-              <AppButton role="menuitem" onClick={() => {
-                const tabId = tabContextMenu.id;
-                setTabContextMenu(null);
-                void duplicateTab(tabId);
-              }}>Duplicate</AppButton>
-              <div className="sidebar-context-separator" role="separator" />
-              <AppButton role="menuitem" aria-haspopup="menu" aria-expanded={splitPickerOpen} disabled={!tabs.find(tab => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)} onClick={() => setSplitPickerOpen(open => !open)}>Split <ChevronRight className="ui-icon context-menu-chevron" size={13} aria-hidden="true" /></AppButton>
-              {splitPickerOpen && <div className="context-menu-submenu" role="group" aria-label="Split direction">
-                {(['left', 'right', 'top', 'bottom'] as const).map(side => <AppButton key={side} role="menuitem" className="context-submenu-item" onClick={() => {
-                  const tabId = tabContextMenu.id;
-                  setTabContextMenu(null);
-                  void dropTabIntoSplit(side, tabId, tabId === activeTabIdRef.current ? tabId : activeTabIdRef.current);
-                }}>{side === 'top' ? 'Up' : side === 'bottom' ? 'Down' : side[0].toUpperCase() + side.slice(1)}</AppButton>)}
-                {splitLayout && (splitLayout.firstTabId === tabContextMenu.id || splitLayout.secondTabId === tabContextMenu.id) && <AppButton role="menuitem" className="context-submenu-item" onClick={() => {
-                  setTabContextMenu(null);
-                  void closeSplitView();
-                }}>Unsplit from other tab</AppButton>}
-              </div>}
-              <AppButton role="menuitem" aria-haspopup="menu" aria-expanded={tabGroupPickerOpen} disabled={tabFolders(tabNodes).length === 0} onClick={() => setTabGroupPickerOpen(open => !open)}>Move to group <ChevronRight className="ui-icon context-menu-chevron" size={13} aria-hidden="true" /></AppButton>
-              {tabGroupPickerOpen && tabFolders(tabNodes).map(folder => <AppButton key={folder.id} role="menuitem" className="context-submenu-item" onClick={() => {
-                moveTabNode(tabContextMenu.id, undefined, folder.id);
-                setTabGroupPickerOpen(false);
-                setTabContextMenu(null);
-              }}>{folder.title}</AppButton>)}
-              <div className="sidebar-context-separator" role="separator" />
-              <AppButton role="menuitem" onClick={() => {
-                const tabId = tabContextMenu.id;
-                setTabContextMenu(null);
-                void closeTab(tabId);
-              }}>Close tab</AppButton>
-            </>}
-            {tabContextMenu.type === 'folder' && <AppButton role="menuitem" onClick={() => { deleteTabFolder(tabContextMenu.id); setTabContextMenu(null); }}>Delete folder</AppButton>}
+          <div className="brand-mark" aria-hidden="true">
+            <CircleDot className="ui-icon" size={17} />
           </div>
-        </>}
-        <div className={`sidebar-sizer ${resizingSidebar ? 'dragging' : ''}`} role="separator" aria-label="Resize tab sidebar" aria-orientation="vertical" aria-valuemin={sidebarMinWidth} aria-valuemax={sidebarMaxWidth} aria-valuenow={Math.round(sidebarWidth)} tabIndex={0} data-sidebar-sizer onPointerDown={event => { event.preventDefault(); setResizingSidebar(true); }} onDoubleClick={() => { setSidebarWidth(sidebarDefaultWidth); localStorage.removeItem('browser.sidebarWidth'); }} />
+          <span className="brand-name">Unky</span>
+          <AppButton
+            className="sidebar-collapse-button"
+            type="button"
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!sidebarCollapsed}
+            aria-controls="sidebar-content"
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          >
+            {sidebarCollapsed ? (
+              <PanelLeftOpen className="ui-icon" size={16} aria-hidden="true" />
+            ) : (
+              <PanelLeftClose className="ui-icon" size={16} aria-hidden="true" />
+            )}
+          </AppButton>
+        </div>
+        {sidebarCollapsed && !horizontalTabStrip && (
+          <div className="sidebar-rail">
+            <button
+              type="button"
+              className="rail-button"
+              title={`New tab (${commandKey}+T)`}
+              aria-label="New tab"
+              onClick={() => void createTab()}
+            >
+              <Plus className="ui-icon" size={16} aria-hidden="true" />
+            </button>
+            {pinnedTabs.length > 0 && (
+              <div className="pinned-tabs-row pinned-tabs-row-rail" role="group" aria-label="Pinned tabs">
+                {pinnedTabs.map((tab) => renderPinnedTab(tab, true))}
+              </div>
+            )}
+            <div className="rail-tabs">
+              {sidebarTabRows.map((row) =>
+                row.type === 'single' ? (
+                  renderRailItem(row.row)
+                ) : (
+                  <div
+                    className="rail-split-row"
+                    role="group"
+                    aria-label="Split view"
+                    key={`split-${row.first.node.id}-${row.second.node.id}`}
+                  >
+                    {renderRailItem(row.first)}
+                    {renderRailItem(row.second)}
+                  </div>
+                ),
+              )}
+            </div>
+            <button
+              type="button"
+              className="rail-button"
+              title="Toggle developer console"
+              aria-label="Toggle developer console"
+              onClick={() => void invoke('toggle_devtools').catch((error) => setMessage(String(error)))}
+            >
+              <Terminal className="ui-icon" size={16} aria-hidden="true" />
+            </button>
+          </div>
+        )}
+        <div className="sidebar-content" id="sidebar-content">
+          {horizontalTabStrip ? (
+            renderBookmarkManager()
+          ) : (
+            <Tabs
+              className="sidebar-tabs"
+              selectedKey={sidebarView}
+              onSelectionChange={(key) => setSidebarView(key as typeof sidebarView)}
+            >
+              <TabList className="sidebar-switcher" aria-label="Sidebar views">
+                <Tab id="tabs">Tabs</Tab>
+                <Tab id="bookmarks">Bookmarks</Tab>
+              </TabList>
+              <TabPanels className="sidebar-panels">
+                <TabPanel id={sidebarView} className="sidebar-panel">
+                  {sidebarView === 'tabs' ? renderTabManager() : renderBookmarkManager()}
+                </TabPanel>
+              </TabPanels>
+            </Tabs>
+          )}
+        </div>
+        {tabContextMenu && (
+          <>
+            <div className="sidebar-context-dismiss" onClick={() => setTabContextMenu(null)} />
+            <div
+              className="sidebar-context-menu"
+              style={{
+                left: tabContextMenu.x,
+                top: tabContextMenu.y,
+                width: tabContextMenu.type === 'tab' ? tabContextMenuWidth : undefined,
+              }}
+              role="menu"
+            >
+              {tabContextMenu.type === 'folder' && (
+                <AppButton
+                  role="menuitem"
+                  onClick={() => {
+                    // The rename field lives in the full tab list, so open it first from the icon rail.
+                    if (sidebarCollapsed) {
+                      setSidebarCollapsed(false);
+                      setSidebarView('tabs');
+                    }
+                    if (tabContextMenu.type === 'tab') {
+                      const tab = tabs.find((item) => item.id === tabContextMenu.id);
+                      setTabNameDraft(tabNameOverrides[tabContextMenu.id] || tab?.title || '');
+                      setEditingTabId(tabContextMenu.id);
+                    } else {
+                      const folder = findTabNode(tabNodesRef.current, tabContextMenu.id);
+                      if (folder?.type === 'folder') {
+                        setTabFolderTitle(folder.title);
+                        setEditingTabFolderId(folder.id);
+                      }
+                    }
+                    setTabContextMenu(null);
+                  }}
+                >
+                  Rename
+                </AppButton>
+              )}
+              {tabContextMenu.type === 'tab' && (
+                <>
+                  <AppButton
+                    role="menuitemcheckbox"
+                    aria-checked={pinnedTabIds.includes(tabContextMenu.id)}
+                    onClick={() => {
+                      const id = tabContextMenu.id;
+                      setPinnedTabIds((ids) => (ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]));
+                      setTabContextMenu(null);
+                    }}
+                  >
+                    {pinnedTabIds.includes(tabContextMenu.id) ? 'Unpin' : 'Pin'}
+                  </AppButton>
+                  <AppButton
+                    role="menuitem"
+                    disabled={!tabs.find((tab) => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)}
+                    onClick={() => {
+                      const tab = tabs.find((item) => item.id === tabContextMenu.id);
+                      if (tab) void invoke('reload', { tabId: tab.id }).catch((error) => setMessage(String(error)));
+                      setTabContextMenu(null);
+                    }}
+                  >
+                    Reload
+                  </AppButton>
+                  <AppButton
+                    role="menuitem"
+                    onClick={async () => {
+                      const targetId = tabContextMenu.id;
+                      setTabContextMenu(null);
+                      try {
+                        const snapshot = await invoke<BrowserSnapshot>('create_tab');
+                        applySnapshot(snapshot);
+                        const nodes = insertTabNode(
+                          tabNodesRef.current,
+                          targetId,
+                          { id: snapshot.activeTabId, type: 'tab' },
+                          true,
+                        ).nodes;
+                        reorderTabsFromTree(nodes);
+                      } catch (error) {
+                        setMessage(String(error));
+                      }
+                    }}
+                  >
+                    New tab below
+                  </AppButton>
+                  <AppButton
+                    role="menuitem"
+                    onClick={() => {
+                      const tabId = tabContextMenu.id;
+                      setTabContextMenu(null);
+                      void duplicateTab(tabId);
+                    }}
+                  >
+                    Duplicate
+                  </AppButton>
+                  <div className="sidebar-context-separator" role="separator" />
+                  <AppButton
+                    role="menuitem"
+                    aria-haspopup="menu"
+                    aria-expanded={splitPickerOpen}
+                    disabled={!tabs.find((tab) => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)}
+                    onClick={() => setSplitPickerOpen((open) => !open)}
+                  >
+                    Split <ChevronRight className="ui-icon context-menu-chevron" size={13} aria-hidden="true" />
+                  </AppButton>
+                  {splitPickerOpen && (
+                    <div className="context-menu-submenu" role="group" aria-label="Split direction">
+                      {(['left', 'right', 'top', 'bottom'] as const).map((side) => (
+                        <AppButton
+                          key={side}
+                          role="menuitem"
+                          className="context-submenu-item"
+                          onClick={() => {
+                            const tabId = tabContextMenu.id;
+                            setTabContextMenu(null);
+                            void dropTabIntoSplit(
+                              side,
+                              tabId,
+                              tabId === activeTabIdRef.current ? tabId : activeTabIdRef.current,
+                            );
+                          }}
+                        >
+                          {side === 'top' ? 'Up' : side === 'bottom' ? 'Down' : side[0].toUpperCase() + side.slice(1)}
+                        </AppButton>
+                      ))}
+                      {splitLayout &&
+                        (splitLayout.firstTabId === tabContextMenu.id ||
+                          splitLayout.secondTabId === tabContextMenu.id) && (
+                          <AppButton
+                            role="menuitem"
+                            className="context-submenu-item"
+                            onClick={() => {
+                              setTabContextMenu(null);
+                              void closeSplitView();
+                            }}
+                          >
+                            Unsplit from other tab
+                          </AppButton>
+                        )}
+                    </div>
+                  )}
+                  <AppButton
+                    role="menuitem"
+                    aria-haspopup="menu"
+                    aria-expanded={tabGroupPickerOpen}
+                    disabled={tabFolders(tabNodes).length === 0}
+                    onClick={() => setTabGroupPickerOpen((open) => !open)}
+                  >
+                    Move to group <ChevronRight className="ui-icon context-menu-chevron" size={13} aria-hidden="true" />
+                  </AppButton>
+                  {tabGroupPickerOpen &&
+                    tabFolders(tabNodes).map((folder) => (
+                      <AppButton
+                        key={folder.id}
+                        role="menuitem"
+                        className="context-submenu-item"
+                        onClick={() => {
+                          moveTabNode(tabContextMenu.id, undefined, folder.id);
+                          setTabGroupPickerOpen(false);
+                          setTabContextMenu(null);
+                        }}
+                      >
+                        {folder.title}
+                      </AppButton>
+                    ))}
+                  <div className="sidebar-context-separator" role="separator" />
+                  <AppButton
+                    role="menuitem"
+                    onClick={() => {
+                      const tabId = tabContextMenu.id;
+                      setTabContextMenu(null);
+                      void closeTab(tabId);
+                    }}
+                  >
+                    Close tab
+                  </AppButton>
+                </>
+              )}
+              {tabContextMenu.type === 'folder' && (
+                <AppButton
+                  role="menuitem"
+                  onClick={() => {
+                    deleteTabFolder(tabContextMenu.id);
+                    setTabContextMenu(null);
+                  }}
+                >
+                  Delete folder
+                </AppButton>
+              )}
+            </div>
+          </>
+        )}
+        <div
+          className={`sidebar-sizer ${resizingSidebar ? 'dragging' : ''}`}
+          role="separator"
+          aria-label="Resize tab sidebar"
+          aria-orientation="vertical"
+          aria-valuemin={sidebarMinWidth}
+          aria-valuemax={sidebarMaxWidth}
+          aria-valuenow={Math.round(sidebarWidth)}
+          tabIndex={0}
+          data-sidebar-sizer
+          onPointerDown={(event) => {
+            event.preventDefault();
+            setResizingSidebar(true);
+          }}
+          onDoubleClick={() => {
+            setSidebarWidth(sidebarDefaultWidth);
+            localStorage.removeItem('browser.sidebarWidth');
+          }}
+        />
       </aside>
 
       <section className="browser-main">
         <header className="toolbar">
           <div className="nav-controls" aria-label="Page navigation">
-            <AppButton className="icon-button" title="Go back" aria-label="Go back" disabled={!activeTab?.canGoBack} onClick={() => void runNavigationCommand('go_back')}><ArrowLeft className="ui-icon" size={17} aria-hidden="true" /></AppButton>
-            <AppButton className="icon-button" title="Go forward" aria-label="Go forward" disabled={!activeTab?.canGoForward} onClick={() => void runNavigationCommand('go_forward')}><ArrowRight className="ui-icon" size={17} aria-hidden="true" /></AppButton>
-            <AppButton className="icon-button reload-button" title={activeTab?.loading ? 'Stop loading' : 'Reload'} aria-label={activeTab?.loading ? 'Stop loading' : 'Reload'} onClick={() => void runNavigationCommand(activeTab?.loading ? 'stop_loading' : 'reload')}>{activeTab?.loading ? <X className="ui-icon" size={16} aria-hidden="true" /> : <RotateCw className="ui-icon" size={16} aria-hidden="true" />}</AppButton>
+            <AppButton
+              className="icon-button"
+              title="Go back"
+              aria-label="Go back"
+              disabled={!activeTab?.canGoBack}
+              onClick={() => void runNavigationCommand('go_back')}
+            >
+              <ArrowLeft className="ui-icon" size={17} aria-hidden="true" />
+            </AppButton>
+            <AppButton
+              className="icon-button"
+              title="Go forward"
+              aria-label="Go forward"
+              disabled={!activeTab?.canGoForward}
+              onClick={() => void runNavigationCommand('go_forward')}
+            >
+              <ArrowRight className="ui-icon" size={17} aria-hidden="true" />
+            </AppButton>
+            <AppButton
+              className="icon-button reload-button"
+              title={activeTab?.loading ? 'Stop loading' : 'Reload'}
+              aria-label={activeTab?.loading ? 'Stop loading' : 'Reload'}
+              onClick={() => void runNavigationCommand(activeTab?.loading ? 'stop_loading' : 'reload')}
+            >
+              {activeTab?.loading ? (
+                <X className="ui-icon" size={16} aria-hidden="true" />
+              ) : (
+                <RotateCw className="ui-icon" size={16} aria-hidden="true" />
+              )}
+            </AppButton>
           </div>
           <form className="address-form" onSubmit={navigate}>
-            <AppButton ref={securityButtonRef} className={`toolbar-action ${securityOpen ? 'security-active' : ''}`} title="Page security and permissions" aria-label="Page security and permissions" aria-expanded={securityOpen} disabled={!activeTab?.url} onClick={async () => {
-            const rect = securityButtonRef.current?.getBoundingClientRect();
-            if (!rect || !activeTab?.url) return;
-            const info = securityInfo || { origin: new URL(activeTab.url).origin, secureHttps: activeTab.url.startsWith('https:'), location: 'unknown', camera: 'unknown', microphone: 'unknown', playingAudio: false };
-            try {
-              const shown = await invoke<boolean>('toggle_page_security_popover', {
-                anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, info,
-              });
-              setSecurityOpen(shown);
-              if (!shown) setSecurityInfo(null);
-            } catch (error) { setMessage(String(error)); }
-          }}><Shield className="ui-icon" size={15} aria-hidden="true" /></AppButton>
-            <AppInput ref={addressRef} aria-label="Search or enter address" aria-autocomplete="list" aria-controls="address-suggestions" aria-activedescendant={addressSuggestionsOpen && addressSuggestions.length ? `address-suggestion-${activeAddressSuggestion}` : undefined} aria-expanded={addressSuggestionsOpen && addressSuggestions.length > 0} autoComplete="off" spellCheck={false} placeholder="Search or enter address" value={address} onChange={event => { setAddress(event.target.value); setAddressSuggestionsOpen(true); setActiveAddressSuggestion(0); }} onFocus={event => event.currentTarget.select()} onBlur={() => window.setTimeout(() => setAddressSuggestionsOpen(false), 100)} onKeyDown={event => {
-              if (event.key === 'ArrowDown' && addressSuggestionsOpen && addressSuggestions.length) { event.preventDefault(); setActiveAddressSuggestion(index => moveAddressSuggestionSelection(index, addressSuggestions.length, 1)); }
-              else if (event.key === 'ArrowUp' && addressSuggestionsOpen && addressSuggestions.length) { event.preventDefault(); setActiveAddressSuggestion(index => moveAddressSuggestionSelection(index, addressSuggestions.length, -1)); }
-              else if (event.key === 'Escape' && addressSuggestionsOpen) { event.preventDefault(); setAddressSuggestionsOpen(false); }
-              else if (event.key === 'Enter' && addressSuggestionsOpen && addressSuggestions[activeAddressSuggestion]) { event.preventDefault(); chooseAddressSuggestion(addressSuggestions[activeAddressSuggestion].url); }
-            }} />
-            {addressSuggestionsOpen && addressSuggestions.length > 0 && !nativeAddressSuggestions && <div className="address-suggestions" id="address-suggestions" role="listbox" aria-label="Bookmarks and history suggestions">
-              {addressSuggestions.map((suggestion, index) => <AppButton key={`${suggestion.source}-${suggestion.url}`} id={`address-suggestion-${index}`} type="button" role="option" aria-selected={index === activeAddressSuggestion} className={`address-suggestion${index === activeAddressSuggestion ? ' is-active' : ''}`} onMouseDown={event => event.preventDefault()} onClick={() => chooseAddressSuggestion(suggestion.url)}>
-                <span className="address-suggestion-copy"><strong>{suggestion.title}</strong><small>{suggestion.url}</small></span><span className="address-suggestion-source">{suggestion.source}</span>
-              </AppButton>)}
-            </div>}
-            <AppButton className={`toolbar-action bookmark-toggle ${currentBookmark ? 'is-bookmarked' : ''}`} title={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-label={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'} aria-pressed={Boolean(currentBookmark)} disabled={!activeTab?.url} onClick={addCurrentPage}><Star className="ui-icon" size={15} aria-hidden="true" fill={currentBookmark ? 'currentColor' : 'none'} /></AppButton>
+            <AppButton
+              ref={securityButtonRef}
+              className={`toolbar-action ${securityOpen ? 'security-active' : ''}`}
+              title="Page security and permissions"
+              aria-label="Page security and permissions"
+              aria-expanded={securityOpen}
+              disabled={!activeTab?.url}
+              onClick={async () => {
+                const rect = securityButtonRef.current?.getBoundingClientRect();
+                if (!rect || !activeTab?.url) return;
+                const info = securityInfo || {
+                  origin: new URL(activeTab.url).origin,
+                  secureHttps: activeTab.url.startsWith('https:'),
+                  location: 'unknown',
+                  camera: 'unknown',
+                  microphone: 'unknown',
+                  playingAudio: false,
+                };
+                try {
+                  const shown = await invoke<boolean>('toggle_page_security_popover', {
+                    anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+                    info,
+                  });
+                  setSecurityOpen(shown);
+                  if (!shown) setSecurityInfo(null);
+                } catch (error) {
+                  setMessage(String(error));
+                }
+              }}
+            >
+              <Shield className="ui-icon" size={15} aria-hidden="true" />
+            </AppButton>
+            <AppInput
+              ref={addressRef}
+              aria-label="Search or enter address"
+              aria-autocomplete="list"
+              aria-controls="address-suggestions"
+              aria-activedescendant={
+                addressSuggestionsOpen && addressSuggestions.length
+                  ? `address-suggestion-${activeAddressSuggestion}`
+                  : undefined
+              }
+              aria-expanded={addressSuggestionsOpen && addressSuggestions.length > 0}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Search or enter address"
+              value={address}
+              onChange={(event) => {
+                setAddress(event.target.value);
+                setAddressSuggestionsOpen(true);
+                setActiveAddressSuggestion(0);
+              }}
+              onFocus={(event) => event.currentTarget.select()}
+              onBlur={() => window.setTimeout(() => setAddressSuggestionsOpen(false), 100)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowDown' && addressSuggestionsOpen && addressSuggestions.length) {
+                  event.preventDefault();
+                  setActiveAddressSuggestion((index) =>
+                    moveAddressSuggestionSelection(index, addressSuggestions.length, 1),
+                  );
+                } else if (event.key === 'ArrowUp' && addressSuggestionsOpen && addressSuggestions.length) {
+                  event.preventDefault();
+                  setActiveAddressSuggestion((index) =>
+                    moveAddressSuggestionSelection(index, addressSuggestions.length, -1),
+                  );
+                } else if (event.key === 'Escape' && addressSuggestionsOpen) {
+                  event.preventDefault();
+                  setAddressSuggestionsOpen(false);
+                } else if (
+                  event.key === 'Enter' &&
+                  addressSuggestionsOpen &&
+                  addressSuggestions[activeAddressSuggestion]
+                ) {
+                  event.preventDefault();
+                  chooseAddressSuggestion(addressSuggestions[activeAddressSuggestion].url);
+                }
+              }}
+            />
+            {addressSuggestionsOpen && addressSuggestions.length > 0 && !nativeAddressSuggestions && (
+              <div
+                className="address-suggestions"
+                id="address-suggestions"
+                role="listbox"
+                aria-label="Bookmarks and history suggestions"
+              >
+                {addressSuggestions.map((suggestion, index) => (
+                  <AppButton
+                    key={`${suggestion.source}-${suggestion.url}`}
+                    id={`address-suggestion-${index}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === activeAddressSuggestion}
+                    className={`address-suggestion${index === activeAddressSuggestion ? ' is-active' : ''}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => chooseAddressSuggestion(suggestion.url)}
+                  >
+                    <span className="address-suggestion-copy">
+                      <strong>{suggestion.title}</strong>
+                      <small>{suggestion.url}</small>
+                    </span>
+                    <span className="address-suggestion-source">{suggestion.source}</span>
+                  </AppButton>
+                ))}
+              </div>
+            )}
+            <AppButton
+              className={`toolbar-action bookmark-toggle ${currentBookmark ? 'is-bookmarked' : ''}`}
+              title={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'}
+              aria-label={currentBookmark ? 'Page bookmarked' : 'Bookmark this page'}
+              aria-pressed={Boolean(currentBookmark)}
+              disabled={!activeTab?.url}
+              onClick={addCurrentPage}
+            >
+              <Star className="ui-icon" size={15} aria-hidden="true" fill={currentBookmark ? 'currentColor' : 'none'} />
+            </AppButton>
           </form>
-          {findOpen ? <form className="find-form" aria-label="Find in page" onSubmit={event => { event.preventDefault(); void findInPage(findQuery); }}>
-            <AppInput ref={findRef} aria-label="Find in page" placeholder="Find in page" value={findQuery} onChange={event => { setFindQuery(event.target.value); setFindMatches(null); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void findInPage(findQuery, event.shiftKey); } }} />
-            {findMatches !== null && <span className="find-result" role="status" aria-live="polite">{findMatches} {findMatches === 1 ? 'match' : 'matches'}</span>}
-            <AppButton type="submit" title="Find next" aria-label="Find next"><ArrowDown className="ui-icon" size={13} aria-hidden="true" /></AppButton><AppButton type="button" title="Find previous" aria-label="Find previous" onClick={() => void findInPage(findQuery, true)}><ArrowUp className="ui-icon" size={13} aria-hidden="true" /></AppButton>
-            <AppButton type="button" title="Close find" aria-label="Close find" onClick={() => { setFindOpen(false); setFindQuery(''); setFindMatches(null); }}><X className="ui-icon" size={13} aria-hidden="true" /></AppButton>
-          </form> : <AppButton className="toolbar-action" title={`Find in page (${commandKey}+F)`} aria-label="Find in page" onClick={openFindPanel}><Search className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
-          <AppButton ref={externalBrowserButtonRef} className="toolbar-action" title="Open in another browser" aria-label="Open in another browser" aria-haspopup="menu" disabled={!isTauri || !activeTab?.url.match(/^https?:\/\//)} onClick={() => void showExternalBrowsers()}><ExternalLink className="ui-icon" size={17} aria-hidden="true" /></AppButton>
-          {splitLayout && <AppButton className="toolbar-action" title="Close split view" aria-label="Close split view" onClick={() => void closeSplitView()}><Columns2 className="ui-icon" size={17} aria-hidden="true" /></AppButton>}
-          <AppButton className="toolbar-action" title="Settings" aria-label="Settings" onClick={() => void openSettingsPage()}><Settings className="ui-icon" size={17} aria-hidden="true" /></AppButton>
-          <AppButton ref={downloadsButtonRef} className="toolbar-action downloads-trigger" title="Recent downloads" aria-label={`Recent downloads${downloads.length ? `, ${downloads.length} items` : ''}`} aria-haspopup="dialog" aria-expanded={downloadsPopoverOpen} aria-controls={nativeDownloadsPopover ? undefined : 'downloads-popover'} onClick={() => void openDownloadsPopover()}><Download className="ui-icon" size={17} aria-hidden="true" />{downloads.length > 0 && <span className="download-count" aria-hidden="true">{downloads.length > 99 ? '99+' : downloads.length}</span>}</AppButton>
-          {downloadsPopoverOpen && !nativeDownloadsPopover && <section id="downloads-popover" className="downloads-popover" role="dialog" aria-label="Recent downloads">
-                <header className="downloads-popover-heading"><div><h2>{downloads.length === 0 ? 'recent download history' : 'Downloads'}</h2>{downloads.length > 0 && <span>{downloads.length} {downloads.length === 1 ? 'item' : 'items'}</span>}</div></header>
-                <ul className="downloads-popover-list">
-                  {downloads.slice(0, 8).map(item => <li className="downloads-popover-row" key={item.id}>
-                    <span className="downloads-popover-icon" aria-hidden="true"><Download className="ui-icon" size={16} /></span>
-                    <div className="downloads-popover-copy"><strong title={item.filename}>{item.filename}</strong><small className={`download-status-${item.status}`}>{item.status === 'completed' ? 'Complete' : item.status === 'failed' ? 'Failed' : `Downloading · ${item.bytesReceived.toLocaleString()} bytes`}</small>{item.status === 'downloading' && <progress className="download-progress" aria-label={`Downloading ${item.filename}`} />}</div>
-                    <AppButton className="download-reveal" disabled={item.status !== 'completed'} aria-label={`Reveal ${item.filename}`} title="Show in Finder" onClick={() => void invoke('reveal_download', { downloadId: item.id }).catch(error => setMessage(String(error)))}><ExternalLink className="ui-icon" size={14} aria-hidden="true" /></AppButton>
-                  </li>)}
-                </ul>
-                <footer className="downloads-popover-footer"><AppButton onClick={() => void openAllDownloadsPage()}>View All Downloads</AppButton></footer>
-          </section>}
+          {findOpen ? (
+            <form
+              className="find-form"
+              aria-label="Find in page"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void findInPage(findQuery);
+              }}
+            >
+              <AppInput
+                ref={findRef}
+                aria-label="Find in page"
+                placeholder="Find in page"
+                value={findQuery}
+                onChange={(event) => {
+                  setFindQuery(event.target.value);
+                  setFindMatches(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void findInPage(findQuery, event.shiftKey);
+                  }
+                }}
+              />
+              {findMatches !== null && (
+                <span className="find-result" role="status" aria-live="polite">
+                  {findMatches} {findMatches === 1 ? 'match' : 'matches'}
+                </span>
+              )}
+              <AppButton type="submit" title="Find next" aria-label="Find next">
+                <ArrowDown className="ui-icon" size={13} aria-hidden="true" />
+              </AppButton>
+              <AppButton
+                type="button"
+                title="Find previous"
+                aria-label="Find previous"
+                onClick={() => void findInPage(findQuery, true)}
+              >
+                <ArrowUp className="ui-icon" size={13} aria-hidden="true" />
+              </AppButton>
+              <AppButton
+                type="button"
+                title="Close find"
+                aria-label="Close find"
+                onClick={() => {
+                  setFindOpen(false);
+                  setFindQuery('');
+                  setFindMatches(null);
+                }}
+              >
+                <X className="ui-icon" size={13} aria-hidden="true" />
+              </AppButton>
+            </form>
+          ) : (
+            <AppButton
+              className="toolbar-action"
+              title={`Find in page (${commandKey}+F)`}
+              aria-label="Find in page"
+              onClick={openFindPanel}
+            >
+              <Search className="ui-icon" size={17} aria-hidden="true" />
+            </AppButton>
+          )}
+          <AppButton
+            ref={externalBrowserButtonRef}
+            className="toolbar-action"
+            title="Open in another browser"
+            aria-label="Open in another browser"
+            aria-haspopup="menu"
+            disabled={!isTauri || !activeTab?.url.match(/^https?:\/\//)}
+            onClick={() => void showExternalBrowsers()}
+          >
+            <ExternalLink className="ui-icon" size={17} aria-hidden="true" />
+          </AppButton>
+          {splitLayout && (
+            <AppButton
+              className="toolbar-action"
+              title="Close split view"
+              aria-label="Close split view"
+              onClick={() => void closeSplitView()}
+            >
+              <Columns2 className="ui-icon" size={17} aria-hidden="true" />
+            </AppButton>
+          )}
+          <AppButton
+            className="toolbar-action"
+            title="Settings"
+            aria-label="Settings"
+            onClick={() => void openSettingsPage()}
+          >
+            <Settings className="ui-icon" size={17} aria-hidden="true" />
+          </AppButton>
+          <AppButton
+            ref={downloadsButtonRef}
+            className="toolbar-action downloads-trigger"
+            title="Recent downloads"
+            aria-label={`Recent downloads${downloads.length ? `, ${downloads.length} items` : ''}`}
+            aria-haspopup="dialog"
+            aria-expanded={downloadsPopoverOpen}
+            aria-controls={nativeDownloadsPopover ? undefined : 'downloads-popover'}
+            onClick={() => void openDownloadsPopover()}
+          >
+            <Download className="ui-icon" size={17} aria-hidden="true" />
+            {downloads.length > 0 && (
+              <span className="download-count" aria-hidden="true">
+                {downloads.length > 99 ? '99+' : downloads.length}
+              </span>
+            )}
+          </AppButton>
+          {downloadsPopoverOpen && !nativeDownloadsPopover && (
+            <section id="downloads-popover" className="downloads-popover" role="dialog" aria-label="Recent downloads">
+              <header className="downloads-popover-heading">
+                <div>
+                  <h2>{downloads.length === 0 ? 'recent download history' : 'Downloads'}</h2>
+                  {downloads.length > 0 && (
+                    <span>
+                      {downloads.length} {downloads.length === 1 ? 'item' : 'items'}
+                    </span>
+                  )}
+                </div>
+              </header>
+              <ul className="downloads-popover-list">
+                {downloads.slice(0, 8).map((item) => (
+                  <li className="downloads-popover-row" key={item.id}>
+                    <span className="downloads-popover-icon" aria-hidden="true">
+                      <Download className="ui-icon" size={16} />
+                    </span>
+                    <div className="downloads-popover-copy">
+                      <strong title={item.filename}>{item.filename}</strong>
+                      <small className={`download-status-${item.status}`}>
+                        {item.status === 'completed'
+                          ? 'Complete'
+                          : item.status === 'failed'
+                            ? 'Failed'
+                            : `Downloading · ${item.bytesReceived.toLocaleString()} bytes`}
+                      </small>
+                      {item.status === 'downloading' && (
+                        <progress className="download-progress" aria-label={`Downloading ${item.filename}`} />
+                      )}
+                    </div>
+                    <AppButton
+                      className="download-reveal"
+                      disabled={item.status !== 'completed'}
+                      aria-label={`Reveal ${item.filename}`}
+                      title="Show in Finder"
+                      onClick={() =>
+                        void invoke('reveal_download', { downloadId: item.id }).catch((error) =>
+                          setMessage(String(error)),
+                        )
+                      }
+                    >
+                      <ExternalLink className="ui-icon" size={14} aria-hidden="true" />
+                    </AppButton>
+                  </li>
+                ))}
+              </ul>
+              <footer className="downloads-popover-footer">
+                <AppButton onClick={() => void openAllDownloadsPage()}>View All Downloads</AppButton>
+              </footer>
+            </section>
+          )}
         </header>
 
         <div className="webview-slot" ref={viewRef}>
-          {downloadsPageOpen ? <section className="history-page" aria-label="Downloads">
-            <header className="settings-heading"><div><p className="eyebrow">UNKY</p><h1>Downloads</h1></div><AppButton className="settings-close" onClick={() => void closeTab(activeTabId)} aria-label="Close downloads tab"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>
-            <div className="history-content"><div className="history-list" aria-label="All downloads">
-              {downloads.map(item => <div className="history-entry" key={item.id}>
-                <span className="history-entry-icon" aria-hidden="true"><Download className="ui-icon" size={16} /></span>
-                <div className="history-entry-open"><strong>{item.filename}</strong><small>{item.path}</small><small className={`download-status-${item.status}`}>{item.status === 'completed' ? 'Complete' : item.status === 'failed' ? 'Failed' : `Downloading · ${item.bytesReceived.toLocaleString()} bytes`}</small>{item.status === 'downloading' && <progress className="download-progress" aria-label={`Downloading ${item.filename}`} />}</div>
-                <AppButton className="download-reveal" disabled={item.status !== 'completed'} aria-label={`Reveal ${item.filename}`} title="Show in Finder" onClick={() => void invoke('reveal_download', { downloadId: item.id }).catch(error => setMessage(String(error)))}><ExternalLink className="ui-icon" size={14} aria-hidden="true" /></AppButton>
-              </div>)}
-              {downloads.length === 0 && <p className="history-empty">Downloads will appear here.</p>}
-            </div></div>
-          </section> : settingsPageOpen ? <section className="settings-page" aria-label="Settings">
-            <header className="settings-heading"><div><p className="eyebrow">UNKY</p><h1>Settings</h1></div><AppButton className="settings-close" onClick={closeSettings} aria-label="Close settings"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>
-            <div className="settings-content">
-              <h2>General</h2>
-              <div className="settings-card"><div><strong>Bookmarks</strong><small>Saved locally in this browser profile.</small></div><AppButton onClick={() => { closeSettings(); setSidebarView('bookmarks'); }}>Manage bookmarks</AppButton></div>
-              <div className="settings-card"><div><strong>Webpage context menu</strong><small>Replace the page’s default right-click menu with browser actions.</small></div><label className="settings-toggle"><input type="checkbox" checked={customPageContextMenuEnabled} onChange={event => setCustomPageContextMenuEnabled(event.target.checked)} /><span>{customPageContextMenuEnabled ? 'On' : 'Off'}</span></label></div>
-              <h2>Appearance</h2>
-              <div className="settings-card"><div><strong>Color scheme</strong><small>Choose the browser interface appearance.</small></div>
-                <Select aria-label="Color scheme" selectedKey={theme} onSelectionChange={key => setTheme(key as Theme)} className="theme-select">
-                  <AriaButton className="button-base theme-select-trigger" data-variant="secondary"><SelectValue /></AriaButton>
-                  <Popover className="theme-select-popover"><ListBox>
-                    <ListBoxItem id="system">System</ListBoxItem>
-                    <ListBoxItem id="light">Light</ListBoxItem>
-                    <ListBoxItem id="dark">Dark</ListBoxItem>
-                  </ListBox></Popover>
-                </Select>
+          {downloadsPageOpen ? (
+            <section className="history-page" aria-label="Downloads">
+              <header className="settings-heading">
+                <div>
+                  <p className="eyebrow">UNKY</p>
+                  <h1>Downloads</h1>
+                </div>
+                <AppButton
+                  className="settings-close"
+                  onClick={() => void closeTab(activeTabId)}
+                  aria-label="Close downloads tab"
+                >
+                  <X className="ui-icon" size={17} aria-hidden="true" />
+                </AppButton>
+              </header>
+              <div className="history-content">
+                <div className="history-list" aria-label="All downloads">
+                  {downloads.map((item) => (
+                    <div className="history-entry" key={item.id}>
+                      <span className="history-entry-icon" aria-hidden="true">
+                        <Download className="ui-icon" size={16} />
+                      </span>
+                      <div className="history-entry-open">
+                        <strong>{item.filename}</strong>
+                        <small>{item.path}</small>
+                        <small className={`download-status-${item.status}`}>
+                          {item.status === 'completed'
+                            ? 'Complete'
+                            : item.status === 'failed'
+                              ? 'Failed'
+                              : `Downloading · ${item.bytesReceived.toLocaleString()} bytes`}
+                        </small>
+                        {item.status === 'downloading' && (
+                          <progress className="download-progress" aria-label={`Downloading ${item.filename}`} />
+                        )}
+                      </div>
+                      <AppButton
+                        className="download-reveal"
+                        disabled={item.status !== 'completed'}
+                        aria-label={`Reveal ${item.filename}`}
+                        title="Show in Finder"
+                        onClick={() =>
+                          void invoke('reveal_download', { downloadId: item.id }).catch((error) =>
+                            setMessage(String(error)),
+                          )
+                        }
+                      >
+                        <ExternalLink className="ui-icon" size={14} aria-hidden="true" />
+                      </AppButton>
+                    </div>
+                  ))}
+                  {downloads.length === 0 && <p className="history-empty">Downloads will appear here.</p>}
+                </div>
               </div>
-              <div className="settings-card"><div><strong>Tab position</strong><small>Place tabs in the sidebar or dock them across the top or bottom edge.</small></div>
-                <div className="tab-position-picker" role="group" aria-label="Tab position">
-                  {tabPositions.map(position => <button
-                    key={position.id}
-                    type="button"
-                    title={`Tabs on ${position.id}`}
-                    aria-label={`Tabs on ${position.id}`}
-                    aria-pressed={tabPosition === position.id}
+            </section>
+          ) : settingsPageOpen ? (
+            <section className="settings-page" aria-label="Settings">
+              <header className="settings-heading">
+                <div>
+                  <p className="eyebrow">UNKY</p>
+                  <h1>Settings</h1>
+                </div>
+                <AppButton className="settings-close" onClick={closeSettings} aria-label="Close settings">
+                  <X className="ui-icon" size={17} aria-hidden="true" />
+                </AppButton>
+              </header>
+              <div className="settings-content">
+                <h2>General</h2>
+                <div className="settings-card">
+                  <div>
+                    <strong>Bookmarks</strong>
+                    <small>Saved locally in this browser profile.</small>
+                  </div>
+                  <AppButton
                     onClick={() => {
-                      setTabPosition(position.id);
-                      if (position.id === 'left' || position.id === 'right') setSidebarSide(position.id);
+                      closeSettings();
+                      setSidebarView('bookmarks');
                     }}
-                  ><span aria-hidden="true">{position.symbol}</span>{position.id[0].toUpperCase() + position.id.slice(1)}</button>)}
+                  >
+                    Manage bookmarks
+                  </AppButton>
+                </div>
+                <div className="settings-card">
+                  <div>
+                    <strong>Webpage context menu</strong>
+                    <small>Replace the page’s default right-click menu with browser actions.</small>
+                  </div>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={customPageContextMenuEnabled}
+                      onChange={(event) => setCustomPageContextMenuEnabled(event.target.checked)}
+                    />
+                    <span>{customPageContextMenuEnabled ? 'On' : 'Off'}</span>
+                  </label>
+                </div>
+                <h2>Appearance</h2>
+                <div className="settings-card">
+                  <div>
+                    <strong>Color scheme</strong>
+                    <small>Choose the browser interface appearance.</small>
+                  </div>
+                  <Select
+                    aria-label="Color scheme"
+                    selectedKey={theme}
+                    onSelectionChange={(key) => setTheme(key as Theme)}
+                    className="theme-select"
+                  >
+                    <AriaButton className="button-base theme-select-trigger" data-variant="secondary">
+                      <SelectValue />
+                    </AriaButton>
+                    <Popover className="theme-select-popover">
+                      <ListBox>
+                        <ListBoxItem id="system">System</ListBoxItem>
+                        <ListBoxItem id="light">Light</ListBoxItem>
+                        <ListBoxItem id="dark">Dark</ListBoxItem>
+                      </ListBox>
+                    </Popover>
+                  </Select>
+                </div>
+                <div className="settings-card">
+                  <div>
+                    <strong>Tab position</strong>
+                    <small>Place tabs in the sidebar or dock them across the top or bottom edge.</small>
+                  </div>
+                  <div className="tab-position-picker" role="group" aria-label="Tab position">
+                    {tabPositions.map((position) => (
+                      <button
+                        key={position.id}
+                        type="button"
+                        title={`Tabs on ${position.id}`}
+                        aria-label={`Tabs on ${position.id}`}
+                        aria-pressed={tabPosition === position.id}
+                        onClick={() => {
+                          setTabPosition(position.id);
+                          if (position.id === 'left' || position.id === 'right') setSidebarSide(position.id);
+                        }}
+                      >
+                        <span aria-hidden="true">{position.symbol}</span>
+                        {position.id[0].toUpperCase() + position.id.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="settings-card">
+                  <div>
+                    <strong>Bookmarks sidebar</strong>
+                    <small>Keep bookmarks on the left or right side of the window.</small>
+                  </div>
+                  <div
+                    className="tab-position-picker sidebar-side-picker"
+                    role="group"
+                    aria-label="Bookmarks sidebar position"
+                  >
+                    {(['left', 'right'] as const).map((side) => (
+                      <button
+                        key={side}
+                        type="button"
+                        aria-label={`Bookmarks sidebar on ${side}`}
+                        aria-pressed={sidebarSide === side}
+                        onClick={() => {
+                          setSidebarSide(side);
+                          if (tabPosition === 'left' || tabPosition === 'right') setTabPosition(side);
+                        }}
+                      >
+                        {side[0].toUpperCase() + side.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="settings-card">
+                  <div>
+                    <strong>Sidebar width</strong>
+                    <small>Resize the sidebar by dragging its inner edge.</small>
+                  </div>
+                  <span>{Math.round(sidebarWidth)} px</span>
+                </div>
+                <h2>Privacy</h2>
+                <div className="settings-card">
+                  <div>
+                    <strong>Private tab</strong>
+                    <small>
+                      Open a tab with ephemeral website storage. Private tabs are excluded from history and session
+                      recovery.
+                    </small>
+                  </div>
+                  <AppButton onClick={() => void createTab(true)}>New private tab</AppButton>
+                </div>
+                <div className="settings-card">
+                  <div>
+                    <strong>Clear browsing data</strong>
+                    <small>Clear website storage for this browser profile and remove browsing history.</small>
+                  </div>
+                  <AppButton onClick={() => void clearBrowsingData()}>Clear data</AppButton>
+                </div>
+                <div className="settings-card">
+                  <div>
+                    <strong>Content filtering</strong>
+                    <small>
+                      {filterSettings?.enabled
+                        ? filterSettings.updatedAt
+                          ? 'EasyList based blocking is active for new and reloaded pages.'
+                          : 'The built-in starter rules are active until EasyList is updated.'
+                        : 'Ad and tracker blocking is disabled.'}{' '}
+                      Changes reload open website tabs.
+                    </small>
+                  </div>
+                  <AppButton
+                    disabled={filterBusy || !filterSettings}
+                    onClick={() => void changeFilteringEnabled(!filterSettings?.enabled)}
+                  >
+                    {filterSettings?.enabled ? 'Turn off' : 'Turn on'}
+                  </AppButton>
+                </div>
+                <div className="settings-card">
+                  <div>
+                    <strong>Filter list</strong>
+                    <small>
+                      {filterSettings
+                        ? `${filterSettings.acceptedRules.toLocaleString()} supported rules · ${filterSettings.updatedAt ? `Updated ${new Date(filterSettings.updatedAt * 1000).toLocaleString()}` : 'Using the built-in starter set'}`
+                        : 'Loading filter status…'}{' '}
+                      The compiler skips unsupported EasyList syntax.
+                    </small>
+                    {filterBusy && (
+                      <div className="filter-update-progress" role="status" aria-live="polite">
+                        <span>
+                          {filterProgress?.phase === 'compiling'
+                            ? 'Compiling rules…'
+                            : filterProgress?.totalBytes
+                              ? `Downloading EasyList… ${Math.min(100, Math.floor((filterProgress.receivedBytes * 100) / filterProgress.totalBytes))}%`
+                              : 'Connecting to EasyList…'}
+                        </span>
+                        {filterProgress?.phase === 'downloading' && filterProgress.totalBytes && (
+                          <progress
+                            aria-label="EasyList download progress"
+                            max={100}
+                            value={Math.min(
+                              100,
+                              Math.floor((filterProgress.receivedBytes * 100) / filterProgress.totalBytes),
+                            )}
+                          />
+                        )}
+                        {filterProgress?.phase === 'downloading' && !filterProgress.totalBytes && (
+                          <progress aria-label="EasyList download progress" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <AppButton disabled={filterBusy} onClick={() => void updateFilterList()}>
+                    {filterBusy ? 'Updating…' : 'Update EasyList'}
+                  </AppButton>
+                </div>
+                <div className="settings-card">
+                  <div>
+                    <strong>Current site</strong>
+                    <small>
+                      {activeSiteDomain
+                        ? `Allow requests on ${activeSiteDomain} by disabling filtering for this site.`
+                        : 'Open a website to manage its filter exception.'}
+                    </small>
+                  </div>
+                  <AppButton
+                    disabled={filterBusy || !activeSiteDomain}
+                    onClick={() =>
+                      void changeSiteFilterException(!filterSettings?.exceptions.includes(activeSiteDomain))
+                    }
+                  >
+                    {filterSettings?.exceptions.includes(activeSiteDomain) ? 'Enable for site' : 'Disable for site'}
+                  </AppButton>
+                </div>
+                {message && (
+                  <p className="message" role="status">
+                    {message}
+                  </p>
+                )}
+                <h2>About</h2>
+                <div className="settings-card">
+                  <div>
+                    <strong>Unky</strong>
+                    <small>
+                      Version {buildMetadata.version} · Build {buildMetadata.buildNumber} · Built{' '}
+                      {new Date(buildMetadata.builtAt).toLocaleString()}
+                    </small>
+                  </div>
+                  <span>{buildMetadata.version}</span>
                 </div>
               </div>
-              <div className="settings-card"><div><strong>Bookmarks sidebar</strong><small>Keep bookmarks on the left or right side of the window.</small></div>
-                <div className="tab-position-picker sidebar-side-picker" role="group" aria-label="Bookmarks sidebar position">
-                  {(['left', 'right'] as const).map(side => <button key={side} type="button" aria-label={`Bookmarks sidebar on ${side}`} aria-pressed={sidebarSide === side} onClick={() => {
-                    setSidebarSide(side);
-                    if (tabPosition === 'left' || tabPosition === 'right') setTabPosition(side);
-                  }}>{side[0].toUpperCase() + side.slice(1)}</button>)}
+            </section>
+          ) : shortcutsPageOpen ? (
+            <section className="history-page shortcuts-page" aria-label="Keyboard shortcuts">
+              <header className="settings-heading">
+                <div>
+                  <p className="eyebrow">UNKY HELP</p>
+                  <h1>Keyboard Shortcuts</h1>
+                </div>
+                <AppButton
+                  className="settings-close"
+                  onClick={() => void closeTab(activeTabId)}
+                  aria-label="Close shortcuts"
+                >
+                  <X className="ui-icon" size={17} aria-hidden="true" />
+                </AppButton>
+              </header>
+              <div className="history-content">
+                <p className="shortcuts-intro">Use these shortcuts while browsing. Some shortcuts vary by platform.</p>
+                <div className="shortcuts-list">
+                  {[
+                    ['New tab', `${commandKey}+T`],
+                    ['New private tab', `${commandKey}+Shift+N`],
+                    ['Close tab', `${commandKey}+W`],
+                    ['Reopen closed tab', `${commandKey}+Shift+T`],
+                    [
+                      'Next tab',
+                      /Mac|iPhone|iPad/.test(navigator.platform)
+                        ? 'Ctrl+Tab · ⌘+Option+→ · ⇧+⌘+]'
+                        : 'Ctrl+Tab · Ctrl+PageDown',
+                    ],
+                    [
+                      'Previous tab',
+                      /Mac|iPhone|iPad/.test(navigator.platform)
+                        ? 'Ctrl+Shift+Tab · ⌘+Option+← · ⇧+⌘+['
+                        : 'Ctrl+Shift+Tab · Ctrl+PageUp',
+                    ],
+                    ['Focus address bar', `${commandKey}+L`],
+                    ['Find in page', `${commandKey}+F`],
+                    ['Reload page', `${commandKey}+R`],
+                    ['Back', /Mac|iPhone|iPad/.test(navigator.platform) ? `${commandKey}+[` : 'Alt+←'],
+                    ['Forward', /Mac|iPhone|iPad/.test(navigator.platform) ? `${commandKey}+]` : 'Alt+→'],
+                    ['Zoom in', `${commandKey}+Shift+=`],
+                    ['Zoom out', `${commandKey}+-`],
+                    ['Reset zoom', `${commandKey}+0`],
+                    ['Settings', `${commandKey}+,`],
+                  ].map(([label, keys]) => (
+                    <div className="shortcut-entry" key={label}>
+                      <span>{label}</span>
+                      <kbd>{keys}</kbd>
+                    </div>
+                  ))}
                 </div>
               </div>
-              <div className="settings-card"><div><strong>Sidebar width</strong><small>Resize the sidebar by dragging its inner edge.</small></div><span>{Math.round(sidebarWidth)} px</span></div>
-              <h2>Privacy</h2>
-              <div className="settings-card"><div><strong>Private tab</strong><small>Open a tab with ephemeral website storage. Private tabs are excluded from history and session recovery.</small></div><AppButton onClick={() => void createTab(true)}>New private tab</AppButton></div>
-              <div className="settings-card"><div><strong>Clear browsing data</strong><small>Clear website storage for this browser profile and remove browsing history.</small></div><AppButton onClick={() => void clearBrowsingData()}>Clear data</AppButton></div>
-              <div className="settings-card"><div><strong>Content filtering</strong><small>{filterSettings?.enabled ? filterSettings.updatedAt ? 'EasyList based blocking is active for new and reloaded pages.' : 'The built-in starter rules are active until EasyList is updated.' : 'Ad and tracker blocking is disabled.'} Changes reload open website tabs.</small></div><AppButton disabled={filterBusy || !filterSettings} onClick={() => void changeFilteringEnabled(!filterSettings?.enabled)}>{filterSettings?.enabled ? 'Turn off' : 'Turn on'}</AppButton></div>
-              <div className="settings-card"><div><strong>Filter list</strong><small>{filterSettings ? `${filterSettings.acceptedRules.toLocaleString()} supported rules · ${filterSettings.updatedAt ? `Updated ${new Date(filterSettings.updatedAt * 1000).toLocaleString()}` : 'Using the built-in starter set'}` : 'Loading filter status…'} The compiler skips unsupported EasyList syntax.</small>{filterBusy && <div className="filter-update-progress" role="status" aria-live="polite">
-                <span>{filterProgress?.phase === 'compiling' ? 'Compiling rules…' : filterProgress?.totalBytes ? `Downloading EasyList… ${Math.min(100, Math.floor(filterProgress.receivedBytes * 100 / filterProgress.totalBytes))}%` : 'Connecting to EasyList…'}</span>
-                {filterProgress?.phase === 'downloading' && filterProgress.totalBytes && <progress aria-label="EasyList download progress" max={100} value={Math.min(100, Math.floor(filterProgress.receivedBytes * 100 / filterProgress.totalBytes))} />}
-                {filterProgress?.phase === 'downloading' && !filterProgress.totalBytes && <progress aria-label="EasyList download progress" />}
-              </div>}</div><AppButton disabled={filterBusy} onClick={() => void updateFilterList()}>{filterBusy ? 'Updating…' : 'Update EasyList'}</AppButton></div>
-              <div className="settings-card"><div><strong>Current site</strong><small>{activeSiteDomain ? `Allow requests on ${activeSiteDomain} by disabling filtering for this site.` : 'Open a website to manage its filter exception.'}</small></div><AppButton disabled={filterBusy || !activeSiteDomain} onClick={() => void changeSiteFilterException(!filterSettings?.exceptions.includes(activeSiteDomain))}>{filterSettings?.exceptions.includes(activeSiteDomain) ? 'Enable for site' : 'Disable for site'}</AppButton></div>
-              {message && <p className="message" role="status">{message}</p>}
-              <h2>About</h2>
-              <div className="settings-card"><div><strong>Unky</strong><small>Version {buildMetadata.version} · Build {buildMetadata.buildNumber} · Built {new Date(buildMetadata.builtAt).toLocaleString()}</small></div><span>{buildMetadata.version}</span></div>
-            </div>
-          </section> : shortcutsPageOpen ? <section className="history-page shortcuts-page" aria-label="Keyboard shortcuts">
-            <header className="settings-heading"><div><p className="eyebrow">UNKY HELP</p><h1>Keyboard Shortcuts</h1></div><AppButton className="settings-close" onClick={() => void closeTab(activeTabId)} aria-label="Close shortcuts"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>
-            <div className="history-content">
-              <p className="shortcuts-intro">Use these shortcuts while browsing. Some shortcuts vary by platform.</p>
-              <div className="shortcuts-list">
-                {[
-                  ['New tab', `${commandKey}+T`], ['New private tab', `${commandKey}+Shift+N`], ['Close tab', `${commandKey}+W`], ['Reopen closed tab', `${commandKey}+Shift+T`],
-                  ['Next tab', /Mac|iPhone|iPad/.test(navigator.platform) ? 'Ctrl+Tab · ⌘+Option+→ · ⇧+⌘+]' : 'Ctrl+Tab · Ctrl+PageDown'], ['Previous tab', /Mac|iPhone|iPad/.test(navigator.platform) ? 'Ctrl+Shift+Tab · ⌘+Option+← · ⇧+⌘+[' : 'Ctrl+Shift+Tab · Ctrl+PageUp'], ['Focus address bar', `${commandKey}+L`], ['Find in page', `${commandKey}+F`],
-                  ['Reload page', `${commandKey}+R`], ['Back', /Mac|iPhone|iPad/.test(navigator.platform) ? `${commandKey}+[` : 'Alt+←'], ['Forward', /Mac|iPhone|iPad/.test(navigator.platform) ? `${commandKey}+]` : 'Alt+→'],
-                  ['Zoom in', `${commandKey}+Shift+=`], ['Zoom out', `${commandKey}+-`], ['Reset zoom', `${commandKey}+0`], ['Settings', `${commandKey}+,`],
-                ].map(([label, keys]) => <div className="shortcut-entry" key={label}><span>{label}</span><kbd>{keys}</kbd></div>)}
+            </section>
+          ) : historyPageOpen ? (
+            <section className="history-page" aria-label="Browsing history">
+              <header className="settings-heading">
+                <div>
+                  <p className="eyebrow">UNKY</p>
+                  <h1>History</h1>
+                </div>
+                <AppButton
+                  className="settings-close"
+                  onClick={() => void closeTab(activeTabId)}
+                  aria-label="Close history tab"
+                >
+                  <X className="ui-icon" size={17} aria-hidden="true" />
+                </AppButton>
+              </header>
+              <div className="history-content">
+                <label className="history-search">
+                  <Search className="ui-icon" size={16} aria-hidden="true" />
+                  <AppInput
+                    aria-label="Search history"
+                    placeholder="Search history"
+                    value={historySearch}
+                    onChange={(event) => setHistorySearch(event.target.value)}
+                  />
+                </label>
+                <div className="history-list" aria-label="History entries">
+                  {history
+                    .filter((item) =>
+                      `${item.title} ${item.url}`.toLowerCase().includes(historySearch.trim().toLowerCase()),
+                    )
+                    .map((item, index) => (
+                      <div className="history-entry" key={`${item.url}-${item.visitedAt}-${index}`}>
+                        <span className="history-entry-icon" aria-hidden="true">
+                          {item.favicon ? (
+                            <img
+                              className="history-favicon"
+                              src={item.favicon}
+                              alt=""
+                              onError={(event) => {
+                                event.currentTarget.hidden = true;
+                              }}
+                            />
+                          ) : (
+                            <Clock3 className="ui-icon" size={15} />
+                          )}
+                        </span>
+                        <AppButton className="history-entry-open" onClick={() => void openHistoryEntry(item.url)}>
+                          <strong>{item.title || item.url}</strong>
+                          <small>{item.url}</small>
+                        </AppButton>
+                        <time dateTime={new Date(item.visitedAt * 1000).toISOString()}>
+                          {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+                            item.visitedAt * 1000,
+                          )}
+                        </time>
+                      </div>
+                    ))}
+                  {history.length === 0 && <p className="history-empty">Pages you visit will appear here.</p>}
+                  {history.length > 0 &&
+                    !history.some((item) =>
+                      `${item.title} ${item.url}`.toLowerCase().includes(historySearch.trim().toLowerCase()),
+                    ) && <p className="history-empty">No matching pages.</p>}
+                </div>
               </div>
-            </div>
-          </section> : historyPageOpen ? <section className="history-page" aria-label="Browsing history">
-            <header className="settings-heading"><div><p className="eyebrow">UNKY</p><h1>History</h1></div><AppButton className="settings-close" onClick={() => void closeTab(activeTabId)} aria-label="Close history tab"><X className="ui-icon" size={17} aria-hidden="true" /></AppButton></header>
-            <div className="history-content">
-              <label className="history-search"><Search className="ui-icon" size={16} aria-hidden="true" /><AppInput aria-label="Search history" placeholder="Search history" value={historySearch} onChange={event => setHistorySearch(event.target.value)} /></label>
-              <div className="history-list" aria-label="History entries">
-                {history.filter(item => `${item.title} ${item.url}`.toLowerCase().includes(historySearch.trim().toLowerCase())).map((item, index) => <div className="history-entry" key={`${item.url}-${item.visitedAt}-${index}`}>
-                  <span className="history-entry-icon" aria-hidden="true">{item.favicon ? <img className="history-favicon" src={item.favicon} alt="" onError={event => { event.currentTarget.hidden = true; }} /> : <Clock3 className="ui-icon" size={15} />}</span>
-                  <AppButton className="history-entry-open" onClick={() => void openHistoryEntry(item.url)}><strong>{item.title || item.url}</strong><small>{item.url}</small></AppButton>
-                  <time dateTime={new Date(item.visitedAt * 1000).toISOString()}>{new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(item.visitedAt * 1000)}</time>
-                </div>)}
-                {history.length === 0 && <p className="history-empty">Pages you visit will appear here.</p>}
-                {history.length > 0 && !history.some(item => `${item.title} ${item.url}`.toLowerCase().includes(historySearch.trim().toLowerCase())) && <p className="history-empty">No matching pages.</p>}
+            </section>
+          ) : (
+            (!activeTab?.url || !isTauri) && (
+              <div
+                className={`start-page${splitStartPageStyle ? ' start-page-in-split' : ''}`}
+                style={splitStartPageStyle}
+              >
+                <div className="start-brand">
+                  <span className="start-mark" aria-hidden="true">
+                    u
+                  </span>
+                  <p className="eyebrow">A curious browser for curious people</p>
+                </div>
+                <h1>Where to?</h1>
+                <p className="start-intro">A little less clutter. A little more room to explore.</p>
+                <form className="start-search" onSubmit={navigate}>
+                  <Search className="ui-icon" size={18} aria-hidden="true" />
+                  <AppInput
+                    aria-label="Search the web"
+                    placeholder="Search or enter a website"
+                    value={address}
+                    onChange={(event) => setAddress(event.target.value)}
+                  />
+                  <kbd>↵</kbd>
+                </form>
+                {!isTauri && (
+                  <p className="dev-note">Run the desktop app to open websites in the native browser view.</p>
+                )}
+                {message && (
+                  <p className="message" role="status">
+                    {message}
+                  </p>
+                )}
+                <div className="quick-links" aria-label="Suggested sites">
+                  <AppButton onClick={() => void navigateTo('https://www.google.com')}>Google</AppButton>
+                  <AppButton onClick={() => void navigateTo('https://wikipedia.org')}>Wikipedia</AppButton>
+                  <AppButton onClick={() => void navigateTo('https://github.com')}>GitHub</AppButton>
+                </div>
               </div>
+            )
+          )}
+          {message && activeTab?.url && (
+            <div className={`toast${captureProgress ? ' toast-with-progress' : ''}`} role="status">
+              <span>{message}</span>
+              {captureProgress && (
+                <div className="capture-progress-row">
+                  <div
+                    className="capture-progress-track"
+                    role="progressbar"
+                    aria-label="Full page screenshot progress"
+                    aria-valuemin={0}
+                    aria-valuemax={captureProgress.total}
+                    aria-valuenow={captureProgress.completed}
+                  >
+                    <div
+                      className="capture-progress-fill"
+                      style={{
+                        width: `${captureProgress.total ? Math.round((captureProgress.completed / captureProgress.total) * 100) : 0}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="capture-progress-percent">
+                    {captureProgress.total ? Math.round((captureProgress.completed / captureProgress.total) * 100) : 0}%
+                  </span>
+                </div>
+              )}
             </div>
-          </section> : (!activeTab?.url || !isTauri) && <div className={`start-page${splitStartPageStyle ? ' start-page-in-split' : ''}`} style={splitStartPageStyle}>
-            <div className="start-brand"><span className="start-mark" aria-hidden="true">u</span><p className="eyebrow">A curious browser for curious people</p></div>
-            <h1>Where to?</h1>
-            <p className="start-intro">A little less clutter. A little more room to explore.</p>
-            <form className="start-search" onSubmit={navigate}><Search className="ui-icon" size={18} aria-hidden="true" /><AppInput aria-label="Search the web" placeholder="Search or enter a website" value={address} onChange={event => setAddress(event.target.value)} /><kbd>↵</kbd></form>
-            {!isTauri && <p className="dev-note">Run the desktop app to open websites in the native browser view.</p>}
-            {message && <p className="message" role="status">{message}</p>}
-            <div className="quick-links" aria-label="Suggested sites"><AppButton onClick={() => void navigateTo('https://www.google.com')}>Google</AppButton><AppButton onClick={() => void navigateTo('https://wikipedia.org')}>Wikipedia</AppButton><AppButton onClick={() => void navigateTo('https://github.com')}>GitHub</AppButton></div>
-          </div>}
-          {message && activeTab?.url && <div className={`toast${captureProgress ? ' toast-with-progress' : ''}`} role="status">
-            <span>{message}</span>
-            {captureProgress && <div className="capture-progress-row">
-              <div className="capture-progress-track" role="progressbar" aria-label="Full page screenshot progress" aria-valuemin={0} aria-valuemax={captureProgress.total} aria-valuenow={captureProgress.completed}>
-                <div className="capture-progress-fill" style={{ width: `${captureProgress.total ? Math.round(captureProgress.completed / captureProgress.total * 100) : 0}%` }} />
-              </div>
-              <span className="capture-progress-percent">{captureProgress.total ? Math.round(captureProgress.completed / captureProgress.total * 100) : 0}%</span>
-            </div>}
-          </div>}
+          )}
         </div>
       </section>
     </main>

@@ -17,7 +17,7 @@ export function resolveTabDragPreview(isFolder: boolean, overPage: boolean): 'sp
 
 export function reorderTabIds(ids: string[], activeId: string, overId: string | null, after: boolean): string[] {
   if (!ids.includes(activeId) || activeId === overId) return ids;
-  const remaining = ids.filter(id => id !== activeId);
+  const remaining = ids.filter((id) => id !== activeId);
   if (overId === null) return [...remaining, activeId];
   const index = remaining.indexOf(overId);
   if (index < 0) return ids;

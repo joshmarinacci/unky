@@ -33,6 +33,9 @@ export function moveAddressSuggestionSelection(index: number, count: number, dir
 }
 
 export function initialAddressSuggestions(search: string): AddressSuggestionsState {
-  try { return JSON.parse(new URLSearchParams(search).get('initial') ?? '') as AddressSuggestionsState; }
-  catch { return { rows: [], selectedIndex: 0 }; }
+  try {
+    return JSON.parse(new URLSearchParams(search).get('initial') ?? '') as AddressSuggestionsState;
+  } catch {
+    return { rows: [], selectedIndex: 0 };
+  }
 }
