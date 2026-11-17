@@ -48,7 +48,7 @@ const isRealSiteRun = process.env.MY_BROWSER_REAL_SITE_TESTS === '1';
       await browser.waitUntil(async () => {
         const page = await inspect(tabId) as PageProbe;
         let actualHost = '';
-        try { actualHost = new URL(page.url).hostname; } catch {}
+        try { actualHost = new URL(page.url).hostname; } catch { /* not a URL yet */ }
         return (actualHost === expectedHost || actualHost.endsWith(`.${expectedHost}`))
           && page.readyState !== 'loading' && page.title.length > 0 && page.text.trim().length > 20;
       }, { timeout: 20000, timeoutMsg: `Live page did not finish loading: ${url}` });

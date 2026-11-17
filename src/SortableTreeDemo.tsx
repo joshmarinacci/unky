@@ -83,7 +83,7 @@ export default function SortableTreeDemo() {
   const [expanded, setExpanded] = useState(new Set(['projects', 'atlas', 'research', 'garden', 'writing', 'ideas']));
   const [dragOrigin, setDragOrigin] = useState<{ id: string; depth: number } | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  const toggle = (id: string) => setExpanded(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggle = (id: string) => setExpanded(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const handleDragStart = ({ active }: DragStartEvent) => {
     const found = locate(tree, String(active.id));
     if (found) setDragOrigin({ id: String(active.id), depth: found.depth });
