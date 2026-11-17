@@ -1,0 +1,15 @@
+# Generated, vendored, or non-JS sources.
+dist/
+target/
+src-tauri/
+test-results/
+node_modules/
+package-lock.json
+src/build-metadata.json
+# Standalone download page, published as-is.
+site/
+# Test fixtures: tests assert on their exact text and markup.
+tests/fixtures/
+tests/desktop/fixtures/
+# Prose docs keep their hand formatting.
+*.md
