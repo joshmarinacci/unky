@@ -666,7 +666,7 @@ describe('native Tauri browser', () => {
       } catch (error) {
         const layout = await read();
         const state = await invoke('get_browser_state');
-        throw new Error(`${String(error)}\nTab layout: ${JSON.stringify(layout)}\nBrowser state: ${JSON.stringify(state)}`);
+        throw new Error(`${String(error)}\nTab layout: ${JSON.stringify(layout)}\nBrowser state: ${JSON.stringify(state)}`, { cause: error });
       }
 
       for (const position of ['left', 'right', 'top', 'bottom'] as const) {
@@ -709,7 +709,7 @@ describe('native Tauri browser', () => {
       await browserUi('drag-start', first.activeTabId);
       dragActive = true;
       await browser.pause(50);
-      const movedIntoFolder = await browserUi('drag-over-tab', undefined, undefined, { targetId: folderId });
+      await browserUi('drag-over-tab', undefined, undefined, { targetId: folderId });
       await browser.pause(50);
       await browserUi('drag-over-tab', undefined, undefined, { targetId: folderId });
       await browser.waitUntil(async () => (await read()).dropTargets.some(item => item.id === folderId && item.className.includes('drop-inside')));

@@ -69,7 +69,9 @@ export const config: WebdriverIO.Config = {
         const page = await inspect();
         writeFileSync(join(results, 'browser-state.json'), JSON.stringify(page, null, 2));
         writeFileSync(join(results, 'frontend-errors.json'), JSON.stringify(page.errors ?? [], null, 2));
-      } catch {}
+      } catch {
+        // Failure diagnostics are best effort.
+      }
     }
   },
   onComplete() {
