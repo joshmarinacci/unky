@@ -99,10 +99,13 @@ fn take_launch_request(
 fn get_external_browsers(
     webview: tauri::Webview,
     app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
 ) -> Result<Vec<browser::external::ExternalBrowser>, String> {
     if !is_trusted_browser_ui(webview.label()) && !webview.label().starts_with("page-") {
         return Err("Browser discovery is only available to the trusted browser UI".into());
     }
+    // Pages may list browsers only for a context menu the user just opened.
+    authorize_page_action(&app, &state, &webview, PageAction::MenuQuery)?;
     browser::external::installed_browsers(&app.config().identifier)
 }
 
@@ -133,16 +136,25 @@ async fn open_in_external_browser(
             return Err("The requested tab does not belong to this browser window".into());
         }
     }
-    // Read the actual WebView location, not editable address-bar text or a caller-supplied URL.
-    let url = if let Some(url) = url {
-        allowed_navigation_url(&url)?
-    } else {
-        browser::external::current_page_url(&get_page(&app, &tab_id)?).await?
-    };
+    authorize_page_action(&app, &state, &webview, PageAction::Open)?;
+    // Read the actual WebView location, not editable address-bar text.
+    let current_url = browser::external::current_page_url(&get_page(&app, &tab_id)?).await;
+    let requested_url = url.as_deref().map(allowed_navigation_url).transpose()?;
     let browser = browser::external::installed_browsers(&app.config().identifier)?
         .into_iter()
         .find(|browser| browser.id == browser_id)
         .ok_or("That browser is no longer available; reopen the browser picker")?;
+    let url = match requested_url {
+        None => current_url?,
+        Some(url) if page_tab_id.is_none() => url,
+        Some(url) if current_url.as_ref().is_ok_and(|current| *current == url) => url,
+        // A page asking to hand a different URL to another browser leaves Unky's private
+        // mode and filtering, so the user confirms the exact URL and browser natively.
+        Some(url) => {
+            confirm_external_link(&app, &webview, &browser.name, &url).await?;
+            url
+        }
+    };
 
     // Automated tests exercise discovery and validation without opening tabs in the user's browsers.
     #[cfg(all(debug_assertions, feature = "desktop-test"))]
@@ -162,6 +174,43 @@ async fn open_in_external_browser(
     tauri::async_runtime::spawn_blocking(move || browser::external::open(&browser, &url))
         .await
         .map_err(|error| error.to_string())?
+}
+
+/// Ask the user before a page hands a link to another browser.
+async fn confirm_external_link(
+    app: &tauri::AppHandle,
+    webview: &tauri::Webview,
+    browser_name: &str,
+    url: &url::Url,
+) -> Result<(), String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let dialog = app
+        .dialog()
+        .message(format!(
+            "This page wants to open a link in {browser_name}:\n\n{url}\n\n{browser_name} will use its own cookies and settings, not Unky's private mode or filtering."
+        ))
+        .title(format!("Open link in {browser_name}?"))
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            format!("Open in {browser_name}"),
+            "Cancel".into(),
+        ));
+    let dialog = dialog.parent(&webview.window());
+    dialog.show(move |confirmed| {
+        let _ = sender.send(confirmed);
+    });
+    let confirmed = tauri::async_runtime::spawn_blocking(move || {
+        receiver.recv_timeout(Duration::from_secs(300))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .unwrap_or(false);
+    if confirmed {
+        Ok(())
+    } else {
+        Err("Opening the link in another browser was cancelled".into())
+    }
 }
 
 fn allowed_navigation_url(input: &str) -> Result<url::Url, String> {
@@ -224,6 +273,110 @@ fn browser_window_for_ui(label: &str) -> &str {
     } else {
         label
     }
+}
+
+/// What a website page is asking to do, which sets how much proof of user intent it needs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum PageAction {
+    /// Read data for a menu the user just opened (tab folders, installed browsers).
+    MenuQuery,
+    /// Open a tab, window, other split, or external browser. Spends the gesture.
+    Open,
+}
+
+/// Website pages can call their granted commands from any script, so a page-reported
+/// click proves nothing. Require that the calling tab is on screen, its window has
+/// focus, and the platform saw real input within the last second. Calls from the
+/// trusted browser UI are not gated.
+fn authorize_page_action(
+    app: &tauri::AppHandle,
+    state: &BrowserState,
+    webview: &tauri::Webview,
+    action: PageAction,
+) -> Result<(), String> {
+    use browser::activation;
+    let Some(tab_id) = webview.label().strip_prefix("page-") else {
+        return Ok(());
+    };
+    let owner = page_tab_visible_owner(state, tab_id)?
+        .ok_or("This action is only available from a tab that is on screen")?;
+    if !browser_window_has_focus(app, &owner) {
+        return Err("This action is only available in the focused browser window".into());
+    }
+    if !activation::page_has_gesture() {
+        return Err("This action needs a click or key press on the page".into());
+    }
+    let (bucket, limit) = match action {
+        PageAction::MenuQuery => ("query", activation::PAGE_QUERY_LIMIT),
+        PageAction::Open => ("open", activation::PAGE_OPEN_LIMIT),
+    };
+    if !activation::page_rate_allows(bucket, tab_id, limit) {
+        return Err("This page is opening too much too quickly; try again shortly".into());
+    }
+    if action == PageAction::Open && !activation::page_consume_gesture() {
+        return Err("This action needs a click or key press on the page".into());
+    }
+    Ok(())
+}
+
+/// The owning window label when the tab is visible: active, or half of the split
+/// that holds its window's active tab, with Settings closed.
+fn page_tab_visible_owner(state: &BrowserState, tab_id: &str) -> Result<Option<String>, String> {
+    let splits = state
+        .split_tabs
+        .lock()
+        .map_err(|_| "Split state is unavailable")?;
+    let settings_open = state
+        .settings_open
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?;
+    let tabs = state
+        .data
+        .lock()
+        .map_err(|_| "Browser state is unavailable")?;
+    let Some(tab) = tabs.iter().find(|tab| tab.id == tab_id) else {
+        return Ok(None);
+    };
+    let visible = browser::tabs::is_tab_visible(
+        &tabs,
+        splits.get(&tab.window_label),
+        settings_open.contains(&tab.window_label),
+        tab_id,
+    );
+    Ok(visible.then(|| tab.window_label.clone()))
+}
+
+fn browser_window_has_focus(app: &tauri::AppHandle, window_label: &str) -> bool {
+    #[cfg(all(debug_assertions, feature = "desktop-test"))]
+    if desktop_test_gesture_is_live() {
+        return true;
+    }
+    app.get_window(window_label)
+        .and_then(|window| window.is_focused().ok())
+        .unwrap_or(false)
+}
+
+/// Desktop tests drive pages with synthetic DOM events that never reach AppKit's
+/// event monitor, and the hidden WebDriver host can leave the browser window unfocused.
+/// This debug-only hook stands in for one real click so the gate itself stays active.
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+static DESKTOP_TEST_GESTURE_AT: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+fn desktop_test_simulate_gesture() {
+    let now = std::time::Instant::now();
+    if let Ok(mut at) = DESKTOP_TEST_GESTURE_AT.lock() {
+        *at = Some(now);
+    }
+    static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX / 2);
+    browser::activation::tracker().record(NEXT_ID.fetch_add(1, Ordering::Relaxed), now);
+}
+
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+fn desktop_test_gesture_is_live() -> bool {
+    DESKTOP_TEST_GESTURE_AT
+        .lock()
+        .is_ok_and(|at| at.is_some_and(|at| at.elapsed() <= browser::activation::GESTURE_LIFETIME))
 }
 
 fn tab_position_submenu(app: &tauri::AppHandle) -> Option<tauri::menu::Submenu<tauri::Wry>> {
@@ -1015,6 +1168,7 @@ fn open_link_in_new_tab(
     other_split: Option<bool>,
 ) -> Result<(), String> {
     let (private, owner_window) = link_source_context(&webview, &state)?;
+    authorize_page_action(&app, &state, &webview, PageAction::Open)?;
     if other_split.unwrap_or(false) {
         let source_id = webview
             .label()
@@ -1103,6 +1257,8 @@ async fn get_tab_folders(
     state: tauri::State<'_, BrowserState>,
 ) -> Result<Vec<TabFolderMenuEntry>, String> {
     let owner = link_source_context(&webview, &state)?.1;
+    // Folder names are personal; pages see them only for a menu the user just opened.
+    authorize_page_action(&app, &state, &webview, PageAction::MenuQuery)?;
     tab_folders_for_window(&app, &owner).await
 }
 
@@ -1115,6 +1271,7 @@ async fn open_link_in_tab_folder(
     folder_id: String,
 ) -> Result<(), String> {
     let (private, owner) = link_source_context(&webview, &state)?;
+    authorize_page_action(&app, &state, &webview, PageAction::Open)?;
     let exists = tab_folders_for_window(&app, &owner)
         .await?
         .iter()
@@ -1136,6 +1293,7 @@ fn open_link_in_new_window(
 ) -> Result<(), String> {
     let (private, _) = link_source_context(&webview, &state)?;
     let parsed = allowed_navigation_url(&url)?;
+    authorize_page_action(&app, &state, &webview, PageAction::Open)?;
     let window_number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let destination = format!("browser-window-{window_number}");
     let browser_window =
@@ -1173,14 +1331,14 @@ fn focus_browser_tab(
         .strip_prefix("page-")
         .ok_or("Only browser pages can request focus")?
         .to_string();
-    let owner_window = state
-        .data
-        .lock()
-        .map_err(|_| "Browser state is unavailable")?
-        .iter()
-        .find(|tab| tab.id == tab_id)
-        .map(|tab| tab.window_label.clone())
-        .ok_or("That tab no longer exists")?;
+    // A background tab keeps running offscreen; it must not bring itself to the front.
+    // Only a tab already on screen in the focused window (such as the other split
+    // pane the user clicked) may become the active tab.
+    let owner_window = page_tab_visible_owner(&state, &tab_id)?
+        .ok_or("Only a tab that is on screen can take focus")?;
+    if !browser_window_has_focus(&app, &owner_window) {
+        return Err("Only a tab in the focused browser window can take focus".into());
+    }
     let mut tabs = state
         .data
         .lock()
@@ -1330,6 +1488,8 @@ async fn desktop_test_inspect_page(
 
     let page = get_page(&app, &id)?;
     if open_context_menu == Some(true) {
+        // The synthetic contextmenu event stands in for a real right-click.
+        desktop_test_simulate_gesture();
         page.eval("window.__MY_BROWSER_CONTEXT_MENU_TEST_EVENT__ = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 100 }); (document.querySelector('a[href]') || document.body).dispatchEvent(window.__MY_BROWSER_CONTEXT_MENU_TEST_EVENT__);")
             .map_err(|error| error.to_string())?;
         tauri::async_runtime::spawn_blocking(|| thread::sleep(Duration::from_millis(100)))
@@ -1860,10 +2020,10 @@ fn create_page_webview_with_focus(
             "window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__ = {custom_context_menu_enabled};"
         ))
         .initialization_script(
-            r#"(() => {
+            &r#"(() => {
               const host = document.createElement('div');
               host.setAttribute('aria-hidden', 'true');
-              host.dataset.menuItems = '[]';
+              if (EXPOSE_MENU_ITEMS) host.dataset.menuItems = '[]';
               const shadow = host.attachShadow({ mode: 'closed' });
               const style = document.createElement('style');
               style.textContent = `
@@ -1944,7 +2104,7 @@ fn create_page_webview_with_focus(
                   });
                   menu.append(button);
                 }
-                const updateMenuItems = () => { host.dataset.menuItems = JSON.stringify(Array.from(menu.querySelectorAll('button')).map(button => button.dataset.label || button.textContent)); };
+                const updateMenuItems = () => { if (EXPOSE_MENU_ITEMS) host.dataset.menuItems = JSON.stringify(Array.from(menu.querySelectorAll('button')).map(button => button.dataset.label || button.textContent)); };
                 updateMenuItems();
                 shadow.append(menu); host.setAttribute('aria-hidden', 'false');
                 const bounds = menu.getBoundingClientRect();
@@ -2027,7 +2187,17 @@ fn create_page_webview_with_focus(
               document.addEventListener('pointerdown', event => { if (menu && !host.contains(event.target)) close(); }, true);
               document.addEventListener('keydown', event => { if (event.key === 'Escape' && menu) { close(); event.stopPropagation(); } }, true);
               document.documentElement.append(host);
-            })();"#,
+            })();"#
+                // Menu labels include tab folder names. Only desktop tests read them from
+                // the page DOM, so release builds never write them where the page can see.
+                .replace(
+                    "EXPOSE_MENU_ITEMS",
+                    if cfg!(all(debug_assertions, feature = "desktop-test")) {
+                        "true"
+                    } else {
+                        "false"
+                    },
+                ),
         )
         .initialization_script(
             r#"document.addEventListener('click', event => {
@@ -3504,6 +3674,7 @@ fn close_tab(
             remember_closed_tab(&mut recently_closed, closed);
         }
         tabs.remove(index);
+        browser::activation::tracker().forget_tab(&tab_id);
         if closing_was_active {
             if let Some(tab) = tabs
                 .iter_mut()
@@ -4813,6 +4984,8 @@ pub fn run() {
             .inner_size(1200.0, 800.0)
             .visible(false)
             .build()?;
+        #[cfg(target_os = "macos")]
+        platforms::macos::install_user_activation_monitor();
         let state = app.state::<BrowserState>();
         if let Ok(Some(request)) = initial_launch_request.clone() {
             *state

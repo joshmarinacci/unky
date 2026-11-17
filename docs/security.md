@@ -6,6 +6,10 @@
 - Capabilities scope trusted browser UI commands to `main` and `browser-window-*`, page commands to website child WebViews, and the address-suggestions popup to events and `select_address_suggestion`.
 - The popup selection command checks its caller label and owning browser window, then validates the HTTP(S) URL before navigating the active tab.
 - `navigate` checks the caller WebView label in Rust and rejects non-HTTP(S) schemes, missing hosts, and embedded URL credentials.
+- Page commands are callable by any script on a website, not only by Unky's injected helpers, so Rust gates them (`authorize_page_action` in `src-tauri/src/lib.rs`). A page may open tabs, windows, the other split, or an external browser only when its tab is on screen, its window has focus, and the platform saw real input within the last second. Each gesture authorizes one open, and each tab is rate-limited. Tab-folder and installed-browser lookups need a recent gesture but do not spend it. Native input comes from an AppKit local event monitor on macOS and the system last-input tick on Windows (`src-tauri/src/browser/activation.rs`); other platforms apply only the rate limits.
+- `focus_browser_tab` accepts only a tab that is already on screen in the focused window, so an offscreen background tab cannot bring itself to the front.
+- A page that asks to open a URL other than its own in an external browser gets a native confirmation naming the URL and browser.
+- Per-tab back/forward history is capped at 100 entries.
 - No filesystem, shell, or process plugins are included.
 - The UI has a restrictive Content Security Policy.
 
