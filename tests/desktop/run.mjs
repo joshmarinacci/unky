@@ -10,20 +10,36 @@ mkdirSync(results, { recursive: true });
 rmSync(profile, { recursive: true, force: true });
 rmSync(resolve(results, 'wdio-logs'), { recursive: true, force: true });
 mkdirSync(profile, { recursive: true });
-for (const file of ['network-events.jsonl', 'browser-state.json', 'frontend-errors.json', 'rust-logs.log', 'native-window-inventory.json', 'real-site-tracker-results.json']) {
+for (const file of [
+  'network-events.jsonl',
+  'browser-state.json',
+  'frontend-errors.json',
+  'rust-logs.log',
+  'native-window-inventory.json',
+  'real-site-tracker-results.json',
+]) {
   rmSync(resolve(results, file), { force: true });
 }
-writeFileSync(resolve(profile, 'session.json'), JSON.stringify({
-  version: 1,
-  activeTabId: 'tab-1',
-  tabs: [{
-    id: 'tab-1',
-    url: process.env.DESKTOP_TEST_SHOWCASE === '1' ? 'http://127.0.0.1:4179/showcase' : 'http://127.0.0.1:4179/',
-    title: process.env.DESKTOP_TEST_SHOWCASE === '1' ? 'Wander · Field Notes' : 'Desktop fixture · One',
-    zoom: 1,
-  }],
-  recentlyClosed: [],
-}, null, 2));
+writeFileSync(
+  resolve(profile, 'session.json'),
+  JSON.stringify(
+    {
+      version: 1,
+      activeTabId: 'tab-1',
+      tabs: [
+        {
+          id: 'tab-1',
+          url: process.env.DESKTOP_TEST_SHOWCASE === '1' ? 'http://127.0.0.1:4179/showcase' : 'http://127.0.0.1:4179/',
+          title: process.env.DESKTOP_TEST_SHOWCASE === '1' ? 'Wander · Field Notes' : 'Desktop fixture · One',
+          zoom: 1,
+        },
+      ],
+      recentlyClosed: [],
+    },
+    null,
+    2,
+  ),
+);
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', ...options });
@@ -32,7 +48,18 @@ function run(command, args, options = {}) {
 }
 
 if (process.platform !== 'darwin') throw new Error('Desktop tests require macOS (embedded WKWebView WebDriver).');
-run('npm', ['run', 'tauri', '--', 'build', '--debug', '--no-bundle', '--features', 'desktop-test', '--config', 'src-tauri/tauri.desktop-test.conf.json']);
+run('npm', [
+  'run',
+  'tauri',
+  '--',
+  'build',
+  '--debug',
+  '--no-bundle',
+  '--features',
+  'desktop-test',
+  '--config',
+  'src-tauri/tauri.desktop-test.conf.json',
+]);
 
 const networkLog = resolve(results, 'network-events.jsonl');
 const fixtureToken = `desktop-test-${process.pid}-${Date.now()}`;

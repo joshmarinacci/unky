@@ -17,11 +17,14 @@ import './react-aria-theme/DropZone.css';
 
 const page = new URLSearchParams(window.location.search).get('page');
 const addressPopup = page === 'address-suggestions';
-const testPluginReady = import.meta.env.MODE === 'desktop-test' && !addressPopup
-  ? import('@wdio/tauri-plugin')
-  : Promise.resolve();
+const testPluginReady =
+  import.meta.env.MODE === 'desktop-test' && !addressPopup ? import('@wdio/tauri-plugin') : Promise.resolve();
 
 void testPluginReady.then(() => {
   applyOsTextSizes();
-  createRoot(document.getElementById('root')!).render(<React.StrictMode>{addressPopup ? <AddressSuggestionsPopup /> : page === 'tree' ? <SortableTreeDemo /> : <App />}</React.StrictMode>);
+  createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      {addressPopup ? <AddressSuggestionsPopup /> : page === 'tree' ? <SortableTreeDemo /> : <App />}
+    </React.StrictMode>,
+  );
 });

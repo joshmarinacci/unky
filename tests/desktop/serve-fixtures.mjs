@@ -21,7 +21,10 @@ const server = createServer((request, response) => {
     return;
   }
   if (pathname === '/download') {
-    response.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="popover-test.txt"' });
+    response.writeHead(200, {
+      'content-type': 'application/octet-stream',
+      'content-disposition': 'attachment; filename="popover-test.txt"',
+    });
     response.end('Native downloads popover fixture.');
     return;
   }
@@ -30,7 +33,18 @@ const server = createServer((request, response) => {
     response.end(JSON.stringify({ ok: true, fixture: 'desktop-testing' }));
     return;
   }
-  const file = pathname === '/privacy' ? 'privacy.html' : pathname === '/ipc-probe' ? 'ipc-probe.html' : pathname === '/two' ? 'two.html' : pathname === '/slow' ? 'slow.html' : pathname === '/showcase' ? 'showcase.html' : 'one.html';
+  const file =
+    pathname === '/privacy'
+      ? 'privacy.html'
+      : pathname === '/ipc-probe'
+        ? 'ipc-probe.html'
+        : pathname === '/two'
+          ? 'two.html'
+          : pathname === '/slow'
+            ? 'slow.html'
+            : pathname === '/showcase'
+              ? 'showcase.html'
+              : 'one.html';
   const delay = pathname === '/slow' ? 300 : 0;
   const contentType = extname(file) === '.html' ? 'text/html; charset=utf-8' : 'application/octet-stream';
   response.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' });

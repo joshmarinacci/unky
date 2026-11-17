@@ -17,9 +17,12 @@ describe('native address suggestions popup', () => {
     await browser.saveScreenshot('test-results/address-suggestions-popup.png');
     await result.click();
     await browser.switchToWindow('wdio-host');
-    await browser.waitUntil(async () => {
-      const state = await invoke('get_browser_state') as { tabs: Array<{ url: string }> };
-      return state.tabs.some(tab => tab.url === 'http://127.0.0.1:4179/two');
-    }, { timeout: 5000, timeoutMsg: 'Selecting the popup result did not navigate the browser' });
+    await browser.waitUntil(
+      async () => {
+        const state = (await invoke('get_browser_state')) as { tabs: Array<{ url: string }> };
+        return state.tabs.some((tab) => tab.url === 'http://127.0.0.1:4179/two');
+      },
+      { timeout: 5000, timeoutMsg: 'Selecting the popup result did not navigate the browser' },
+    );
   });
 });

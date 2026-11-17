@@ -13,7 +13,12 @@ for (let index = 0; index < args.length; index += 1) {
     dryRun = true;
   } else if (args[index] === '--from-git') {
     fromGit = true;
-  } else if (args[index] === '--notes' && notesArgument === undefined && args[index + 1] && !args[index + 1].startsWith('--')) {
+  } else if (
+    args[index] === '--notes' &&
+    notesArgument === undefined &&
+    args[index + 1] &&
+    !args[index + 1].startsWith('--')
+  ) {
     notesArgument = args[index + 1];
     index += 1;
   } else {
@@ -45,14 +50,16 @@ const nextVersion = `${major}.${minor}.${Number(patch) + 1}`;
 const cargoPackageStart = cargoToml.indexOf('[package]');
 const cargoPackageEnd = cargoToml.slice(cargoPackageStart + '[package]'.length).search(/^\[/m);
 if (cargoPackageStart < 0) throw new Error('src-tauri/Cargo.toml has no [package] section');
-const cargoPackage = cargoPackageEnd < 0
-  ? cargoToml.slice(cargoPackageStart)
-  : cargoToml.slice(cargoPackageStart, cargoPackageStart + '[package]'.length + cargoPackageEnd);
+const cargoPackage =
+  cargoPackageEnd < 0
+    ? cargoToml.slice(cargoPackageStart)
+    : cargoToml.slice(cargoPackageStart, cargoPackageStart + '[package]'.length + cargoPackageEnd);
 const cargoVersionMatch = cargoPackage.match(/^version\s*=\s*"([^"]+)"/m);
 if (!cargoVersionMatch) throw new Error('Could not find the package version in src-tauri/Cargo.toml');
 
 const cargoLockVersionMatches = [...cargoLock.matchAll(/^\[\[package\]\]\nname = "my-browser"\nversion = "([^"]+)"/gm)];
-if (cargoLockVersionMatches.length !== 1) throw new Error(`Expected one my-browser package in Cargo.lock, found ${cargoLockVersionMatches.length}`);
+if (cargoLockVersionMatches.length !== 1)
+  throw new Error(`Expected one my-browser package in Cargo.lock, found ${cargoLockVersionMatches.length}`);
 
 const versions = [
   ['package.json', packageJson.version],
@@ -64,7 +71,9 @@ const versions = [
 ];
 const mismatches = versions.filter(([, value]) => value !== currentVersion);
 if (mismatches.length) {
-  throw new Error(`Version values do not match package.json (${currentVersion}): ${mismatches.map(([path, value]) => `${path}=${value ?? 'missing'}`).join(', ')}`);
+  throw new Error(
+    `Version values do not match package.json (${currentVersion}): ${mismatches.map(([path, value]) => `${path}=${value ?? 'missing'}`).join(', ')}`,
+  );
 }
 
 if (changelog.includes(`## ${nextVersion}\n`)) {
@@ -95,8 +104,7 @@ async function enterNotes(rl) {
 }
 
 function editorCommandParts(command) {
-  return (command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [])
-    .map((part) => part.replace(/^(['"])(.*)\1$/, '$2'));
+  return (command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? []).map((part) => part.replace(/^(['"])(.*)\1$/, '$2'));
 }
 
 function editNotesInPreferredEditor(initialNotes) {
@@ -142,9 +150,12 @@ async function readReleaseNotes() {
 }
 
 const rawNotes = await readReleaseNotes();
-const notes = rawNotes.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) =>
-  /^[-*]\s+/.test(line) ? `- ${line.replace(/^[-*]\s+/, '')}` : `- ${line}`,
-).join('\n');
+const notes = rawNotes
+  .split(/\r?\n/)
+  .map((line) => line.trim())
+  .filter(Boolean)
+  .map((line) => (/^[-*]\s+/.test(line) ? `- ${line.replace(/^[-*]\s+/, '')}` : `- ${line}`))
+  .join('\n');
 if (!notes) throw new Error('At least one user-facing release note is required; no files were changed');
 
 const releaseSection = `## ${nextVersion}\n\n${notes}\n\n`;
