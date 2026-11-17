@@ -164,6 +164,58 @@ describe('native Tauri browser', () => {
       return page.url === 'http://127.0.0.1:4179/' && page.readyState === 'complete';
     });
   });
+  it('rejects page IPC without a native gesture, from background tabs, and from cross-origin frames', async () => {
+    // Earlier tests simulate a gesture for synthetic context menus. Let it expire
+    // (GESTURE_LIFETIME is 1 s) so the probe really runs without one.
+    await browser.pause(1500);
+    const windowsBefore = await browserUi('inspect-windows') as string[];
+    const created = await invoke('create_tab') as { activeTabId: string; tabs: Array<{ id: string }> };
+    const probeTab = created.activeTabId;
+    try {
+      await runProbe(probeTab, created.tabs.length, windowsBefore);
+    } finally {
+      // Never leak a window or tab into later tests, even when an assertion fails.
+      for (const label of (await browserUi('inspect-windows') as string[]).filter(label => !windowsBefore.includes(label))) {
+        await browserUi('close-window', undefined, undefined, { windowLabel: label });
+      }
+      const state = await invoke('get_browser_state') as { tabs: Array<{ id: string }> };
+      for (const tab of state.tabs.filter(tab => tab.id !== 'tab-1' && !created.tabs.some(existing => existing.id === tab.id))) {
+        await invoke('close_tab', { tabId: tab.id });
+      }
+      await invoke('close_tab', { tabId: probeTab }).catch(() => {});
+    }
+  });
+  async function runProbe(probeTab: string, tabCount: number, windowsBefore: string[]) {
+    type Probe = {
+      newWindow?: string; newTab?: string; tabFolders?: string; externalBrowsers?: string; focusFromBackground?: string;
+      immediateDone?: boolean; backgroundDone?: boolean; iframe?: { internals: string; call?: string };
+    };
+    const readProbe = async (tabId: string): Promise<Probe> => {
+      const line = (await inspect(tabId)).text.split('\n').find((text: string) => text.trim().startsWith('{'));
+      return line ? JSON.parse(line) as Probe : {};
+    };
+    await invoke('navigate', { tabId: probeTab, url: 'http://127.0.0.1:4179/ipc-probe' });
+    await browser.waitUntil(async () => (await readProbe(probeTab)).immediateDone === true,
+      { timeout: 15000, timeoutMsg: 'The IPC probe page did not finish its immediate calls' });
+    // Send the probe offscreen before its delayed focus attempt fires.
+    await invoke('select_tab', { tabId: 'tab-1' });
+    await browser.waitUntil(async () => {
+      const probe = await readProbe(probeTab);
+      return probe.backgroundDone === true && probe.iframe !== undefined;
+    }, { timeout: 15000, timeoutMsg: 'The IPC probe did not finish its background and iframe checks' });
+    const probe = await readProbe(probeTab);
+    writeFileSync(join(results, 'page-ipc-probe.json'), JSON.stringify(probe, null, 2));
+
+    for (const key of ['newWindow', 'newTab', 'tabFolders', 'externalBrowsers'] as const) {
+      assert.match(probe[key] ?? '', /^rejected: .*(click or key press|focused browser window)/, `${key}: ${probe[key]}`);
+    }
+    assert.match(probe.focusFromBackground ?? '', /^rejected: .*on screen/, probe.focusFromBackground);
+    assert.notEqual(probe.iframe?.internals, 'function', `cross-origin frame reached Tauri IPC: ${JSON.stringify(probe.iframe)}`);
+    const after = await invoke('get_browser_state') as { activeTabId: string; tabs: Array<{ id: string }> };
+    assert.equal(after.activeTabId, 'tab-1', 'the background probe must not take focus');
+    assert.equal(after.tabs.length, tabCount, 'the probe must not open tabs');
+    assert.deepEqual(await browserUi('inspect-windows'), windowsBefore, 'the probe must not open windows');
+  }
   it('forwards a command-line URL into a private tab in the running browser', async () => {
     type Snapshot = { tabs: Array<{ id: string; url: string; private: boolean }> };
     const url = 'http://127.0.0.1:4179/two';

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>IPC probe</title>
+  </head>
+  <body>
+    <h1>Page IPC probe</h1>
+    <p>Calls page-granted Tauri commands without any user gesture, the way a hostile site could.</p>
+    <a href="/two?source=ipc-probe">A link for context menus</a>
+    <pre id="results">{}</pre>
+    <iframe title="Cross-origin probe" src="http://127.0.0.1:4181/frame"></iframe>
+    <script>
+      const results = {};
+      const show = () => { document.getElementById('results').textContent = JSON.stringify(results); };
+      const attempt = async (name, command, args) => {
+        try {
+          await window.__TAURI_INTERNALS__.invoke(command, args);
+          results[name] = 'allowed';
+        } catch (error) {
+          results[name] = 'rejected: ' + String(error);
+        }
+        show();
+      };
+      window.addEventListener('message', event => {
+        if (event.origin !== 'http://127.0.0.1:4181') return;
+        results.iframe = event.data;
+        show();
+      });
+      (async () => {
+        const url = location.origin + '/two?source=ipc-probe';
+        await attempt('newWindow', 'open_link_in_new_window', { url });
+        await attempt('newTab', 'open_link_in_new_tab', { url, background: true });
+        await attempt('tabFolders', 'get_tab_folders', {});
+        await attempt('externalBrowsers', 'get_external_browsers', {});
+        results.immediateDone = true;
+        show();
+        // By now the test has switched tabs, so this page runs offscreen.
+        setTimeout(async () => {
+          await attempt('focusFromBackground', 'focus_browser_tab', { pointerDown: false });
+          results.backgroundDone = true;
+          show();
+        }, 2000);
+      })();
+    </script>
+  </body>
+</html>

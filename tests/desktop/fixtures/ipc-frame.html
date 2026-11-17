@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Cross-origin IPC probe</title></head>
+  <body>
+    <p>Cross-origin frame</p>
+    <script>
+      const report = data => parent.postMessage(data, '*');
+      const internals = typeof window.__TAURI_INTERNALS__?.invoke;
+      if (internals !== 'function') {
+        report({ internals });
+      } else {
+        window.__TAURI_INTERNALS__.invoke('get_tab_folders', {})
+          .then(() => report({ internals, call: 'allowed' }))
+          .catch(error => report({ internals, call: 'rejected: ' + String(error) }));
+      }
+    </script>
+  </body>
+</html>

@@ -52,6 +52,36 @@ pub struct SplitLayout {
     pub first_pane_percent: u8,
 }
 
+/// Whether a tab's page is on screen: Settings is closed and the tab is active or is
+/// half of the split that holds its window's active tab. Matches `position_tabs`.
+/// Back/forward entries kept per tab.
+pub const MAX_TAB_HISTORY: usize = 100;
+
+pub fn is_tab_visible(
+    tabs: &[TabState],
+    split: Option<&SplitLayout>,
+    settings_open: bool,
+    tab_id: &str,
+) -> bool {
+    let Some(tab) = tabs.iter().find(|tab| tab.id == tab_id) else {
+        return false;
+    };
+    if settings_open || tab.url.is_empty() {
+        return false;
+    }
+    if tab.active {
+        return true;
+    }
+    split.is_some_and(|layout| {
+        (layout.first_tab_id == tab_id || layout.second_tab_id == tab_id)
+            && tabs.iter().any(|other| {
+                other.window_label == tab.window_label
+                    && other.active
+                    && (layout.first_tab_id == other.id || layout.second_tab_id == other.id)
+            })
+    })
+}
+
 fn default_split_ratio() -> u8 {
     50
 }
@@ -350,6 +380,11 @@ impl TabState {
         }
         self.history.truncate(self.history_index.saturating_add(1));
         self.history.push(url.clone());
+        // Pages can push same-origin entries without limit; keep the newest ones.
+        if self.history.len() > MAX_TAB_HISTORY {
+            let excess = self.history.len() - MAX_TAB_HISTORY;
+            self.history.drain(..excess);
+        }
         self.history_index = self.history.len().saturating_sub(1);
         self.url = url;
         self.can_go_back = self.history_index > 0;
@@ -397,8 +432,9 @@ pub fn snapshot(tabs: &[TabState]) -> BrowserSnapshot {
 #[cfg(test)]
 mod tests {
     use super::{
-        cycle_active_tab, download_filename, find_script, next_download_path, remember_closed_tab,
-        take_recently_closed, SessionTab, TabState,
+        cycle_active_tab, download_filename, find_script, is_tab_visible, next_download_path,
+        remember_closed_tab, take_recently_closed, SessionTab, SplitLayout, SplitOrientation,
+        TabState, MAX_TAB_HISTORY,
     };
     use std::{fs, time::SystemTime};
 
@@ -484,5 +520,92 @@ mod tests {
         let script = find_script("two \"words\"", true);
         assert!(script.contains("two \\\"words\\\""));
         assert!(script.contains(", true, true, false"));
+    }
+
+    #[test]
+    fn page_pushed_history_is_capped_to_the_newest_entries() {
+        let mut tab = TabState::new("tab-1".into(), "https://site.test/0".into(), true);
+        tab.record_navigation("https://site.test/0".into());
+        for index in 1..=MAX_TAB_HISTORY + 50 {
+            tab.record_navigation(format!("https://site.test/{index}"));
+        }
+        assert_eq!(tab.history.len(), MAX_TAB_HISTORY);
+        assert_eq!(tab.history_index, MAX_TAB_HISTORY - 1);
+        assert_eq!(
+            tab.history.last().map(String::as_str),
+            Some(format!("https://site.test/{}", MAX_TAB_HISTORY + 50).as_str())
+        );
+        assert!(tab.can_go_back);
+        assert!(!tab.can_go_forward);
+    }
+
+    fn visibility_tabs() -> Vec<TabState> {
+        vec![
+            TabState::new_in_window(
+                "tab-1".into(),
+                "https://one.test".into(),
+                true,
+                false,
+                "main".into(),
+            ),
+            TabState::new_in_window(
+                "tab-2".into(),
+                "https://two.test".into(),
+                false,
+                false,
+                "main".into(),
+            ),
+            TabState::new_in_window(
+                "tab-3".into(),
+                "https://three.test".into(),
+                false,
+                false,
+                "main".into(),
+            ),
+            TabState::new_in_window(
+                "tab-4".into(),
+                "https://four.test".into(),
+                true,
+                false,
+                "browser-window-9".into(),
+            ),
+        ]
+    }
+
+    fn split(first: &str, second: &str) -> SplitLayout {
+        SplitLayout {
+            first_tab_id: first.into(),
+            second_tab_id: second.into(),
+            orientation: SplitOrientation::Horizontal,
+            first_pane_percent: 50,
+        }
+    }
+
+    #[test]
+    fn only_on_screen_tabs_are_visible() {
+        let tabs = visibility_tabs();
+        assert!(is_tab_visible(&tabs, None, false, "tab-1"));
+        assert!(is_tab_visible(&tabs, None, false, "tab-4"));
+        assert!(
+            !is_tab_visible(&tabs, None, false, "tab-2"),
+            "background tab"
+        );
+        assert!(
+            !is_tab_visible(&tabs, None, true, "tab-1"),
+            "Settings covers pages"
+        );
+        assert!(!is_tab_visible(&tabs, None, false, "missing"));
+    }
+
+    #[test]
+    fn split_partner_of_the_active_tab_is_visible() {
+        let tabs = visibility_tabs();
+        let layout = split("tab-1", "tab-2");
+        assert!(is_tab_visible(&tabs, Some(&layout), false, "tab-2"));
+        assert!(!is_tab_visible(&tabs, Some(&layout), false, "tab-3"));
+        // A split that does not hold the active tab is not on screen.
+        let hidden = split("tab-2", "tab-3");
+        assert!(!is_tab_visible(&tabs, Some(&hidden), false, "tab-2"));
+        assert!(!is_tab_visible(&tabs, Some(&hidden), false, "tab-3"));
     }
 }

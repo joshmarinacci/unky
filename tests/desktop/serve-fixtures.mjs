@@ -30,7 +30,7 @@ const server = createServer((request, response) => {
     response.end(JSON.stringify({ ok: true, fixture: 'desktop-testing' }));
     return;
   }
-  const file = pathname === '/privacy' ? 'privacy.html' : pathname === '/two' ? 'two.html' : pathname === '/slow' ? 'slow.html' : pathname === '/showcase' ? 'showcase.html' : 'one.html';
+  const file = pathname === '/privacy' ? 'privacy.html' : pathname === '/ipc-probe' ? 'ipc-probe.html' : pathname === '/two' ? 'two.html' : pathname === '/slow' ? 'slow.html' : pathname === '/showcase' ? 'showcase.html' : 'one.html';
   const delay = pathname === '/slow' ? 300 : 0;
   const contentType = extname(file) === '.html' ? 'text/html; charset=utf-8' : 'application/octet-stream';
   response.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' });
@@ -38,4 +38,15 @@ const server = createServer((request, response) => {
 });
 
 server.listen(4179, '127.0.0.1', () => log({ type: 'server-ready', port: 4179 }));
-process.on('SIGTERM', () => server.close(() => process.exit(0)));
+
+// A second origin for the cross-origin iframe embedded by /ipc-probe.
+const frameServer = createServer((request, response) => {
+  log({ type: 'request', method: request.method, path: request.url, port: 4181 });
+  response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+  createReadStream(resolve(fixtureDir, 'ipc-frame.html')).pipe(response);
+});
+frameServer.listen(4181, '127.0.0.1', () => log({ type: 'server-ready', port: 4181 }));
+process.on('SIGTERM', () => {
+  frameServer.close();
+  server.close(() => process.exit(0));
+});

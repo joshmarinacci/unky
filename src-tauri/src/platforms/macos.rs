@@ -596,3 +596,24 @@ pub fn install_interception_test(app: AppHandle) -> Result<(), Box<dyn std::erro
     }
     Ok(())
 }
+
+/// Record real mouse-down and key-down events so page commands can require a native
+/// user gesture. A local monitor sees every event AppKit dispatches to this app,
+/// including clicks aimed at website child WKWebViews, before the page sees them.
+pub fn install_user_activation_monitor() {
+    use objc2_app_kit::{NSEvent, NSEventMask};
+    use std::ptr::NonNull;
+
+    let mask = NSEventMask::LeftMouseDown
+        | NSEventMask::RightMouseDown
+        | NSEventMask::OtherMouseDown
+        | NSEventMask::KeyDown;
+    let handler = RcBlock::new(|event: NonNull<NSEvent>| -> *mut NSEvent {
+        crate::browser::activation::record_native_gesture();
+        event.as_ptr()
+    });
+    // SAFETY: the handler returns the event it was given, which is a valid pointer.
+    let monitor = unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(mask, &handler) };
+    // The monitor lives for the whole app; AppKit removes it at exit.
+    std::mem::forget(monitor);
+}
