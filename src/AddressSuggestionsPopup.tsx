@@ -1,16 +1,13 @@
 import { useEffect, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
-import { invoke } from '@tauri-apps/api/core';
-import { initialAddressSuggestions, type AddressSuggestionsState } from './addressSuggestions';
+import { initialAddressSuggestions } from './addressSuggestions';
+import { addressSuggestionsEvent, call, onEvent } from './ipc';
 
 export default function AddressSuggestionsPopup() {
   const [suggestions, setSuggestions] = useState(() => initialAddressSuggestions(window.location.search));
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<AddressSuggestionsState>('browser://address-suggestions', (event) =>
-      setSuggestions(event.payload),
-    ).then((stop) => {
+    void onEvent(addressSuggestionsEvent, (event) => setSuggestions(event.payload)).then((stop) => {
       if (disposed) stop();
       else unlisten = stop;
     });
@@ -29,7 +26,7 @@ export default function AddressSuggestionsPopup() {
           aria-selected={index === suggestions.selectedIndex}
           className={`address-suggestion${index === suggestions.selectedIndex ? ' is-active' : ''}`}
           onClick={() => {
-            void invoke('select_address_suggestion', { url: suggestion.url });
+            void call('select_address_suggestion', { url: suggestion.url });
           }}
         >
           <span className="address-suggestion-copy">

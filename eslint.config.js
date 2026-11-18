@@ -23,12 +23,7 @@ export default tseslint.config(
     files: ['src/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
     languageOptions: { globals: globals.browser },
-    rules: {
-      ...reactHooks.configs.flat.recommended.rules,
-      // Two effects in App.tsx reset state when they start (security info, find matches).
-      // Fix them when App.tsx is split into hooks, then restore this rule to an error.
-      'react-hooks/set-state-in-effect': 'warn',
-    },
+    rules: reactHooks.configs.flat.recommended.rules,
   },
   {
     // Scripts Rust injects into or evaluates in website pages (src-tauri/page-scripts).

@@ -57,7 +57,7 @@ Run the frontend unit tests with:
 npm run test:unit
 ```
 
-These tests cover root reordering, moves between nesting levels and folders, folder nesting, cycle prevention, tab-strip orientation, pinned-tab ordering, and page drag feedback. They also check that tab snapshots stay in their owning window and that address suggestions match nested bookmarks and history, prefer bookmarks for duplicate URLs, stop at eight results, wrap keyboard selection, and initialize the popup from its URL data. Tree movement and drop-depth rules live in `src/bookmarkTree.ts`; tab layout and pin ordering helpers live in `src/tabLayout.ts`; address matching and popup initialization live in `src/addressSuggestions.ts` so the app and tests exercise the same code.
+These tests cover root reordering, moves between nesting levels and folders, folder nesting, cycle prevention, tab-strip orientation, pinned-tab ordering, and page drag feedback. They also check that tab snapshots stay in their owning window and that address suggestions match nested bookmarks and history, prefer bookmarks for duplicate URLs, stop at eight results, wrap keyboard selection, and initialize the popup from its URL data. Generic tree movement and drop-depth rules live in `src/tree.ts`, the tab tree in `src/tabTree.ts`, bookmark helpers in `src/bookmarks.ts`, and stored UI preferences in `src/storedPreferences.ts`; tab layout and pin ordering helpers live in `src/tabLayout.ts`; address matching and popup initialization live in `src/addressSuggestions.ts` so the app and tests exercise the same code.
 
 The standalone dnd-kit interaction playground is available at `/?page=tree` while the Vite development server is running (`npm run dev`).
 
