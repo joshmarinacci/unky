@@ -5,7 +5,16 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'target/**', 'src-tauri/**', 'site/**', 'test-results/**', 'node_modules/**'],
+    // Everything under src-tauri/ except page-scripts/ is Rust, config, or generated.
+    ignores: [
+      'dist/**',
+      'target/**',
+      'src-tauri/target/**',
+      'src-tauri/gen/**',
+      'site/**',
+      'test-results/**',
+      'node_modules/**',
+    ],
   },
   js.configs.recommended,
   tseslint.configs.recommended,
@@ -20,6 +29,17 @@ export default tseslint.config(
       // Fix them when App.tsx is split into hooks, then restore this rule to an error.
       'react-hooks/set-state-in-effect': 'warn',
     },
+  },
+  {
+    // Scripts Rust injects into or evaluates in website pages (src-tauri/page-scripts).
+    // They run as classic scripts in the page's own JavaScript world.
+    files: ['src-tauri/page-scripts/**/*.js'],
+    languageOptions: { sourceType: 'script', globals: globals.browser },
+  },
+  {
+    // lib.rs replaces this placeholder with `true` (desktop-test builds) or `false`.
+    files: ['src-tauri/page-scripts/context-menu.js'],
+    languageOptions: { globals: { EXPOSE_MENU_ITEMS: 'readonly' } },
   },
   {
     // Build scripts, the fixture server, and node:test unit tests.
