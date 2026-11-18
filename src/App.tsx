@@ -1,14 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import buildMetadata from './build-metadata.json';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button as AriaButton,
   Input,
   SearchField,
-  ListBox,
-  ListBoxItem,
-  Popover,
-  Select,
-  SelectValue,
   Tab,
   TabList,
   TabPanel,
@@ -23,7 +17,6 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDot,
-  Clock3,
   Columns2,
   Download,
   ExternalLink,
@@ -34,7 +27,6 @@ import {
   LoaderCircle,
   PanelLeftClose,
   PanelLeftOpen,
-  Pencil,
   Pin,
   Plus,
   RotateCw,
@@ -47,8 +39,75 @@ import {
   X,
 } from 'lucide-react';
 import { AppButton, AppInput } from './components/ui';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { DownloadsPage } from './pages/DownloadsPage';
+import { HistoryPage } from './pages/HistoryPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { ShortcutsPage } from './pages/ShortcutsPage';
+import { commandKey } from './platform';
+import { BookmarkSortableRow } from './components/BookmarkSortableRow';
+import {
+  PinnedTabsDock,
+  SortablePinnedTab,
+  SortableRow,
+  pinnedTabsEndId,
+  tabCollisionDetection,
+} from './components/sortableTabRows';
+import { readStored, usePersistedState } from './hooks/usePersistedState';
+import { useLatest } from './hooks/useLatest';
+import {
+  parseCustomPageContextMenu,
+  parseSidebarCollapsed,
+  parseSidebarSide,
+  parseSidebarWidth,
+  parseStringArray,
+  parseStringRecord,
+  parseTabNodes,
+  parseTabPosition,
+  parseTheme,
+  sidebarDefaultWidth,
+  sidebarMaxWidth,
+  sidebarMinWidth,
+  storageKeys,
+  type SidebarSide,
+  type Theme,
+} from './storedPreferences';
+import {
+  call,
+  onEvent,
+  bookmarksEvent,
+  captureProgressEvent,
+  captureStatusEvent,
+  clearHistoryRequestEvent,
+  downloadsEvent,
+  exportBookmarksEvent,
+  filterUpdateProgressEvent,
+  historyEvent,
+  importBookmarksEvent,
+  launchRequestEvent,
+  openTabInFolderEvent,
+  openUrlFromMenuEvent,
+  pagePointerDownEvent,
+  settingsEvent,
+  shortcutEvent,
+  showAllDownloadsEvent,
+  showDownloadsEvent,
+  showHistoryEvent,
+  showShortcutsEvent,
+  splitEvent,
+  splitResizeEvent,
+  tabDragDropEvent,
+  tabEvent,
+  tabPositionMenuEvent,
+  type BrowserSnapshot,
+  type Download as DownloadItem,
+  type FilterSettingsView,
+  type FilterUpdateProgress,
+  type HistoryEntry,
+  type LaunchRequest,
+  type PageSecurityInfo,
+  type SplitLayout,
+  type Tab as BrowserTab,
+} from './ipc';
 import { Menu } from '@tauri-apps/api/menu';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
@@ -59,111 +118,46 @@ import {
   KeyboardSensor,
   PointerSensor,
   closestCenter,
-  useDroppable,
   useSensor,
   useSensors,
-  type CollisionDetection,
   type DragEndEvent,
   type DragMoveEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { SortableContext, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable';
-import { flattenBookmarkNodes, locateBookmark, moveBookmarkToDropZone, resolveBookmarkDropZone } from './bookmarkTree';
-import type { FlatNode, BookmarkDropZone, BookmarkFolder, BookmarkLink, BookmarkNode } from './bookmarkTree';
+import { SortableContext, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import {
+  appendToFolder,
+  containsNode,
+  findNode,
+  flattenTree,
+  folderIds,
+  locateNode,
+  moveNodeToDropZone,
+  removeNode,
+  resolveDropZone,
+  updateNode,
+} from './tree';
+import type { FlatNode, DropZone } from './tree';
+import { filterBookmarkNodes, findBookmarkByUrl, normalizeBookmarkNodes } from './bookmarks';
+import type { BookmarkFolder, BookmarkLink, BookmarkNode } from './bookmarks';
+import {
+  appendTabNodeToFolder,
+  expandedTabFolderIds,
+  flattenTabIds,
+  insertTabNode,
+  reconcileTabNodes,
+  tabFolders,
+  unwrapTabFolder,
+} from './tabTree';
+import type { TabFolder, TabNode } from './tabTree';
 import { groupSplitTabRows } from './splitTabRows';
 import { selectInputText } from './tabUiActions';
 import { snapshotBelongsToWindow } from './browserSnapshot';
 import { findAddressSuggestions, moveAddressSuggestionSelection } from './addressSuggestions';
 import { isTabPosition, reorderTabIds, tabAxisForPosition, resolveTabDragPreview, type TabPosition } from './tabLayout';
 
-type Tab = {
-  id: string;
-  url: string;
-  title: string;
-  loading: boolean;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  active: boolean;
-  zoom: number;
-  private?: boolean;
-  windowLabel?: string;
-};
-
-type BrowserSnapshot = { tabs: Tab[]; activeTabId: string };
-type ExternalBrowser = { id: string; name: string };
-type SplitLayout = {
-  firstTabId: string;
-  secondTabId: string;
-  orientation: 'horizontal' | 'vertical';
-  firstPanePercent: number;
-};
-type PageSecurityInfo = {
-  secureHttps: boolean;
-  location: string;
-  camera: string;
-  microphone: string;
-  playingAudio: boolean;
-};
-type TabReference = { id: string; type: 'tab' };
-type TabFolder = { id: string; type: 'folder'; title: string; collapsed: boolean; children: TabNode[] };
-type TabNode = TabReference | TabFolder;
-type HistoryEntry = { id: string; url: string; title: string; visitedAt: number; favicon?: string };
-type Download = {
-  id: string;
-  url: string;
-  filename: string;
-  path: string;
-  status: 'downloading' | 'completed' | 'failed';
-  bytesReceived: number;
-};
-type Theme = 'system' | 'light' | 'dark';
-type SidebarSide = 'left' | 'right';
-type FilterSettingsView = {
-  enabled: boolean;
-  sourceUrl: string;
-  updatedAt: number | null;
-  acceptedRules: number;
-  exceptions: string[];
-};
-type FilterUpdateProgress = {
-  phase: 'downloading' | 'compiling' | 'complete';
-  receivedBytes: number;
-  totalBytes: number | null;
-};
-type LaunchRequest = { url: string; private: boolean };
-type SessionTestPhase = 'exercise' | 'restore';
-const tabEvent = 'browser://tabs-changed';
-const pagePointerDownEvent = 'browser://page-pointer-down';
-const settingsEvent = 'browser://open-settings';
-const showHistoryEvent = 'browser://show-history';
-const showDownloadsEvent = 'browser://show-downloads';
-const showAllDownloadsEvent = 'browser://show-all-downloads';
-const showShortcutsEvent = 'browser://show-shortcuts';
-const shortcutEvent = 'browser://shortcut';
-const tabPositionMenuEvent = 'browser://tab-position-menu';
-const historyEvent = 'browser://history-changed';
-const bookmarksEvent = 'browser://bookmarks-changed';
-const openUrlFromMenuEvent = 'browser://open-url-from-menu';
-const importBookmarksEvent = 'browser://import-bookmarks';
-const exportBookmarksEvent = 'browser://export-bookmarks';
-const clearHistoryRequestEvent = 'browser://clear-history-request';
-const downloadsEvent = 'browser://downloads-changed';
-const captureStatusEvent = 'browser://capture-status';
-const captureProgressEvent = 'browser://capture-progress';
-const filterUpdateProgressEvent = 'browser://filter-update-progress';
-const launchRequestEvent = 'browser://launch-request';
-const splitEvent = 'browser://split-changed';
-const sidebarDefaultWidth = 240;
-const sidebarMinWidth = 176;
-const sidebarMaxWidth = 360;
-const pinnedTabsEndId = '__pinned_tabs_end__';
-const tabPositions: { id: TabPosition; symbol: string }[] = [
-  { id: 'left', symbol: '←' },
-  { id: 'right', symbol: '→' },
-  { id: 'top', symbol: '↑' },
-  { id: 'bottom', symbol: '↓' },
-];
-const commandKey = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
+type Tab = BrowserTab;
+type Download = DownloadItem;
 const sessionTestUrls = [
   'http://127.0.0.1:4179/index.html?session=first',
   'http://127.0.0.1:4179/index.html?session=second',
@@ -180,747 +174,29 @@ function assertSessionTestState(snapshot: BrowserSnapshot, expectedUrls: string[
   }
 }
 
-function initialSidebarWidth() {
-  const saved = Number(localStorage.getItem('browser.sidebarWidth'));
-  return Number.isFinite(saved) && saved >= sidebarMinWidth && saved <= sidebarMaxWidth ? saved : sidebarDefaultWidth;
-}
-
-function initialTabPosition(): TabPosition {
-  const saved = localStorage.getItem('browser.tabPosition');
-  return isTabPosition(saved) ? saved : 'left';
-}
-
-function initialSidebarSide(): SidebarSide {
-  const saved = localStorage.getItem('browser.sidebarSide');
-  if (saved === 'left' || saved === 'right') return saved;
-  return initialTabPosition() === 'right' ? 'right' : 'left';
-}
-
-function initialSidebarCollapsed() {
-  return localStorage.getItem('browser.sidebarCollapsed') === 'true';
-}
-
-function normalizeTabNodes(value: unknown): TabNode[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item): TabNode[] => {
-    if (!item || typeof item !== 'object') return [];
-    const node = item as Record<string, unknown>;
-    if (node.type === 'folder' && typeof node.title === 'string') {
-      return [
-        {
-          id: typeof node.id === 'string' ? node.id : crypto.randomUUID(),
-          type: 'folder',
-          title: node.title,
-          collapsed: node.collapsed === true,
-          children: normalizeTabNodes(node.children),
-        },
-      ];
-    }
-    if (node.type === 'tab' && typeof node.id === 'string') return [{ id: node.id, type: 'tab' }];
-    return [];
-  });
-}
-
-function initialTabNodes(): TabNode[] {
-  try {
-    return normalizeTabNodes(JSON.parse(localStorage.getItem('browser.tabTree') ?? '[]'));
-  } catch {
-    return [];
-  }
-}
-
-function initialTabNameOverrides(): Record<string, string> {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem('browser.tabNames') ?? '{}');
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-    return Object.fromEntries(
-      Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
-    );
-  } catch {
-    return {};
-  }
-}
-
-function initialHistoryTabIds(): string[] {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem('browser.historyTabs') ?? '[]');
-    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function initialSettingsTabIds(): string[] {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem('browser.settingsTabs') ?? '[]');
-    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function initialPinnedTabIds(): string[] {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem('browser.pinnedTabs') ?? '[]');
-    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function reconcileTabNodes(nodes: TabNode[], tabs: Tab[]): TabNode[] {
-  const validIds = new Set(tabs.map((tab) => tab.id));
-  const seenIds = new Set<string>();
-  const visit = (items: TabNode[]): TabNode[] =>
-    items.flatMap((node): TabNode[] => {
-      if (node.type === 'tab') {
-        if (!validIds.has(node.id) || seenIds.has(node.id)) return [];
-        seenIds.add(node.id);
-        return [node];
-      }
-      return [{ ...node, children: visit(node.children) }];
-    });
-  const reconciled = visit(nodes);
-  for (const tab of tabs) if (!seenIds.has(tab.id)) reconciled.push({ id: tab.id, type: 'tab' });
-  return reconciled;
-}
-
-function flattenTabIds(nodes: TabNode[]): string[] {
-  return nodes.flatMap((node) => (node.type === 'tab' ? [node.id] : flattenTabIds(node.children)));
-}
-
-function expandedTabFolderIds(nodes: TabNode[]): string[] {
-  return nodes.flatMap((node) =>
-    node.type === 'folder' ? [...(!node.collapsed ? [node.id] : []), ...expandedTabFolderIds(node.children)] : [],
-  );
-}
-
-function bookmarkFolderIds(nodes: BookmarkNode[]): string[] {
-  return nodes.flatMap((node) => (node.type === 'folder' ? [node.id, ...bookmarkFolderIds(node.children)] : []));
-}
-
-function findTabNode(nodes: TabNode[], id: string): TabNode | undefined {
-  for (const node of nodes) {
-    if (node.id === id) return node;
-    if (node.type === 'folder') {
-      const found = findTabNode(node.children, id);
-      if (found) return found;
-    }
-  }
-  return undefined;
-}
-
-function tabFolders(nodes: TabNode[]): TabFolder[] {
-  return nodes.flatMap((node) => (node.type === 'folder' ? [node, ...tabFolders(node.children)] : []));
-}
-
-function updateTabNode(nodes: TabNode[], id: string, update: (node: TabNode) => TabNode): TabNode[] {
-  return nodes.map((node) =>
-    node.id === id
-      ? update(node)
-      : node.type === 'folder'
-        ? { ...node, children: updateTabNode(node.children, id, update) }
-        : node,
-  );
-}
-
-function removeTabNode(nodes: TabNode[], id: string): { nodes: TabNode[]; removed?: TabNode } {
-  let removed: TabNode | undefined;
-  const result = nodes.flatMap<TabNode>((node) => {
-    if (node.id === id) {
-      removed = node;
-      return [];
-    }
-    if (node.type === 'folder') {
-      const nested = removeTabNode(node.children, id);
-      if (nested.removed) removed = nested.removed;
-      return [{ ...node, children: nested.nodes }];
-    }
-    return [node];
-  });
-  return { nodes: result, removed };
-}
-
-function containsTabNode(node: TabNode, id: string): boolean {
-  return node.id === id || (node.type === 'folder' && node.children.some((child) => containsTabNode(child, id)));
-}
-
-function insertTabNode(
-  nodes: TabNode[],
-  targetId: string,
-  moving: TabNode,
-  after: boolean,
-): { nodes: TabNode[]; inserted: boolean } {
-  const result: TabNode[] = [];
-  for (const node of nodes) {
-    if (node.id === targetId)
-      return {
-        nodes: [...result, ...(after ? [node, moving] : [moving, node]), ...nodes.slice(result.length + 1)],
-        inserted: true,
-      };
-    if (node.type === 'folder') {
-      const nested = insertTabNode(node.children, targetId, moving, after);
-      if (nested.inserted)
-        return {
-          nodes: [...result, { ...node, children: nested.nodes }, ...nodes.slice(result.length + 1)],
-          inserted: true,
-        };
-    }
-    result.push(node);
-  }
-  return { nodes: result, inserted: false };
-}
-
-function appendTabNodeToFolder(
-  nodes: TabNode[],
-  folderId: string,
-  moving: TabNode,
-): { nodes: TabNode[]; inserted: boolean } {
-  let inserted = false;
-  const result = nodes.map((node) => {
-    if (node.id === folderId && node.type === 'folder') {
-      inserted = true;
-      return { ...node, children: [...node.children, moving], collapsed: false };
-    }
-    if (!inserted && node.type === 'folder') {
-      const nested = appendTabNodeToFolder(node.children, folderId, moving);
-      if (nested.inserted) inserted = true;
-      return nested.inserted ? { ...node, children: nested.nodes } : node;
-    }
-    return node;
-  });
-  return { nodes: result, inserted };
-}
-
-function unwrapTabFolder(nodes: TabNode[], folderId: string): { nodes: TabNode[]; unwrapped: boolean } {
-  const rootIndex = nodes.findIndex((node) => node.id === folderId && node.type === 'folder');
-  if (rootIndex >= 0) {
-    const folder = nodes[rootIndex] as TabFolder;
-    return {
-      nodes: [...nodes.slice(0, rootIndex), ...folder.children, ...nodes.slice(rootIndex + 1)],
-      unwrapped: true,
-    };
-  }
-  for (let index = 0; index < nodes.length; index += 1) {
-    const node = nodes[index];
-    if (node.type !== 'folder') continue;
-    const nested = unwrapTabFolder(node.children, folderId);
-    if (nested.unwrapped) {
-      const result = [...nodes];
-      result[index] = { ...node, children: nested.nodes };
-      return { nodes: result, unwrapped: true };
-    }
-  }
-  return { nodes, unwrapped: false };
-}
-
-function normalizeBookmarkNodes(value: unknown): BookmarkNode[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item): BookmarkNode[] => {
-    if (!item || typeof item !== 'object') return [];
-    const node = item as Record<string, unknown>;
-    if (node.type === 'folder' && typeof node.title === 'string') {
-      return [
-        {
-          id: typeof node.id === 'string' ? node.id : crypto.randomUUID(),
-          type: 'folder',
-          title: node.title,
-          children: normalizeBookmarkNodes(node.children),
-        },
-      ];
-    }
-    if (typeof node.title === 'string' && typeof node.url === 'string') {
-      return [
-        {
-          id: typeof node.id === 'string' ? node.id : crypto.randomUUID(),
-          type: 'bookmark',
-          title: node.title,
-          url: node.url,
-          description: typeof node.description === 'string' ? node.description : '',
-          favicon: typeof node.favicon === 'string' ? node.favicon : undefined,
-        },
-      ];
-    }
-    return [];
-  });
-}
-
 function initialBookmarks(): BookmarkNode[] {
   try {
-    const saved = JSON.parse(localStorage.getItem('browser.bookmarks') ?? '[]');
+    const saved = JSON.parse(localStorage.getItem(storageKeys.bookmarks) ?? '[]');
     return normalizeBookmarkNodes(saved);
   } catch {
     return [];
   }
 }
 
-function findBookmarkByUrl(nodes: BookmarkNode[], url: string): BookmarkLink | undefined {
-  for (const node of nodes) {
-    if (node.type === 'bookmark' && node.url === url) return node;
-    if (node.type === 'folder') {
-      const match = findBookmarkByUrl(node.children, url);
-      if (match) return match;
-    }
-  }
-  return undefined;
-}
-
-function updateBookmarkNode(
-  nodes: BookmarkNode[],
-  id: string,
-  update: (node: BookmarkNode) => BookmarkNode,
-): BookmarkNode[] {
-  return nodes.map((node) => {
-    if (node.id === id) return update(node);
-    return node.type === 'folder' ? { ...node, children: updateBookmarkNode(node.children, id, update) } : node;
-  });
-}
-
-function removeBookmarkNode(nodes: BookmarkNode[], id: string): { nodes: BookmarkNode[]; removed?: BookmarkNode } {
-  let removed: BookmarkNode | undefined;
-  const remaining = nodes.flatMap<BookmarkNode>((node) => {
-    if (node.id === id) {
-      removed = node;
-      return [];
-    }
-    if (node.type === 'folder') {
-      const nested = removeBookmarkNode(node.children, id);
-      if (nested.removed) removed = nested.removed;
-      return [{ ...node, children: nested.nodes }];
-    }
-    return [node];
-  });
-  return { nodes: remaining, removed };
-}
-
-function appendBookmarkToFolder(
-  nodes: BookmarkNode[],
-  folderId: string,
-  moving: BookmarkNode,
-): { nodes: BookmarkNode[]; inserted: boolean } {
-  let inserted = false;
-  const next = nodes.map((node) => {
-    if (node.id === folderId && node.type === 'folder') {
-      inserted = true;
-      return { ...node, children: [...node.children, moving] };
-    }
-    if (!inserted && node.type === 'folder') {
-      const nested = appendBookmarkToFolder(node.children, folderId, moving);
-      if (nested.inserted) inserted = true;
-      return nested.inserted ? { ...node, children: nested.nodes } : node;
-    }
-    return node;
-  });
-  return { nodes: next, inserted };
-}
-
-function filterBookmarkNodes(nodes: BookmarkNode[], query: string): BookmarkNode[] {
-  if (!query) return nodes;
-  const normalized = query.toLowerCase();
-  return nodes.flatMap<BookmarkNode>((node) => {
-    if (node.type === 'bookmark')
-      return `${node.title} ${node.url} ${node.description ?? ''}`.toLowerCase().includes(normalized) ? [node] : [];
-    if (node.title.toLowerCase().includes(normalized)) return [node];
-    const children = filterBookmarkNodes(node.children, query);
-    return children.length ? [{ ...node, children }] : [];
-  });
-}
-
-function BookmarkSortableRow({
-  node,
-  depth,
-  expanded,
-  dropZone,
-  editing,
-  onToggle,
-  onOpen,
-  onEdit,
-  onDelete,
-  onNewFolder,
-  onRename,
-  onCancelRename,
-  editingFolder,
-  folderTitle,
-  setFolderTitle,
-  saveFolderTitle,
-  editForm,
-  onContextMenu,
-}: {
-  node: BookmarkNode;
-  depth: number;
-  expanded: boolean;
-  dropZone?: BookmarkDropZone;
-  editing: boolean;
-  onToggle: () => void;
-  onOpen: (url: string) => void;
-  onEdit: (node: BookmarkLink) => void;
-  onDelete: (node: BookmarkNode) => void;
-  onNewFolder: (id: string) => void;
-  onContextMenu: (event: React.MouseEvent, bookmark: BookmarkNode) => void;
-  onRename: (node: BookmarkFolder) => void;
-  onCancelRename: () => void;
-  editingFolder: boolean;
-  folderTitle: string;
-  setFolderTitle: (value: string) => void;
-  saveFolderTitle: () => void;
-  editForm: React.ReactNode;
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useSortable({
-    id: node.id,
-    disabled: editing || editingFolder,
-  });
-  const style = { opacity: isDragging ? 0.35 : 1 };
-  const itemProps = {
-    ...attributes,
-    role: 'treeitem',
-    'aria-level': depth + 1,
-    'aria-expanded': node.type === 'folder' ? expanded : undefined,
-  };
-  const itemClass = `bookmark-sortable-item ${dropZone ? `drop-${dropZone}` : ''}`;
-  const stopDrag = (event: React.PointerEvent) => event.stopPropagation();
-  if (node.type === 'folder')
-    return (
-      <div ref={setNodeRef} style={style} className={itemClass} {...itemProps} {...listeners}>
-        <div
-          className="folder-row bookmark-dnd-folder"
-          style={{ paddingLeft: depth * 14 }}
-          onClick={() => {
-            if (!editingFolder) onToggle();
-          }}
-          onContextMenu={(event) => onContextMenu(event, node)}
-        >
-          <button
-            className="folder-toggle"
-            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.title}`}
-            onPointerDown={stopDrag}
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggle();
-            }}
-          >
-            {expanded ? (
-              <ChevronDown className="ui-icon" size={14} aria-hidden="true" />
-            ) : (
-              <ChevronRight className="ui-icon" size={14} aria-hidden="true" />
-            )}
-          </button>
-          <span className="bookmark-icon folder-icon" aria-hidden="true">
-            <Folder className="ui-icon" size={14} />
-          </span>
-          {editingFolder ? (
-            <AppInput
-              className="folder-title-input"
-              aria-label="Folder name"
-              autoFocus
-              value={folderTitle}
-              onPointerDown={stopDrag}
-              onChange={(event) => setFolderTitle(event.target.value)}
-              onBlur={saveFolderTitle}
-              onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  saveFolderTitle();
-                }
-                if (event.key === 'Escape') {
-                  onCancelRename();
-                }
-              }}
-            />
-          ) : (
-            <span className="folder-title" title={node.title}>
-              {node.title}
-            </span>
-          )}
-          {!node.children.length && expanded && <span className="tree-empty-hint">Empty folder</span>}
-          <span className="folder-actions">
-            <button
-              type="button"
-              className="folder-action"
-              aria-label={`Create subfolder in ${node.title}`}
-              title="New subfolder"
-              onPointerDown={stopDrag}
-              onClick={(event) => {
-                event.stopPropagation();
-                onNewFolder(node.id);
-              }}
-            >
-              <FolderPlus className="ui-icon" size={14} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className="folder-action"
-              aria-label={`Rename ${node.title}`}
-              title="Rename folder"
-              onPointerDown={stopDrag}
-              onClick={(event) => {
-                event.stopPropagation();
-                onRename(node);
-              }}
-            >
-              <Pencil className="ui-icon" size={14} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className="folder-action"
-              aria-label={`Delete ${node.title}`}
-              title="Delete folder and contents"
-              onPointerDown={stopDrag}
-              onClick={(event) => {
-                event.stopPropagation();
-                onDelete(node);
-              }}
-            >
-              <X className="ui-icon" size={14} aria-hidden="true" />
-            </button>
-          </span>
-        </div>
-      </div>
-    );
-  if (editing)
-    return (
-      <div ref={setNodeRef} className="bookmark-sortable-item" style={{ paddingLeft: depth * 14 }}>
-        {editForm}
-      </div>
-    );
-  return (
-    <div ref={setNodeRef} style={style} className={itemClass} {...itemProps} {...listeners}>
-      <div
-        className="bookmark-row bookmark-tree-row bookmark-dnd-link"
-        style={{ paddingLeft: depth * 14 }}
-        onClick={() => onOpen(node.url)}
-        onContextMenu={(event) => onContextMenu(event, node)}
-      >
-        <span className="bookmark-open">
-          <span className="bookmark-icon">
-            {node.favicon ? (
-              <img
-                className="bookmark-favicon"
-                src={node.favicon}
-                alt=""
-                onError={(event) => {
-                  event.currentTarget.hidden = true;
-                }}
-              />
-            ) : (
-              <Star className="ui-icon" size={14} aria-hidden="true" />
-            )}
-          </span>
-          <span>
-            <strong>{node.title}</strong>
-            <small>{node.url}</small>
-          </span>
-        </span>
-        <button
-          type="button"
-          className="bookmark-edit"
-          aria-label={`Edit ${node.title}`}
-          onPointerDown={stopDrag}
-          onClick={(event) => {
-            event.stopPropagation();
-            onEdit(node);
-          }}
-        >
-          <Pencil className="ui-icon" size={14} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="bookmark-delete"
-          aria-label={`Delete ${node.title}`}
-          onPointerDown={stopDrag}
-          onClick={(event) => {
-            event.stopPropagation();
-            onDelete(node);
-          }}
-        >
-          <X className="ui-icon" size={14} aria-hidden="true" />
-        </button>
-      </div>
-    </div>
+function readSidebarSide(stored: string | null): SidebarSide {
+  return parseSidebarSide(
+    stored,
+    readStored(storageKeys.tabPosition, (tabPosition) => tabPosition),
   );
-}
-
-function SortableRow({
-  id,
-  depth,
-  expanded,
-  dropZone,
-  disabled,
-  className,
-  label,
-  current,
-  onActivate,
-  onContextMenu,
-  children,
-  style,
-}: {
-  id: string;
-  depth: number;
-  expanded?: boolean;
-  dropZone?: BookmarkDropZone;
-  disabled: boolean;
-  className: string;
-  label: string;
-  current?: boolean;
-  onActivate?: () => void;
-  onContextMenu: (event: React.MouseEvent) => void;
-  children: React.ReactNode;
-  style?: React.CSSProperties;
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useSortable({
-    id,
-    disabled,
-    data: { container: 'tabs', nodeId: id },
-  });
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ opacity: isDragging ? 0.35 : 1, ...style }}
-      className={`${className} ${dropZone ? `drop-${dropZone}` : ''}`}
-      data-tab-node-id={id}
-      {...attributes}
-      {...listeners}
-      role="treeitem"
-      aria-label={label}
-      aria-level={depth + 1}
-      aria-expanded={expanded}
-      aria-current={current ? 'page' : undefined}
-      onContextMenu={onContextMenu}
-      onKeyDown={(event) => {
-        listeners?.onKeyDown?.(event);
-        if (event.key === 'Enter' && event.target === event.currentTarget) onActivate?.();
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function SortablePinnedTab({
-  id,
-  tabId,
-  title,
-  selected,
-  compact,
-  dropZone,
-  children,
-  onClick,
-  onContextMenu,
-}: {
-  id: string;
-  tabId: string;
-  title: string;
-  selected: boolean;
-  compact?: boolean;
-  dropZone?: BookmarkDropZone;
-  children: React.ReactNode;
-  onClick: () => void;
-  onContextMenu: (event: React.MouseEvent) => void;
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useSortable({
-    id,
-    disabled: compact,
-    data: { container: 'pinned', nodeId: tabId },
-  });
-  return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      className={`${compact ? 'rail-button' : 'pinned-tab-button'} ${selected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${dropZone ? `drop-${dropZone}` : ''}`}
-      style={{ opacity: isDragging ? 0.4 : 1 }}
-      title={title}
-      aria-label={`Pinned tab: ${title}`}
-      aria-current={selected ? 'page' : undefined}
-      data-tab-id={tabId}
-      onClick={onClick}
-      onContextMenu={onContextMenu}
-      {...attributes}
-      {...listeners}
-    >
-      {children}
-    </button>
-  );
-}
-
-function PinnedTabsDock({ children, active, empty }: { children: React.ReactNode; active: boolean; empty: boolean }) {
-  const { setNodeRef } = useDroppable({ id: pinnedTabsEndId, data: { container: 'pinned', nodeId: null } });
-  return (
-    <div
-      ref={setNodeRef}
-      className={`pinned-tabs-row${active ? ' drop-active' : ''}`}
-      role="group"
-      aria-label="Pinned tabs"
-    >
-      {children}
-      {empty && <span className="pinned-tabs-hint">Drop tabs here to pin</span>}
-    </div>
-  );
-}
-
-const tabCollisionDetection: CollisionDetection = (args) => {
-  const { pointerCoordinates: pointer, droppableContainers, droppableRects } = args;
-  if (!pointer) return closestCenter(args);
-
-  const dock = droppableContainers.find((container) => container.id === pinnedTabsEndId);
-  const dockRect = dock && droppableRects.get(dock.id);
-  const inDock = Boolean(
-    dockRect &&
-    pointer.x >= dockRect.left &&
-    pointer.x <= dockRect.right &&
-    pointer.y >= dockRect.top &&
-    pointer.y <= dockRect.bottom,
-  );
-  const candidates = droppableContainers.filter(
-    (container) => container.data.current?.container === (inDock ? 'pinned' : 'tabs'),
-  );
-  if (!candidates.length) return [];
-
-  if (inDock) {
-    const chips = candidates.filter((container) => container.id !== pinnedTabsEndId);
-    if (!chips.length) return dock ? [{ id: dock.id, data: { droppableContainer: dock } }] : [];
-    return chips
-      .map((container) => {
-        const rect = droppableRects.get(container.id);
-        return {
-          id: container.id,
-          data: {
-            droppableContainer: container,
-            value: Math.abs(pointer.x - (rect ? rect.left + rect.width / 2 : pointer.x)),
-          },
-        };
-      })
-      .sort((a, b) => (a.data?.value ?? 0) - (b.data?.value ?? 0));
-  }
-
-  const horizontal =
-    document.querySelector('.browser-shell')?.getAttribute('data-tab-position') === 'top' ||
-    document.querySelector('.browser-shell')?.getAttribute('data-tab-position') === 'bottom';
-  return candidates
-    .map((container) => {
-      const rect = droppableRects.get(container.id);
-      const center = rect ? (horizontal ? rect.left + rect.width / 2 : rect.top + rect.height / 2) : 0;
-      const coordinate = horizontal ? pointer.x : pointer.y;
-      return { id: container.id, data: { droppableContainer: container, value: Math.abs(coordinate - center) } };
-    })
-    .sort((a, b) => (a.data?.value ?? 0) - (b.data?.value ?? 0));
-};
-
-function initialTheme(): Theme {
-  const saved = localStorage.getItem('browser.theme');
-  return saved === 'light' || saved === 'dark' ? saved : 'system';
-}
-
-function initialCustomPageContextMenuEnabled() {
-  return localStorage.getItem('browser.customPageContextMenu') !== 'false';
 }
 
 export default function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState('');
   const [tabsLoaded, setTabsLoaded] = useState(false);
-  const [tabNodes, setTabNodes] = useState<TabNode[]>(initialTabNodes);
-  const [pinnedTabIds, setPinnedTabIds] = useState<string[]>(initialPinnedTabIds);
-  const [tabNameOverrides, setTabNameOverrides] = useState<Record<string, string>>(initialTabNameOverrides);
+  const [tabNodes, setTabNodes] = useState(() => readStored(storageKeys.tabTree, parseTabNodes));
+  const [pinnedTabIds, setPinnedTabIds] = useState(() => readStored(storageKeys.pinnedTabs, parseStringArray));
+  const [tabNameOverrides, setTabNameOverrides] = useState(() => readStored(storageKeys.tabNames, parseStringRecord));
   const [tabFavicons, setTabFavicons] = useState<Record<string, string>>({});
   const [splitLayout, setSplitLayout] = useState<SplitLayout | null>(null);
   const [draggingTabId, setDraggingTabId] = useState('');
@@ -944,10 +220,16 @@ export default function App() {
   const [isTauri, setIsTauri] = useState(() =>
     Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__),
   );
-  const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialSidebarCollapsed);
-  const [tabPosition, setTabPosition] = useState<TabPosition>(initialTabPosition);
-  const [sidebarSide, setSidebarSide] = useState<SidebarSide>(initialSidebarSide);
+  const [sidebarWidth, setSidebarWidth] = useState(() => readStored(storageKeys.sidebarWidth, parseSidebarWidth));
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    readStored(storageKeys.sidebarCollapsed, parseSidebarCollapsed),
+  );
+  const [tabPosition, setTabPosition] = useState<TabPosition>(() =>
+    readStored(storageKeys.tabPosition, parseTabPosition),
+  );
+  const [sidebarSide, setSidebarSide] = useState<SidebarSide>(() =>
+    readStored(storageKeys.sidebarSide, readSidebarSide),
+  );
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [sidebarView, setSidebarView] = useState<'tabs' | 'bookmarks'>('tabs');
   const [bookmarks, setBookmarks] = useState<BookmarkNode[]>(initialBookmarks);
@@ -957,12 +239,12 @@ export default function App() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-  const [bookmarkDropTarget, setBookmarkDropTarget] = useState<{ overId: string; zone: BookmarkDropZone } | null>(null);
+  const [bookmarkDropTarget, setBookmarkDropTarget] = useState<{ overId: string; zone: DropZone } | null>(null);
   const bookmarkExpandTimer = useRef<{ id: string; timer: number } | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historySearch, setHistorySearch] = useState('');
-  const [historyTabIds, setHistoryTabIds] = useState<string[]>(initialHistoryTabIds);
-  const [settingsTabIds, setSettingsTabIds] = useState<string[]>(initialSettingsTabIds);
+  const [historyTabIds, setHistoryTabIds] = useState(() => readStored(storageKeys.historyTabs, parseStringArray));
+  const [settingsTabIds, setSettingsTabIds] = useState(() => readStored(storageKeys.settingsTabs, parseStringArray));
   const settingsTabIdsRef = useRef(settingsTabIds);
   const [shortcutsTabIds, setShortcutsTabIds] = useState<string[]>([]);
   const shortcutsTabIdsRef = useRef<string[]>([]);
@@ -974,7 +256,7 @@ export default function App() {
   const controlDownloadsPopover = useCallback(async (action: 'show' | 'toggle' | 'update' | 'close') => {
     const rect = downloadsButtonRef.current?.getBoundingClientRect();
     if (!rect) return false;
-    return invoke<boolean>('control_downloads_popover', {
+    return call('control_downloads_popover', {
       action,
       anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
     });
@@ -995,7 +277,9 @@ export default function App() {
   const [findQuery, setFindQuery] = useState('');
   const [findMatches, setFindMatches] = useState<number | null>(null);
   const [securityOpen, setSecurityOpen] = useState(false);
-  const [securityInfo, setSecurityInfo] = useState<PageSecurityInfo | null>(null);
+  const [securityState, setSecurityState] = useState<{ tabId: string; url: string; info: PageSecurityInfo } | null>(
+    null,
+  );
   const [bookmarkSearch, setBookmarkSearch] = useState('');
   const [addingBookmark, setAddingBookmark] = useState(false);
   const [addingBookmarkFolderId, setAddingBookmarkFolderId] = useState<string | null>(null);
@@ -1010,8 +294,22 @@ export default function App() {
   const [filterSettings, setFilterSettings] = useState<FilterSettingsView | null>(null);
   const [filterBusy, setFilterBusy] = useState(false);
   const [filterProgress, setFilterProgress] = useState<FilterUpdateProgress | null>(null);
-  const [theme, setTheme] = useState<Theme>(initialTheme);
-  const [customPageContextMenuEnabled, setCustomPageContextMenuEnabled] = useState(initialCustomPageContextMenuEnabled);
+  const [theme, setTheme] = useState<Theme>(() => readStored(storageKeys.theme, parseTheme));
+  const [customPageContextMenuEnabled, setCustomPageContextMenuEnabled] = useState(() =>
+    readStored(storageKeys.customPageContextMenu, parseCustomPageContextMenu),
+  );
+  // Preferences written back to localStorage whenever they change.
+  usePersistedState(storageKeys.tabTree, tabNodes);
+  usePersistedState(storageKeys.pinnedTabs, pinnedTabIds);
+  usePersistedState(storageKeys.tabNames, tabNameOverrides);
+  usePersistedState(storageKeys.sidebarWidth, sidebarWidth, String);
+  usePersistedState(storageKeys.sidebarCollapsed, sidebarCollapsed, String);
+  usePersistedState(storageKeys.tabPosition, tabPosition, String);
+  usePersistedState(storageKeys.sidebarSide, sidebarSide, String);
+  usePersistedState(storageKeys.historyTabs, historyTabIds);
+  usePersistedState(storageKeys.settingsTabs, settingsTabIds);
+  usePersistedState(storageKeys.theme, theme, String);
+  usePersistedState(storageKeys.customPageContextMenu, customPageContextMenuEnabled, String);
   const addressRef = useRef<HTMLInputElement>(null);
   const securityButtonRef = useRef<HTMLButtonElement>(null);
   const externalBrowserButtonRef = useRef<HTMLButtonElement>(null);
@@ -1028,12 +326,11 @@ export default function App() {
     const openIds = new Set(tabsRef.current.map((tab) => tab.id));
     const ids = [
       ...pinnedTabIdsRef.current,
-      ...flattenBookmarkNodes(
-        tabNodesRef.current,
-        new Set(tabFolders(tabNodesRef.current).map((folder) => folder.id)),
-      ).map((row) => row.node.id),
+      ...flattenTree(tabNodesRef.current, new Set(tabFolders(tabNodesRef.current).map((folder) => folder.id))).map(
+        (row) => row.node.id,
+      ),
     ].filter((id) => openIds.has(id));
-    return invoke<BrowserSnapshot>('cycle_tab', { backwards, orderedTabIds: ids.length ? ids : null })
+    return call('cycle_tab', { backwards, orderedTabIds: ids.length ? ids : null })
       .then(applySnapshot)
       .catch((error) => setMessage(String(error)));
   };
@@ -1065,6 +362,11 @@ export default function App() {
         };
   })();
   const activeTabTitle = activeTab ? tabNameOverrides[activeTab.id] || activeTab.title : '';
+  const securityInfo =
+    securityOpen && securityState?.tabId === activeTabId && securityState.url === activeTab?.url
+      ? securityState.info
+      : null;
+  const shownFindMatches = findOpen && findQuery.trim() ? findMatches : null;
   useEffect(() => {
     if (!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return;
     const title = activeTabTitle && activeTabTitle !== 'New Tab' ? `${activeTabTitle} — Unky` : 'Unky';
@@ -1105,7 +407,6 @@ export default function App() {
       const nodes: TabNode[] = [
         { id: 'desktop-test-folder', type: 'folder', title: 'Desktop Test Folder', collapsed: false, children: [] },
       ];
-      localStorage.setItem('browser.tabTree', JSON.stringify(nodes));
       setTabNodes(nodes);
     };
     testWindow.__myBrowserTestOpenTabContextMenu = openTestContextMenu;
@@ -1117,14 +418,18 @@ export default function App() {
   }, [tabContextMenuWidth]);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
   const nativeAddressSuggestions = isTauri && /Mac/.test(navigator.platform);
-  const addressSuggestions = findAddressSuggestions(address, bookmarks, history);
+  // Memoized because the native popover effect below depends on the list's identity.
+  const addressSuggestions = useMemo(
+    () => findAddressSuggestions(address, bookmarks, history),
+    [address, bookmarks, history],
+  );
   useEffect(() => {
     if (!nativeAddressSuggestions) return;
     const update = () => {
       const rect = addressRef.current?.getBoundingClientRect();
       if (!rect) return;
       const rows = addressSuggestionsOpen ? addressSuggestions : [];
-      void invoke('control_address_suggestions_popover', {
+      void call('control_address_suggestions_popover', {
         action: rows.length ? 'show' : 'close',
         anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         rows,
@@ -1153,7 +458,7 @@ export default function App() {
       unlistenMoved?.();
       unlistenResized?.();
     };
-  }, [nativeAddressSuggestions, address, addressSuggestionsOpen, activeAddressSuggestion, history, bookmarks]);
+  }, [nativeAddressSuggestions, addressSuggestions, addressSuggestionsOpen, activeAddressSuggestion]);
   useEffect(
     () => () => {
       void externalBrowserMenuRef.current?.close();
@@ -1181,30 +486,29 @@ export default function App() {
   const [tabDropTarget, setTabDropTarget] = useState<{
     container: 'tabs' | 'pinned';
     overId: string;
-    zone: BookmarkDropZone;
+    zone: DropZone;
   } | null>(null);
   const [tabDragPreview, setTabDragPreview] = useState<'split' | 'invalid' | null>(null);
   const tabExpandTimer = useRef<{ id: string; timer: number } | null>(null);
   useEffect(() => {
-    if (!securityOpen) return;
-    setSecurityInfo(null);
-    if (!activeTabId || !activeTab?.url) return;
+    if (!securityOpen || !activeTabId || !activeTab?.url) return;
+    const url = activeTab.url;
     let cancelled = false;
     const refresh = async () => {
       try {
-        const info = await invoke<PageSecurityInfo>('get_page_security_info', { tabId: activeTabId });
+        const info = await call('get_page_security_info', { tabId: activeTabId });
         if (cancelled) return;
-        setSecurityInfo(info);
+        setSecurityState({ tabId: activeTabId, url, info });
         const button = securityButtonRef.current;
         if (!button) return;
         const rect = button.getBoundingClientRect();
-        const shown = await invoke<boolean>('update_page_security_popover', {
+        const shown = await call('update_page_security_popover', {
           anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
           info,
         });
         if (!cancelled) setSecurityOpen(shown);
       } catch {
-        if (!cancelled) setSecurityInfo(null);
+        if (!cancelled) setSecurityState(null);
       }
     };
     void refresh();
@@ -1237,7 +541,7 @@ export default function App() {
         return;
       }
       try {
-        setFindMatches(await invoke<number>('find_in_page', { tabId: activeTabId, query, backwards }));
+        setFindMatches(await call('find_in_page', { tabId: activeTabId, query, backwards }));
       } catch (error) {
         setMessage(String(error));
       }
@@ -1246,17 +550,8 @@ export default function App() {
   );
 
   useEffect(() => {
-    localStorage.setItem('browser.sidebarWidth', String(sidebarWidth));
-  }, [sidebarWidth]);
-
-  useEffect(() => {
-    localStorage.setItem('browser.sidebarCollapsed', String(sidebarCollapsed));
-  }, [sidebarCollapsed]);
-
-  useEffect(() => {
-    localStorage.setItem('browser.tabPosition', tabPosition);
     if (isTauri) {
-      void invoke('sync_tab_position_menu', { position: tabPosition }).catch((error) => setMessage(String(error)));
+      void call('sync_tab_position_menu', { position: tabPosition }).catch((error) => setMessage(String(error)));
     }
   }, [tabPosition, isTauri]);
 
@@ -1264,7 +559,7 @@ export default function App() {
     if (!isTauri) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<{ windowLabel: string; position: string }>(tabPositionMenuEvent, (event) => {
+    void onEvent(tabPositionMenuEvent, (event) => {
       if (event.payload.windowLabel !== getCurrentWindow().label || !isTabPosition(event.payload.position)) return;
       setTabPosition(event.payload.position);
       if (event.payload.position === 'left' || event.payload.position === 'right')
@@ -1282,32 +577,53 @@ export default function App() {
   }, [isTauri]);
 
   useEffect(() => {
-    localStorage.setItem('browser.sidebarSide', sidebarSide);
-  }, [sidebarSide]);
-
-  useEffect(() => {
     if (isTauri) {
       if (!bookmarksLoaded) return;
-      void invoke('save_bookmarks', { bookmarks }).catch((error) => setMessage(String(error)));
+      void call('save_bookmarks', { bookmarks }).catch((error) => setMessage(String(error)));
       return;
     }
-    localStorage.setItem('browser.bookmarks', JSON.stringify(bookmarks));
+    localStorage.setItem(storageKeys.bookmarks, JSON.stringify(bookmarks));
   }, [bookmarks, bookmarksLoaded, isTauri]);
 
-  useEffect(() => {
-    localStorage.setItem('browser.tabTree', JSON.stringify(tabNodes));
-  }, [tabNodes]);
+  const applySnapshot = useCallback((snapshot: BrowserSnapshot) => {
+    if (!snapshotBelongsToWindow(snapshot.tabs, getCurrentWindow().label)) return;
+    setTabs(snapshot.tabs);
+    tabsRef.current = snapshot.tabs;
+    setActiveTabId(snapshot.activeTabId);
+    activeTabIdRef.current = snapshot.activeTabId;
+    setTabsLoaded(true);
+    const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
+    setAddress(active?.url ?? '');
+  }, []);
 
+  // Event listeners below subscribe once; they call handlers through this ref so they
+  // always use the current render's versions.
+  const browserActions = useLatest({
+    closeTab,
+    createTab,
+    cycleTabs,
+    dropTabIntoNewWindow,
+    dropTabIntoSplit,
+    openAllDownloadsPage,
+    openDownloadsPopover,
+    openHistoryPage,
+    openLaunchRequest,
+    openSettingsPage,
+    openShortcutsPage,
+    openUrlFromMenu,
+    reopenClosedTab,
+    reorderTabsFromTree,
+  });
   useEffect(() => {
     if (!isTauri) return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
-    void listen<[string, string]>('browser://open-tab-in-folder', async (event) => {
+    void onEvent(openTabInFolderEvent, async (event) => {
       const [tabId, folderId] = event.payload;
       try {
-        applySnapshot(await invoke<BrowserSnapshot>('get_browser_state'));
+        applySnapshot(await call('get_browser_state'));
         const inserted = appendTabNodeToFolder(tabNodesRef.current, folderId, { id: tabId, type: 'tab' });
-        if (inserted.inserted) reorderTabsFromTree(inserted.nodes);
+        if (inserted.inserted) browserActions.current.reorderTabsFromTree(inserted.nodes);
       } catch (error) {
         setMessage(String(error));
       }
@@ -1319,23 +635,7 @@ export default function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, [isTauri]);
-
-  useEffect(() => {
-    localStorage.setItem('browser.tabNames', JSON.stringify(tabNameOverrides));
-  }, [tabNameOverrides]);
-
-  useEffect(() => {
-    localStorage.setItem('browser.historyTabs', JSON.stringify(historyTabIds));
-  }, [historyTabIds]);
-
-  useEffect(() => {
-    localStorage.setItem('browser.settingsTabs', JSON.stringify(settingsTabIds));
-  }, [settingsTabIds]);
-
-  useEffect(() => {
-    localStorage.setItem('browser.pinnedTabs', JSON.stringify(pinnedTabIds));
-  }, [pinnedTabIds]);
+  }, [isTauri, applySnapshot, browserActions]);
 
   useEffect(() => {
     if (!tabsLoaded) return;
@@ -1361,7 +661,7 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauri || !tabsLoaded) return;
-    void invoke('set_settings_open', {
+    void call('set_settings_open', {
       open: settingsPageOpen || historyPageOpen || shortcutsPageOpen || downloadsPageOpen,
     }).catch((error) => setMessage(String(error)));
   }, [isTauri, tabsLoaded, settingsPageOpen, historyPageOpen, shortcutsPageOpen, downloadsPageOpen]);
@@ -1375,7 +675,7 @@ export default function App() {
       if (faviconRequests.current.has(requestKey)) continue;
       faviconRequests.current.add(requestKey);
       window.setTimeout(() => {
-        void invoke<string>('get_tab_favicon', { tabId: tab.id })
+        void call('get_tab_favicon', { tabId: tab.id })
           .then((favicon) => {
             if (favicon) setTabFavicons((current) => ({ ...current, [tab.id]: favicon }));
           })
@@ -1387,7 +687,6 @@ export default function App() {
   }, [tabs]);
 
   useEffect(() => {
-    localStorage.setItem('browser.theme', theme);
     const preference = window.matchMedia('(prefers-color-scheme: light)');
     const apply = () => {
       document.documentElement.dataset.theme = theme === 'system' ? (preference.matches ? 'light' : 'dark') : theme;
@@ -1398,9 +697,8 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem('browser.customPageContextMenu', String(customPageContextMenuEnabled));
     if (isTauri && tabsLoaded) {
-      void invoke('set_page_context_menu_enabled', { enabled: customPageContextMenuEnabled }).catch((error) =>
+      void call('set_page_context_menu_enabled', { enabled: customPageContextMenuEnabled }).catch((error) =>
         setMessage(String(error)),
       );
     }
@@ -1412,7 +710,6 @@ export default function App() {
       const pointerWidth = sidebarSide === 'right' ? window.innerWidth - event.clientX : event.clientX;
       const width = Math.max(sidebarMinWidth, Math.min(sidebarMaxWidth, pointerWidth));
       setSidebarWidth(width);
-      localStorage.setItem('browser.sidebarWidth', String(width));
     };
     const stop = () => setResizingSidebar(false);
     window.addEventListener('pointermove', resize);
@@ -1433,24 +730,10 @@ export default function App() {
   }, [findOpen]);
 
   useEffect(() => {
-    if (!findOpen || !findQuery.trim()) {
-      setFindMatches(null);
-      return;
-    }
+    if (!findOpen || !findQuery.trim()) return;
     const timer = window.setTimeout(() => void findInPage(findQuery), 125);
     return () => window.clearTimeout(timer);
   }, [findOpen, findQuery, findInPage]);
-
-  const applySnapshot = useCallback((snapshot: BrowserSnapshot) => {
-    if (!snapshotBelongsToWindow(snapshot.tabs, getCurrentWindow().label)) return;
-    setTabs(snapshot.tabs);
-    tabsRef.current = snapshot.tabs;
-    setActiveTabId(snapshot.activeTabId);
-    activeTabIdRef.current = snapshot.activeTabId;
-    setTabsLoaded(true);
-    const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
-    setAddress(active?.url ?? '');
-  }, []);
 
   useEffect(() => {
     if (import.meta.env.MODE !== 'desktop-test') return;
@@ -1497,90 +780,90 @@ export default function App() {
         setBookmarksLoaded(true);
         return;
       }
-      unlisten = await listen<BrowserSnapshot>(tabEvent, (event) => applySnapshot(event.payload));
-      const unlistenPagePointerDown = await listen(pagePointerDownEvent, () => addressRef.current?.blur());
-      const unlistenSettings = await listen(settingsEvent, () => {
-        void openSettingsPage();
+      unlisten = await onEvent(tabEvent, (event) => applySnapshot(event.payload));
+      const unlistenPagePointerDown = await onEvent(pagePointerDownEvent, () => addressRef.current?.blur());
+      const unlistenSettings = await onEvent(settingsEvent, () => {
+        void browserActions.current.openSettingsPage();
       });
-      const unlistenShowHistory = await listen(showHistoryEvent, () => {
-        void openHistoryPage();
+      const unlistenShowHistory = await onEvent(showHistoryEvent, () => {
+        void browserActions.current.openHistoryPage();
       });
-      const unlistenShowDownloads = await listen(showDownloadsEvent, () => void openDownloadsPopover(false));
-      const unlistenShowAllDownloads = await listen(showAllDownloadsEvent, () => {
-        void openAllDownloadsPage();
+      const unlistenShowDownloads = await onEvent(
+        showDownloadsEvent,
+        () => void browserActions.current.openDownloadsPopover(false),
+      );
+      const unlistenShowAllDownloads = await onEvent(showAllDownloadsEvent, () => {
+        void browserActions.current.openAllDownloadsPage();
       });
-      const unlistenShowShortcuts = await listen(showShortcutsEvent, () => {
-        void openShortcutsPage();
+      const unlistenShowShortcuts = await onEvent(showShortcutsEvent, () => {
+        void browserActions.current.openShortcutsPage();
       });
-      const unlistenHistory = await listen<HistoryEntry[]>(historyEvent, (event) => setHistory(event.payload));
-      const unlistenBookmarks = await listen<BookmarkNode[]>(bookmarksEvent, (event) => setBookmarks(event.payload));
-      const unlistenOpenUrlFromMenu = await listen<string>(openUrlFromMenuEvent, (event) => {
-        void openUrlFromMenu(event.payload);
+      const unlistenHistory = await onEvent(historyEvent, (event) => setHistory(event.payload));
+      const unlistenBookmarks = await onEvent(bookmarksEvent, (event) => setBookmarks(event.payload));
+      const unlistenOpenUrlFromMenu = await onEvent(openUrlFromMenuEvent, (event) => {
+        void browserActions.current.openUrlFromMenu(event.payload);
       });
-      const unlistenImportBookmarks = await listen(importBookmarksEvent, () => {
+      const unlistenImportBookmarks = await onEvent(importBookmarksEvent, () => {
         void importBookmarksHtml();
       });
-      const unlistenExportBookmarks = await listen(exportBookmarksEvent, () => {
+      const unlistenExportBookmarks = await onEvent(exportBookmarksEvent, () => {
         void exportBookmarksHtml();
       });
-      const unlistenClearHistory = await listen(clearHistoryRequestEvent, () => {
+      const unlistenClearHistory = await onEvent(clearHistoryRequestEvent, () => {
         void clearHistory();
       });
-      const unlistenDownloads = await listen<Download[]>(downloadsEvent, (event) => setDownloads(event.payload));
-      const unlistenCaptureStatus = await listen<string>(captureStatusEvent, (event) => {
+      const unlistenDownloads = await onEvent(downloadsEvent, (event) => setDownloads(event.payload));
+      const unlistenCaptureStatus = await onEvent(captureStatusEvent, (event) => {
         setMessage(event.payload);
         if (event.payload !== 'Capturing full page…') setCaptureProgress(null);
       });
-      const unlistenCaptureProgress = await listen<{ completed: number; total: number }>(
-        captureProgressEvent,
-        (event) => setCaptureProgress(event.payload),
-      );
-      const unlistenLaunchRequest = await listen<LaunchRequest>(launchRequestEvent, (event) => {
-        void openLaunchRequest(event.payload);
+      const unlistenCaptureProgress = await onEvent(captureProgressEvent, (event) => setCaptureProgress(event.payload));
+      const unlistenLaunchRequest = await onEvent(launchRequestEvent, (event) => {
+        void browserActions.current.openLaunchRequest(event.payload);
       });
-      const unlistenFilterProgress = await listen<FilterUpdateProgress>(filterUpdateProgressEvent, (event) => {
+      const unlistenFilterProgress = await onEvent(filterUpdateProgressEvent, (event) => {
         if (event.payload.phase === 'complete') {
           setFilterProgress(null);
           return;
         }
         setFilterProgress(event.payload);
       });
-      const unlistenSplit = await listen<SplitLayout | null>(splitEvent, (event) => setSplitLayout(event.payload));
-      const unlistenSplitResize = await listen<number>('browser://split-resize', (event) => {
-        void invoke('resize_tab_split', { firstPanePercent: event.payload }).catch((error) =>
-          setMessage(String(error)),
-        );
+      const unlistenSplit = await onEvent(splitEvent, (event) => setSplitLayout(event.payload));
+      const unlistenSplitResize = await onEvent(splitResizeEvent, (event) => {
+        void call('resize_tab_split', { firstPanePercent: event.payload }).catch((error) => setMessage(String(error)));
       });
-      const unlistenTabDragDrop = await listen<{
-        tabId: string;
-        targetTabId: string;
-        target: 'left' | 'right' | 'top' | 'bottom' | 'new-window';
-      }>('browser://tab-drag-drop', (event) => {
-        if (event.payload.target === 'new-window') void dropTabIntoNewWindow(event.payload.tabId);
-        else void dropTabIntoSplit(event.payload.target, event.payload.tabId, event.payload.targetTabId);
+      const unlistenTabDragDrop = await onEvent(tabDragDropEvent, (event) => {
+        if (event.payload.target === 'new-window')
+          void browserActions.current.dropTabIntoNewWindow(event.payload.tabId);
+        else
+          void browserActions.current.dropTabIntoSplit(
+            event.payload.target,
+            event.payload.tabId,
+            event.payload.targetTabId,
+          );
       });
-      void invoke<SplitLayout | null>('get_split_tabs')
+      void call('get_split_tabs')
         .then(setSplitLayout)
         .catch((error) => setMessage(String(error)));
-      void invoke<FilterSettingsView>('get_filter_settings')
+      void call('get_filter_settings')
         .then(setFilterSettings)
         .catch((error) => setMessage(String(error)));
-      const unlistenShortcuts = await listen<string>(shortcutEvent, (event) => {
+      const unlistenShortcuts = await onEvent(shortcutEvent, (event) => {
         switch (event.payload) {
           case 'new-tab':
-            void createTab();
+            void browserActions.current.createTab();
             break;
           case 'new-private-tab':
-            void createTab(true);
+            void browserActions.current.createTab(true);
             break;
           case 'open-in-browser':
             externalBrowserButtonRef.current?.click();
             break;
           case 'close-tab':
-            if (activeTabIdRef.current) void closeTab(activeTabIdRef.current);
+            if (activeTabIdRef.current) void browserActions.current.closeTab(activeTabIdRef.current);
             break;
           case 'reopen-closed-tab':
-            void reopenClosedTab();
+            void browserActions.current.reopenClosedTab();
             break;
           case 'focus-address':
             addressRef.current?.focus();
@@ -1602,19 +885,19 @@ export default function App() {
           case 'next-tab-page':
           case 'next-tab-mac':
           case 'next-tab-safari':
-            void cycleTabs(false);
+            void browserActions.current.cycleTabs(false);
             break;
           case 'previous-tab':
           case 'previous-tab-page':
           case 'previous-tab-mac':
           case 'previous-tab-safari':
-            void cycleTabs(true);
+            void browserActions.current.cycleTabs(true);
             break;
           case 'capture-full-page': {
             const tabId = activeTabIdRef.current;
             if (!tabId) break;
             setMessage('Capturing full page…');
-            void invoke<boolean>('save_full_page_screenshot', { tabId })
+            void call('save_full_page_screenshot', { tabId })
               .then((saved) => setMessage(saved ? 'Full page screenshot saved.' : 'Screenshot cancelled.'))
               .catch((error) => setMessage(String(error)));
             break;
@@ -1622,17 +905,17 @@ export default function App() {
         }
       });
       try {
-        const databaseBookmarks = await invoke<BookmarkNode[]>('load_bookmarks', {
+        const databaseBookmarks = await call('load_bookmarks', {
           legacyBookmarks: initialBookmarks(),
         });
         setBookmarks(databaseBookmarks);
         setBookmarksLoaded(true);
-        localStorage.removeItem('browser.bookmarks');
-        applySnapshot(await invoke<BrowserSnapshot>('get_browser_state'));
-        const launchRequest = await invoke<LaunchRequest | null>('take_launch_request');
-        if (launchRequest) await openLaunchRequest(launchRequest);
-        setHistory(await invoke<HistoryEntry[]>('get_history'));
-        setDownloads(await invoke<Download[]>('get_downloads'));
+        localStorage.removeItem(storageKeys.bookmarks);
+        applySnapshot(await call('get_browser_state'));
+        const launchRequest = await call('take_launch_request');
+        if (launchRequest) await browserActions.current.openLaunchRequest(launchRequest);
+        setHistory(await call('get_history'));
+        setDownloads(await call('get_downloads'));
       } catch (error) {
         setBookmarksLoaded(true);
         setMessage(String(error));
@@ -1693,7 +976,7 @@ export default function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, [applySnapshot]);
+  }, [applySnapshot, browserActions]);
 
   useEffect(() => {
     if (!nativeDownloadsPopover) return;
@@ -1743,13 +1026,13 @@ export default function App() {
     sessionTestStarted.current = true;
     let snapshot: BrowserSnapshot | undefined;
     try {
-      const phase = await invoke<SessionTestPhase>('session_test_phase');
+      const phase = await call('session_test_phase');
       if (phase !== 'exercise' && phase !== 'restore') return;
-      snapshot = await invoke<BrowserSnapshot>('get_browser_state');
+      snapshot = await call('get_browser_state');
       if (phase === 'exercise') {
         assertSessionTestState(snapshot, sessionTestUrls, sessionTestUrls[1]);
         const expectedFavicon = 'http://127.0.0.1:4179/favicon.svg';
-        const nativeFavicon = await invoke<string>('get_tab_favicon', { tabId: snapshot.activeTabId });
+        const nativeFavicon = await call('get_tab_favicon', { tabId: snapshot.activeTabId });
         if (nativeFavicon !== expectedFavicon) {
           throw new Error(`Native WebView did not resolve the fixture favicon: ${nativeFavicon || 'missing'}`);
         }
@@ -1768,7 +1051,7 @@ export default function App() {
         if (renderedFavicon !== expectedFavicon) {
           throw new Error(`Native tab favicon was not loaded after page navigation: ${renderedFavicon || 'missing'}`);
         }
-        const survivor = await invoke<BrowserSnapshot>('close_tab', { tabId: snapshot.activeTabId });
+        const survivor = await call('close_tab', { tabId: snapshot.activeTabId });
         assertSessionTestState(survivor, [sessionTestUrls[0]], sessionTestUrls[0]);
         window.dispatchEvent(
           new KeyboardEvent('keydown', {
@@ -1780,14 +1063,14 @@ export default function App() {
         );
         for (let attempt = 0; attempt < 40; attempt += 1) {
           await new Promise((resolve) => window.setTimeout(resolve, 100));
-          snapshot = await invoke<BrowserSnapshot>('get_browser_state');
+          snapshot = await call('get_browser_state');
           if (snapshot.tabs.length === 2 && snapshot.activeTabId !== survivor.activeTabId) break;
         }
         assertSessionTestState(snapshot, sessionTestUrls, sessionTestUrls[1]);
         const reopened = snapshot.tabs.find((tab) => tab.id === snapshot?.activeTabId);
         if (reopened?.zoom !== 1.5) throw new Error(`Expected reopened tab zoom 1.5, got ${reopened?.zoom}`);
         if (
-          (await invoke<number>('find_in_page', {
+          (await call('find_in_page', {
             tabId: snapshot.activeTabId,
             query: 'Native find marker',
             backwards: false,
@@ -1796,7 +1079,7 @@ export default function App() {
           throw new Error('Native find failed to locate text in the WKWebView');
         }
         if (
-          (await invoke<number>('find_in_page', {
+          (await call('find_in_page', {
             tabId: snapshot.activeTabId,
             query: 'missing integration phrase',
             backwards: false,
@@ -1804,7 +1087,7 @@ export default function App() {
         ) {
           throw new Error('Native find reported a match for missing text');
         }
-        const linkHook = await invoke<string>('session_test_open_new_tab');
+        const linkHook = await call('session_test_open_new_tab');
         const parsedLinkHook: unknown = JSON.parse(linkHook);
         const hookState: { hook: boolean; tauri: string; result: string } =
           typeof parsedLinkHook === 'string'
@@ -1815,18 +1098,18 @@ export default function App() {
         }
         for (let attempt = 0; attempt < 50; attempt += 1) {
           await new Promise((resolve) => window.setTimeout(resolve, 100));
-          snapshot = await invoke<BrowserSnapshot>('get_browser_state');
+          snapshot = await call('get_browser_state');
           if (snapshot.tabs.some((tab) => tab.url.includes('session=from-link'))) break;
         }
         if (!snapshot.tabs.some((tab) => tab.url === 'http://127.0.0.1:4179/index.html?session=from-link')) {
           throw new Error('A target=_blank link did not open in a new native tab');
         }
-        const previousSnapshot = await invoke<BrowserSnapshot>('cycle_tab', { backwards: true });
+        const previousSnapshot = await call('cycle_tab', { backwards: true });
         snapshot = previousSnapshot;
         if (previousSnapshot.tabs.find((tab) => tab.id === previousSnapshot.activeTabId)?.url !== sessionTestUrls[1]) {
           throw new Error('Previous-tab cycling did not select the prior tab');
         }
-        const nextSnapshot = await invoke<BrowserSnapshot>('cycle_tab', { backwards: false });
+        const nextSnapshot = await call('cycle_tab', { backwards: false });
         snapshot = nextSnapshot;
         if (
           nextSnapshot.tabs.find((tab) => tab.id === nextSnapshot.activeTabId)?.url !==
@@ -1834,38 +1117,38 @@ export default function App() {
         ) {
           throw new Error('Next-tab cycling did not wrap to the link tab');
         }
-        const history = await invoke<HistoryEntry[]>('get_history');
+        const history = await call('get_history');
         if (!history.some((item) => item.url.includes('session=from-link')))
           throw new Error('Visited link tab was not added to history');
-        snapshot = await invoke<BrowserSnapshot>('close_tab', { tabId: snapshot.activeTabId });
-        await invoke('session_test_start_download');
+        snapshot = await call('close_tab', { tabId: snapshot.activeTabId });
+        await call('session_test_start_download');
         let downloads: Download[] = [];
         for (let attempt = 0; attempt < 100; attempt += 1) {
           await new Promise((resolve) => window.setTimeout(resolve, 100));
-          downloads = await invoke<Download[]>('get_downloads');
+          downloads = await call('get_downloads');
           if (downloads.some((item) => item.status === 'completed')) break;
         }
         const completed = downloads.find((item) => item.filename === 'download.txt' && item.status === 'completed');
         if (!completed || completed.bytesReceived === 0)
           throw new Error(`Native download failed or had no bytes: ${JSON.stringify(downloads)}`);
-        await invoke('reveal_download', { downloadId: completed.id });
+        await call('reveal_download', { downloadId: completed.id });
       } else {
         assertSessionTestState(snapshot, sessionTestUrls, sessionTestUrls[1]);
         if (snapshot.tabs[0]?.zoom !== 1.25 || snapshot.tabs[1]?.zoom !== 1.5) {
           throw new Error('Restored tabs did not preserve their zoom values');
         }
-        const history = await invoke<HistoryEntry[]>('get_history');
+        const history = await call('get_history');
         if (!history.some((item) => item.url.includes('session=from-link')))
           throw new Error('History did not persist across app restart');
       }
-      await invoke('report_session_test', {
+      await call('report_session_test', {
         success: true,
         details: `${phase} phase passed`,
         snapshot,
       });
     } catch (error) {
       if (!snapshot) return;
-      await invoke('report_session_test', {
+      await call('report_session_test', {
         success: false,
         details: String(error),
         snapshot,
@@ -1883,7 +1166,7 @@ export default function App() {
       // right-side footprint until it closes, leaving the shell visible there.
       const popoverWidth = Math.min(360, Math.max(0, window.innerWidth - 24));
       const reservedWidth = downloadsPopoverOpen && !nativeDownloadsPopover ? popoverWidth + 20 : 0;
-      void invoke('set_view_bounds', {
+      void call('set_view_bounds', {
         x: rect.left,
         y: rect.top,
         width: Math.max(1, rect.width - reservedWidth),
@@ -1956,9 +1239,9 @@ export default function App() {
   async function openHistoryEntry(url: string) {
     if (!activeTabId) {
       try {
-        const snapshot = await invoke<BrowserSnapshot>('create_tab');
+        const snapshot = await call('create_tab');
         applySnapshot(snapshot);
-        await invoke('navigate', { tabId: snapshot.activeTabId, url });
+        await call('navigate', { tabId: snapshot.activeTabId, url });
       } catch (error) {
         setMessage(String(error));
       }
@@ -1968,11 +1251,11 @@ export default function App() {
   async function openUrlFromMenu(url: string) {
     const tabId = activeTabIdRef.current;
     try {
-      if (tabId) await invoke('navigate', { tabId, url });
+      if (tabId) await call('navigate', { tabId, url });
       else {
-        const snapshot = await invoke<BrowserSnapshot>('create_tab');
+        const snapshot = await call('create_tab');
         applySnapshot(snapshot);
-        await invoke('navigate', { tabId: snapshot.activeTabId, url });
+        await call('navigate', { tabId: snapshot.activeTabId, url });
       }
     } catch (error) {
       setMessage(String(error));
@@ -1987,7 +1270,7 @@ export default function App() {
         filters: [{ name: 'Netscape Bookmarks', extensions: ['html', 'htm'] }],
       });
       if (typeof path !== 'string') return;
-      setBookmarks(await invoke<BookmarkNode[]>('import_bookmarks_html', { path }));
+      setBookmarks(await call('import_bookmarks_html', { path }));
       setMessage('Bookmarks imported.');
     } catch (error) {
       setMessage(String(error));
@@ -2001,7 +1284,7 @@ export default function App() {
         filters: [{ name: 'Netscape Bookmarks', extensions: ['html'] }],
       });
       if (!path) return;
-      await invoke('export_bookmarks_html', { path });
+      await call('export_bookmarks_html', { path });
       setMessage('Bookmarks exported.');
     } catch (error) {
       setMessage(String(error));
@@ -2011,7 +1294,7 @@ export default function App() {
   async function clearHistory() {
     if (!window.confirm('Clear all browsing history? Bookmarks will stay.')) return;
     try {
-      await invoke('clear_history');
+      await call('clear_history');
       setHistory([]);
       setMessage('Browsing history cleared.');
     } catch (error) {
@@ -2025,19 +1308,19 @@ export default function App() {
       await selectTab(existingHistoryTabId);
     } else {
       try {
-        await invoke('set_settings_open', { open: true });
-        const snapshot = await invoke<BrowserSnapshot>('create_tab');
+        await call('set_settings_open', { open: true });
+        const snapshot = await call('create_tab');
         applySnapshot(snapshot);
         setHistoryTabIds((ids) => [...ids, snapshot.activeTabId]);
         setTabNameOverrides((names) => ({ ...names, [snapshot.activeTabId]: 'history' }));
       } catch (error) {
         setMessage(String(error));
-        void invoke('set_settings_open', { open: false }).catch(() => {});
+        void call('set_settings_open', { open: false }).catch(() => {});
         return;
       }
     }
     try {
-      setHistory(await invoke<HistoryEntry[]>('get_history'));
+      setHistory(await call('get_history'));
     } catch (error) {
       setMessage(String(error));
     }
@@ -2051,8 +1334,8 @@ export default function App() {
       return;
     }
     try {
-      await invoke('set_settings_open', { open: true });
-      const snapshot = await invoke<BrowserSnapshot>('create_tab');
+      await call('set_settings_open', { open: true });
+      const snapshot = await call('create_tab');
       applySnapshot(snapshot);
       setDownloadsTabIds((ids) => [...ids, snapshot.activeTabId]);
       setTabNameOverrides((names) => ({ ...names, [snapshot.activeTabId]: 'Downloads' }));
@@ -2065,7 +1348,7 @@ export default function App() {
     if (!isTauri) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void invoke<HistoryEntry[]>('search_history', { query: historySearch })
+      void call('search_history', { query: historySearch })
         .then((entries) => {
           if (!cancelled) setHistory(entries);
         })
@@ -2088,7 +1371,7 @@ export default function App() {
       return;
     }
     try {
-      const snapshot = await invoke<BrowserSnapshot>('create_tab');
+      const snapshot = await call('create_tab');
       applySnapshot(snapshot);
       setShortcutsTabIds((ids) => {
         const next = [...ids, snapshot.activeTabId];
@@ -2110,8 +1393,8 @@ export default function App() {
       return;
     }
     try {
-      await invoke('set_settings_open', { open: true });
-      const snapshot = await invoke<BrowserSnapshot>('create_tab');
+      await call('set_settings_open', { open: true });
+      const snapshot = await call('create_tab');
       applySnapshot(snapshot);
       setSettingsTabIds((ids) => {
         const next = [...ids, snapshot.activeTabId];
@@ -2149,7 +1432,7 @@ export default function App() {
       return next;
     });
     try {
-      await invoke('set_settings_open', { open: settingsPageOpen || shortcutsPageOpen });
+      await call('set_settings_open', { open: settingsPageOpen || shortcutsPageOpen });
     } catch (error) {
       setMessage(String(error));
     }
@@ -2157,7 +1440,7 @@ export default function App() {
 
   async function createTab(privateMode = false) {
     try {
-      applySnapshot(await invoke<BrowserSnapshot>('create_tab', { private: privateMode }));
+      applySnapshot(await call('create_tab', { private: privateMode }));
       addressRef.current?.focus();
     } catch (error) {
       setMessage(String(error));
@@ -2166,9 +1449,9 @@ export default function App() {
 
   async function openLaunchRequest(request: LaunchRequest) {
     try {
-      const snapshot = await invoke<BrowserSnapshot>('create_tab', { private: request.private });
+      const snapshot = await call('create_tab', { private: request.private });
       applySnapshot(snapshot);
-      await invoke('navigate', { tabId: snapshot.activeTabId, url: request.url });
+      await call('navigate', { tabId: snapshot.activeTabId, url: request.url });
     } catch (error) {
       setMessage(String(error));
     }
@@ -2176,7 +1459,7 @@ export default function App() {
 
   async function clearBrowsingData() {
     try {
-      await invoke('clear_browsing_data');
+      await call('clear_browsing_data');
       setMessage('Website data clearing started; it may take a moment. History was cleared.');
     } catch (error) {
       setMessage(String(error));
@@ -2186,7 +1469,7 @@ export default function App() {
   async function changeFilteringEnabled(enabled: boolean) {
     setFilterBusy(true);
     try {
-      setFilterSettings(await invoke<FilterSettingsView>('set_filtering_enabled', { enabled }));
+      setFilterSettings(await call('set_filtering_enabled', { enabled }));
     } catch (error) {
       setMessage(String(error));
     } finally {
@@ -2198,7 +1481,7 @@ export default function App() {
     setFilterBusy(true);
     setFilterProgress({ phase: 'downloading', receivedBytes: 0, totalBytes: null });
     try {
-      setFilterSettings(await invoke<FilterSettingsView>('update_filter_list'));
+      setFilterSettings(await call('update_filter_list'));
     } catch (error) {
       setMessage(String(error));
     } finally {
@@ -2211,9 +1494,7 @@ export default function App() {
     if (!activeSiteDomain) return;
     setFilterBusy(true);
     try {
-      setFilterSettings(
-        await invoke<FilterSettingsView>('set_filter_site_exception', { domain: activeSiteDomain, enabled }),
-      );
+      setFilterSettings(await call('set_filter_site_exception', { domain: activeSiteDomain, enabled }));
     } catch (error) {
       setMessage(String(error));
     } finally {
@@ -2234,11 +1515,11 @@ export default function App() {
     try {
       let targetId = targetTabId;
       if (tabId === targetTabId) {
-        const snapshot = await invoke<BrowserSnapshot>('create_tab');
+        const snapshot = await call('create_tab');
         applySnapshot(snapshot);
         targetId = snapshot.activeTabId;
       }
-      await invoke('split_tab', { tabId, targetTabId: targetId, side });
+      await call('split_tab', { tabId, targetTabId: targetId, side });
       const firstTabId = side === 'left' || side === 'top' ? tabId : targetId;
       setSplitLayout({
         firstTabId,
@@ -2250,7 +1531,7 @@ export default function App() {
       setMessage(String(error));
     }
     setDraggingTabId('');
-    void invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null }).catch((error) =>
+    void call('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null }).catch((error) =>
       setMessage(String(error)),
     );
   }
@@ -2259,20 +1540,20 @@ export default function App() {
     const tabId = draggedTabId;
     if (!tabId) return;
     try {
-      await invoke<string>('move_tab_to_new_window', { tabId });
+      await call('move_tab_to_new_window', { tabId });
       setMessage('Tab moved to a new window.');
     } catch (error) {
       setMessage(String(error));
     }
     setDraggingTabId('');
-    void invoke('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null }).catch((error) =>
+    void call('set_tab_dragging', { dragging: false, tabId: null, targetTabId: null }).catch((error) =>
       setMessage(String(error)),
     );
   }
 
   async function closeSplitView() {
     try {
-      await invoke('clear_tab_split');
+      await call('clear_tab_split');
       setSplitLayout(null);
     } catch (error) {
       setMessage(String(error));
@@ -2281,7 +1562,7 @@ export default function App() {
 
   async function selectTab(id: string) {
     try {
-      applySnapshot(await invoke<BrowserSnapshot>('select_tab', { tabId: id }));
+      applySnapshot(await call('select_tab', { tabId: id }));
     } catch (error) {
       setMessage(String(error));
     }
@@ -2289,7 +1570,7 @@ export default function App() {
 
   async function closeTab(id: string) {
     try {
-      applySnapshot(await invoke<BrowserSnapshot>('close_tab', { tabId: id }));
+      applySnapshot(await call('close_tab', { tabId: id }));
     } catch (error) {
       setMessage(String(error));
     }
@@ -2299,9 +1580,9 @@ export default function App() {
     const source = tabsRef.current.find((tab) => tab.id === id);
     if (!source) return;
     try {
-      const snapshot = await invoke<BrowserSnapshot>('create_tab', { private: source.private });
+      const snapshot = await call('create_tab', { private: source.private });
       applySnapshot(snapshot);
-      if (source.url) await invoke('navigate', { tabId: snapshot.activeTabId, url: source.url });
+      if (source.url) await call('navigate', { tabId: snapshot.activeTabId, url: source.url });
     } catch (error) {
       setMessage(String(error));
     }
@@ -2309,7 +1590,7 @@ export default function App() {
 
   async function reopenClosedTab() {
     try {
-      applySnapshot(await invoke<BrowserSnapshot>('reopen_closed_tab'));
+      applySnapshot(await call('reopen_closed_tab'));
     } catch (error) {
       setMessage(String(error));
     }
@@ -2322,7 +1603,7 @@ export default function App() {
     try {
       await leaveHistoryTab(activeTabId);
       setMessage('');
-      await invoke('navigate', { tabId: activeTabId, url: address });
+      await call('navigate', { tabId: activeTabId, url: address });
       addressRef.current?.blur();
     } catch (error) {
       setMessage(String(error));
@@ -2336,7 +1617,7 @@ export default function App() {
     try {
       await leaveHistoryTab(activeTabId);
       setMessage('');
-      await invoke('navigate', { tabId: activeTabId, url });
+      await call('navigate', { tabId: activeTabId, url });
       addressRef.current?.blur();
     } catch (error) {
       setMessage(String(error));
@@ -2353,7 +1634,7 @@ export default function App() {
     const tabId = activeTabIdRef.current;
     if (!tabId) return;
     try {
-      await invoke(command, { tabId });
+      await call(command, { tabId });
     } catch (error) {
       setMessage(String(error));
     }
@@ -2366,7 +1647,7 @@ export default function App() {
     if (!targetTab?.url.match(/^https?:\/\//) || !anchor || externalBrowserMenuLoading.current) return;
     externalBrowserMenuLoading.current = true;
     try {
-      const browsers = await invoke<ExternalBrowser[]>('get_external_browsers');
+      const browsers = await call('get_external_browsers');
       await externalBrowserMenuRef.current?.close();
       const menu = await Menu.new({
         items: [
@@ -2374,7 +1655,7 @@ export default function App() {
           ...browsers.map((browser) => ({
             text: browser.name,
             action: () => {
-              void invoke('open_in_external_browser', { tabId, browserId: browser.id }).catch((error) =>
+              void call('open_in_external_browser', { tabId, browserId: browser.id }).catch((error) =>
                 setMessage(String(error)),
               );
             },
@@ -2403,7 +1684,7 @@ export default function App() {
     const title = editBookmarkTitle.trim() || url;
     const description = editBookmarkDescription.trim();
     if (addingBookmark) {
-      if (addingBookmarkFolderId && locateBookmark(bookmarks, addingBookmarkFolderId)?.node.type !== 'folder') {
+      if (addingBookmarkFolderId && locateNode(bookmarks, addingBookmarkFolderId)?.node.type !== 'folder') {
         setMessage('The destination folder no longer exists.');
         return;
       }
@@ -2416,13 +1697,11 @@ export default function App() {
         favicon: activeTab && activeTab.url === url ? tabFavicons[activeTab.id] : undefined,
       };
       setBookmarks((items) =>
-        addingBookmarkFolderId
-          ? appendBookmarkToFolder(items, addingBookmarkFolderId, bookmark).nodes
-          : [bookmark, ...items],
+        addingBookmarkFolderId ? appendToFolder(items, addingBookmarkFolderId, bookmark).nodes : [bookmark, ...items],
       );
     } else
       setBookmarks((items) =>
-        updateBookmarkNode(items, editingBookmarkId, (node) =>
+        updateNode(items, editingBookmarkId, (node) =>
           node.type === 'bookmark' ? { ...node, title, url, description } : node,
         ),
       );
@@ -2518,8 +1797,8 @@ export default function App() {
         await menu.popup(position);
         return;
       }
-      const open = (command: string) => {
-        void invoke(command, { url: bookmark.url }).catch((error) => setMessage(String(error)));
+      const open = (command: 'open_link_in_new_tab' | 'open_link_in_new_window') => {
+        void call(command, { url: bookmark.url }).catch((error) => setMessage(String(error)));
       };
       const menu = await Menu.new({
         items: [
@@ -2539,7 +1818,7 @@ export default function App() {
     const folder: BookmarkFolder = { id: crypto.randomUUID(), type: 'folder', title: 'New Folder', children: [] };
     setBookmarks((items) => {
       if (!parentId) return [folder, ...items];
-      return appendBookmarkToFolder(items, parentId, folder).nodes;
+      return appendToFolder(items, parentId, folder).nodes;
     });
     if (parentId) setExpandedFolderIds((ids) => (ids.includes(parentId) ? ids : [...ids, parentId]));
     setExpandedFolderIds((ids) => (ids.includes(folder.id) ? ids : [...ids, folder.id]));
@@ -2550,14 +1829,14 @@ export default function App() {
   function saveFolderTitle(folderId: string) {
     const title = folderTitle.trim() || 'New Folder';
     setBookmarks((items) =>
-      updateBookmarkNode(items, folderId, (node) => (node.type === 'folder' ? { ...node, title } : node)),
+      updateNode(items, folderId, (node) => (node.type === 'folder' ? { ...node, title } : node)),
     );
     setEditingFolderId('');
   }
 
   function deleteBookmarkNode(node: BookmarkNode) {
     if (node.type === 'folder' && !window.confirm(`Delete “${node.title}” and everything inside it?`)) return;
-    setBookmarks((items) => removeBookmarkNode(items, node.id).nodes);
+    setBookmarks((items) => removeNode(items, node.id).nodes);
   }
 
   function clearBookmarkExpandTimer() {
@@ -2571,21 +1850,16 @@ export default function App() {
     setBookmarkDragOrigin(null);
   }
 
-  function bookmarkDropZoneFor({ active, over }: Pick<DragMoveEvent, 'active' | 'over'>): BookmarkDropZone | null {
+  function bookmarkDropZoneFor({ active, over }: Pick<DragMoveEvent, 'active' | 'over'>): DropZone | null {
     const rect = active.rect.current.translated;
     if (!over || !rect || over.id === active.id) return null;
-    const target = locateBookmark(bookmarks, String(over.id));
+    const target = locateNode(bookmarks, String(over.id));
     if (!target) throw new Error(`Bookmark drop target ${String(over.id)} was not found`);
-    return resolveBookmarkDropZone(
-      rect.top + rect.height / 2,
-      over.rect.top,
-      over.rect.height,
-      target.node.type === 'folder',
-    );
+    return resolveDropZone(rect.top + rect.height / 2, over.rect.top, over.rect.height, target.node.type === 'folder');
   }
 
   function handleBookmarkDragStart({ active }: DragStartEvent) {
-    const found = locateBookmark(bookmarks, String(active.id));
+    const found = locateNode(bookmarks, String(active.id));
     if (found) setBookmarkDragOrigin({ id: String(active.id), depth: found.depth });
   }
 
@@ -2614,7 +1888,7 @@ export default function App() {
   function handleBookmarkDragEnd(event: DragEndEvent) {
     const zone = bookmarkDropZoneFor(event);
     if (zone && bookmarkDragOrigin) {
-      const result = moveBookmarkToDropZone(
+      const result = moveNodeToDropZone(
         bookmarks,
         String(event.active.id),
         String(event.over!.id),
@@ -2636,7 +1910,7 @@ export default function App() {
 
   function reorderTabsFromTree(nodes: TabNode[]) {
     storeTabTree(nodes);
-    void invoke<BrowserSnapshot>('reorder_tabs', { tabIds: flattenTabIds(nodes) })
+    void call('reorder_tabs', { tabIds: flattenTabIds(nodes) })
       .then(applySnapshot)
       .catch((error) => setMessage(String(error)));
   }
@@ -2657,7 +1931,7 @@ export default function App() {
   function saveTabFolderTitle(folderId: string) {
     const title = tabFolderTitle.trim() || 'New Folder';
     storeTabTree(
-      updateTabNode(tabNodesRef.current, folderId, (node) => (node.type === 'folder' ? { ...node, title } : node)),
+      updateNode(tabNodesRef.current, folderId, (node) => (node.type === 'folder' ? { ...node, title } : node)),
     );
     setEditingTabFolderId('');
   }
@@ -2675,7 +1949,7 @@ export default function App() {
   function finishTabDrag(cancelled: boolean) {
     // Folders get the native invalid preview but can never split into a page or window.
     if (tabDragOrigin)
-      void invoke('set_tab_dragging', {
+      void call('set_tab_dragging', {
         dragging: false,
         tabId: null,
         targetTabId: null,
@@ -2702,9 +1976,7 @@ export default function App() {
     );
   }
 
-  function tabDropZoneFor(
-    event: Pick<DragMoveEvent, 'active' | 'over' | 'activatorEvent' | 'delta'>,
-  ): BookmarkDropZone | null {
+  function tabDropZoneFor(event: Pick<DragMoveEvent, 'active' | 'over' | 'activatorEvent' | 'delta'>): DropZone | null {
     const rect = event.active.rect.current.translated;
     if (
       !event.over ||
@@ -2715,17 +1987,17 @@ export default function App() {
     )
       return null;
     const targetId = String(event.over.data.current.nodeId ?? event.over.id);
-    const target = locateBookmark(tabNodesRef.current, targetId);
+    const target = locateNode(tabNodesRef.current, targetId);
     if (!target) throw new Error(`Tab drop target ${String(event.over.id)} was not found`);
     const horizontal = tabAxisForPosition(tabPosition) === 'horizontal';
     return horizontal
-      ? resolveBookmarkDropZone(
+      ? resolveDropZone(
           rect.left + rect.width / 2,
           event.over.rect.left,
           event.over.rect.width,
           target.node.type === 'folder',
         )
-      : resolveBookmarkDropZone(
+      : resolveDropZone(
           rect.top + rect.height / 2,
           event.over.rect.top,
           event.over.rect.height,
@@ -2736,7 +2008,7 @@ export default function App() {
   function handleTabDragStart({ active, activatorEvent }: DragStartEvent) {
     const nodeId = String(active.data.current?.nodeId ?? active.id);
     const container = active.data.current?.container === 'pinned' ? 'pinned' : 'tabs';
-    const found = locateBookmark(tabNodesRef.current, nodeId);
+    const found = locateNode(tabNodesRef.current, nodeId);
     if (!found) throw new Error(`Dragged tab node ${String(active.id)} was not found`);
     const source =
       activatorEvent.target instanceof HTMLElement
@@ -2759,7 +2031,7 @@ export default function App() {
     });
     setTabDragPreview(null);
     if (found.node.type === 'tab') setDraggingTabId(found.node.id);
-    void invoke('set_tab_dragging', {
+    void call('set_tab_dragging', {
       dragging: true,
       tabId: found.node.type === 'tab' ? found.node.id : null,
       targetTabId: activeTabIdRef.current,
@@ -2786,7 +2058,7 @@ export default function App() {
       const coordinate = pointer && (horizontal ? pointer.x : pointer.y);
       const start = rect && (horizontal ? rect.left : rect.top);
       const size = rect && (horizontal ? rect.width : rect.height);
-      const zone: BookmarkDropZone =
+      const zone: DropZone =
         !event.over ||
         event.over.id === pinnedTabsEndId ||
         coordinate === null ||
@@ -2809,7 +2081,7 @@ export default function App() {
           ? current
           : { container: 'tabs', overId, zone },
     );
-    const over = zone === 'inside' ? findTabNode(tabNodesRef.current, overId) : undefined;
+    const over = zone === 'inside' ? findNode(tabNodesRef.current, overId) : undefined;
     if (!over || over.type !== 'folder' || !over.collapsed) {
       clearTabExpandTimer();
       return;
@@ -2821,7 +2093,7 @@ export default function App() {
       timer: window.setTimeout(() => {
         tabExpandTimer.current = null;
         storeTabTree(
-          updateTabNode(tabNodesRef.current, overId, (node) =>
+          updateNode(tabNodesRef.current, overId, (node) =>
             node.type === 'folder' ? { ...node, collapsed: false } : node,
           ),
         );
@@ -2858,7 +2130,7 @@ export default function App() {
           const targetId = String(event.over.data.current?.nodeId ?? event.over.id);
           const horizontal = tabAxisForPosition(tabPosition) === 'horizontal';
           const indentDelta = horizontal ? event.delta.y : event.delta.x;
-          const result = moveBookmarkToDropZone(
+          const result = moveNodeToDropZone(
             tabNodesRef.current,
             activeId,
             targetId,
@@ -2871,7 +2143,7 @@ export default function App() {
           const parentId = result.parentId;
           if (parentId)
             storeTabTree(
-              updateTabNode(tabNodesRef.current, parentId, (node) =>
+              updateNode(tabNodesRef.current, parentId, (node) =>
                 node.type === 'folder' ? { ...node, collapsed: false } : node,
               ),
             );
@@ -2883,7 +2155,7 @@ export default function App() {
 
   function toggleTabFolder(folderId: string) {
     storeTabTree(
-      updateTabNode(tabNodesRef.current, folderId, (node) =>
+      updateNode(tabNodesRef.current, folderId, (node) =>
         node.type === 'folder' ? { ...node, collapsed: !node.collapsed } : node,
       ),
     );
@@ -2896,10 +2168,10 @@ export default function App() {
     position: 'before' | 'after' = 'before',
   ) {
     if (!draggedId || draggedId === targetId || draggedId === folderId) return;
-    const moving = findTabNode(tabNodesRef.current, draggedId);
+    const moving = findNode(tabNodesRef.current, draggedId);
     const destinationId = folderId ?? targetId;
-    if (!moving || (destinationId && moving.type === 'folder' && containsTabNode(moving, destinationId))) return;
-    const remaining = removeTabNode(tabNodesRef.current, draggedId).nodes;
+    if (!moving || (destinationId && moving.type === 'folder' && containsNode(moving, destinationId))) return;
+    const remaining = removeNode(tabNodesRef.current, draggedId).nodes;
     let result: TabNode[];
     if (folderId) result = appendTabNodeToFolder(remaining, folderId, moving).nodes;
     else if (targetId) result = insertTabNode(remaining, targetId, moving, position === 'after').nodes;
@@ -2907,7 +2179,7 @@ export default function App() {
     reorderTabsFromTree(result);
     if (folderId)
       storeTabTree(
-        updateTabNode(tabNodesRef.current, folderId, (node) =>
+        updateNode(tabNodesRef.current, folderId, (node) =>
           node.type === 'folder' ? { ...node, collapsed: false } : node,
         ),
       );
@@ -2998,7 +2270,7 @@ export default function App() {
     );
   }
 
-  function renderPinnedTab(tab: Tab, compact = false, dropZone?: BookmarkDropZone): React.ReactNode {
+  function renderPinnedTab(tab: Tab, compact = false, dropZone?: DropZone): React.ReactNode {
     const title = tabNameOverrides[tab.id] || tab.title || 'New Tab';
     if (editingTabId === tab.id)
       return (
@@ -3214,9 +2486,9 @@ export default function App() {
   async function openBookmark(url: string) {
     if (!activeTabId) {
       try {
-        const snapshot = await invoke<BrowserSnapshot>('create_tab');
+        const snapshot = await call('create_tab');
         applySnapshot(snapshot);
-        await invoke('navigate', { tabId: snapshot.activeTabId, url });
+        await call('navigate', { tabId: snapshot.activeTabId, url });
       } catch (error) {
         setMessage(String(error));
       }
@@ -3230,13 +2502,11 @@ export default function App() {
   }
 
   const bookmarkExpanded = new Set(
-    bookmarkSearch.trim()
-      ? bookmarkFolderIds(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()))
-      : expandedFolderIds,
+    bookmarkSearch.trim() ? folderIds(filterBookmarkNodes(bookmarks, bookmarkSearch.trim())) : expandedFolderIds,
   );
   // A dragged folder collapses so its own children are not drop targets.
   if (bookmarkDragOrigin) bookmarkExpanded.delete(bookmarkDragOrigin.id);
-  const draggedBookmark = bookmarkDragOrigin ? locateBookmark(bookmarks, bookmarkDragOrigin.id)?.node : undefined;
+  const draggedBookmark = bookmarkDragOrigin ? locateNode(bookmarks, bookmarkDragOrigin.id)?.node : undefined;
   // A dragged folder collapses so its own children are not drop targets.
   const expandedTabFolders = new Set(expandedTabFolderIds(tabNodes));
   if (tabDragOrigin) expandedTabFolders.delete(tabDragOrigin.id);
@@ -3246,8 +2516,8 @@ export default function App() {
       return [{ ...node, children: unpinnedTabNodes(node.children) }];
     });
   const unpinnedTree = unpinnedTabNodes(tabNodes);
-  const visibleTabRows = flattenBookmarkNodes(unpinnedTree, expandedTabFolders);
-  const allTabRows = flattenBookmarkNodes(unpinnedTree, new Set(tabFolders(unpinnedTree).map((folder) => folder.id)));
+  const visibleTabRows = flattenTree(unpinnedTree, expandedTabFolders);
+  const allTabRows = flattenTree(unpinnedTree, new Set(tabFolders(unpinnedTree).map((folder) => folder.id)));
   const visibleSplitLayout =
     splitLayout && !pinnedTabIds.includes(splitLayout.firstTabId) && !pinnedTabIds.includes(splitLayout.secondTabId)
       ? splitLayout
@@ -3260,7 +2530,7 @@ export default function App() {
     const tab = tabs.find((item) => item.id === id);
     return tab ? [tab] : [];
   });
-  const draggedTabNode = tabDragOrigin ? findTabNode(tabNodes, tabDragOrigin.id) : undefined;
+  const draggedTabNode = tabDragOrigin ? findNode(tabNodes, tabDragOrigin.id) : undefined;
   const bookmarkEditForm = (
     <form
       className="bookmark-form bookmark-inline-form"
@@ -3273,7 +2543,7 @@ export default function App() {
       }}
     >
       {addingBookmarkFolderId && (
-        <small>New bookmark in {locateBookmark(bookmarks, addingBookmarkFolderId)?.node.title ?? 'folder'}</small>
+        <small>New bookmark in {locateNode(bookmarks, addingBookmarkFolderId)?.node.title ?? 'folder'}</small>
       )}
       <AppInput
         aria-label="Bookmark title"
@@ -3302,10 +2572,7 @@ export default function App() {
       </div>
     </form>
   );
-  const visibleBookmarkRows = flattenBookmarkNodes(
-    filterBookmarkNodes(bookmarks, bookmarkSearch.trim()),
-    bookmarkExpanded,
-  );
+  const visibleBookmarkRows = flattenTree(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()), bookmarkExpanded);
   const horizontalTabStrip = tabAxisForPosition(tabPosition) === 'horizontal';
 
   function renderTabManager() {
@@ -3605,7 +2872,7 @@ export default function App() {
               className="rail-button"
               title="Toggle developer console"
               aria-label="Toggle developer console"
-              onClick={() => void invoke('toggle_devtools').catch((error) => setMessage(String(error)))}
+              onClick={() => void call('toggle_devtools').catch((error) => setMessage(String(error)))}
             >
               <Terminal className="ui-icon" size={16} aria-hidden="true" />
             </button>
@@ -3658,7 +2925,7 @@ export default function App() {
                       setTabNameDraft(tabNameOverrides[tabContextMenu.id] || tab?.title || '');
                       setEditingTabId(tabContextMenu.id);
                     } else {
-                      const folder = findTabNode(tabNodesRef.current, tabContextMenu.id);
+                      const folder = findNode(tabNodesRef.current, tabContextMenu.id);
                       if (folder?.type === 'folder') {
                         setTabFolderTitle(folder.title);
                         setEditingTabFolderId(folder.id);
@@ -3688,7 +2955,7 @@ export default function App() {
                     disabled={!tabs.find((tab) => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)}
                     onClick={() => {
                       const tab = tabs.find((item) => item.id === tabContextMenu.id);
-                      if (tab) void invoke('reload', { tabId: tab.id }).catch((error) => setMessage(String(error)));
+                      if (tab) void call('reload', { tabId: tab.id }).catch((error) => setMessage(String(error)));
                       setTabContextMenu(null);
                     }}
                   >
@@ -3700,7 +2967,7 @@ export default function App() {
                       const targetId = tabContextMenu.id;
                       setTabContextMenu(null);
                       try {
-                        const snapshot = await invoke<BrowserSnapshot>('create_tab');
+                        const snapshot = await call('create_tab');
                         applySnapshot(snapshot);
                         const nodes = insertTabNode(
                           tabNodesRef.current,
@@ -3839,7 +3106,6 @@ export default function App() {
           }}
           onDoubleClick={() => {
             setSidebarWidth(sidebarDefaultWidth);
-            localStorage.removeItem('browser.sidebarWidth');
           }}
         />
       </aside>
@@ -3898,12 +3164,12 @@ export default function App() {
                   playingAudio: false,
                 };
                 try {
-                  const shown = await invoke<boolean>('toggle_page_security_popover', {
+                  const shown = await call('toggle_page_security_popover', {
                     anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
                     info,
                   });
                   setSecurityOpen(shown);
-                  if (!shown) setSecurityInfo(null);
+                  if (!shown) setSecurityState(null);
                 } catch (error) {
                   setMessage(String(error));
                 }
@@ -4020,9 +3286,9 @@ export default function App() {
                   }
                 }}
               />
-              {findMatches !== null && (
+              {shownFindMatches !== null && (
                 <span className="find-result" role="status" aria-live="polite">
-                  {findMatches} {findMatches === 1 ? 'match' : 'matches'}
+                  {shownFindMatches} {shownFindMatches === 1 ? 'match' : 'matches'}
                 </span>
               )}
               <AppButton type="submit" title="Find next" aria-label="Find next">
@@ -4142,7 +3408,7 @@ export default function App() {
                       aria-label={`Reveal ${item.filename}`}
                       title="Show in Finder"
                       onClick={() =>
-                        void invoke('reveal_download', { downloadId: item.id }).catch((error) =>
+                        void call('reveal_download', { downloadId: item.id }).catch((error) =>
                           setMessage(String(error)),
                         )
                       }
@@ -4161,411 +3427,41 @@ export default function App() {
 
         <div className="webview-slot" ref={viewRef}>
           {downloadsPageOpen ? (
-            <section className="history-page" aria-label="Downloads">
-              <header className="settings-heading">
-                <div>
-                  <p className="eyebrow">UNKY</p>
-                  <h1>Downloads</h1>
-                </div>
-                <AppButton
-                  className="settings-close"
-                  onClick={() => void closeTab(activeTabId)}
-                  aria-label="Close downloads tab"
-                >
-                  <X className="ui-icon" size={17} aria-hidden="true" />
-                </AppButton>
-              </header>
-              <div className="history-content">
-                <div className="history-list" aria-label="All downloads">
-                  {downloads.map((item) => (
-                    <div className="history-entry" key={item.id}>
-                      <span className="history-entry-icon" aria-hidden="true">
-                        <Download className="ui-icon" size={16} />
-                      </span>
-                      <div className="history-entry-open">
-                        <strong>{item.filename}</strong>
-                        <small>{item.path}</small>
-                        <small className={`download-status-${item.status}`}>
-                          {item.status === 'completed'
-                            ? 'Complete'
-                            : item.status === 'failed'
-                              ? 'Failed'
-                              : `Downloading · ${item.bytesReceived.toLocaleString()} bytes`}
-                        </small>
-                        {item.status === 'downloading' && (
-                          <progress className="download-progress" aria-label={`Downloading ${item.filename}`} />
-                        )}
-                      </div>
-                      <AppButton
-                        className="download-reveal"
-                        disabled={item.status !== 'completed'}
-                        aria-label={`Reveal ${item.filename}`}
-                        title="Show in Finder"
-                        onClick={() =>
-                          void invoke('reveal_download', { downloadId: item.id }).catch((error) =>
-                            setMessage(String(error)),
-                          )
-                        }
-                      >
-                        <ExternalLink className="ui-icon" size={14} aria-hidden="true" />
-                      </AppButton>
-                    </div>
-                  ))}
-                  {downloads.length === 0 && <p className="history-empty">Downloads will appear here.</p>}
-                </div>
-              </div>
-            </section>
+            <DownloadsPage downloads={downloads} onClose={() => void closeTab(activeTabId)} setMessage={setMessage} />
           ) : settingsPageOpen ? (
-            <section className="settings-page" aria-label="Settings">
-              <header className="settings-heading">
-                <div>
-                  <p className="eyebrow">UNKY</p>
-                  <h1>Settings</h1>
-                </div>
-                <AppButton className="settings-close" onClick={closeSettings} aria-label="Close settings">
-                  <X className="ui-icon" size={17} aria-hidden="true" />
-                </AppButton>
-              </header>
-              <div className="settings-content">
-                <h2>General</h2>
-                <div className="settings-card">
-                  <div>
-                    <strong>Bookmarks</strong>
-                    <small>Saved locally in this browser profile.</small>
-                  </div>
-                  <AppButton
-                    onClick={() => {
-                      closeSettings();
-                      setSidebarView('bookmarks');
-                    }}
-                  >
-                    Manage bookmarks
-                  </AppButton>
-                </div>
-                <div className="settings-card">
-                  <div>
-                    <strong>Webpage context menu</strong>
-                    <small>Replace the page’s default right-click menu with browser actions.</small>
-                  </div>
-                  <label className="settings-toggle">
-                    <input
-                      type="checkbox"
-                      checked={customPageContextMenuEnabled}
-                      onChange={(event) => setCustomPageContextMenuEnabled(event.target.checked)}
-                    />
-                    <span>{customPageContextMenuEnabled ? 'On' : 'Off'}</span>
-                  </label>
-                </div>
-                <h2>Appearance</h2>
-                <div className="settings-card">
-                  <div>
-                    <strong>Color scheme</strong>
-                    <small>Choose the browser interface appearance.</small>
-                  </div>
-                  <Select
-                    aria-label="Color scheme"
-                    selectedKey={theme}
-                    onSelectionChange={(key) => setTheme(key as Theme)}
-                    className="theme-select"
-                  >
-                    <AriaButton className="button-base theme-select-trigger" data-variant="secondary">
-                      <SelectValue />
-                    </AriaButton>
-                    <Popover className="theme-select-popover">
-                      <ListBox>
-                        <ListBoxItem id="system">System</ListBoxItem>
-                        <ListBoxItem id="light">Light</ListBoxItem>
-                        <ListBoxItem id="dark">Dark</ListBoxItem>
-                      </ListBox>
-                    </Popover>
-                  </Select>
-                </div>
-                <div className="settings-card">
-                  <div>
-                    <strong>Tab position</strong>
-                    <small>Place tabs in the sidebar or dock them across the top or bottom edge.</small>
-                  </div>
-                  <div className="tab-position-picker" role="group" aria-label="Tab position">
-                    {tabPositions.map((position) => (
-                      <button
-                        key={position.id}
-                        type="button"
-                        title={`Tabs on ${position.id}`}
-                        aria-label={`Tabs on ${position.id}`}
-                        aria-pressed={tabPosition === position.id}
-                        onClick={() => {
-                          setTabPosition(position.id);
-                          if (position.id === 'left' || position.id === 'right') setSidebarSide(position.id);
-                        }}
-                      >
-                        <span aria-hidden="true">{position.symbol}</span>
-                        {position.id[0].toUpperCase() + position.id.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="settings-card">
-                  <div>
-                    <strong>Bookmarks sidebar</strong>
-                    <small>Keep bookmarks on the left or right side of the window.</small>
-                  </div>
-                  <div
-                    className="tab-position-picker sidebar-side-picker"
-                    role="group"
-                    aria-label="Bookmarks sidebar position"
-                  >
-                    {(['left', 'right'] as const).map((side) => (
-                      <button
-                        key={side}
-                        type="button"
-                        aria-label={`Bookmarks sidebar on ${side}`}
-                        aria-pressed={sidebarSide === side}
-                        onClick={() => {
-                          setSidebarSide(side);
-                          if (tabPosition === 'left' || tabPosition === 'right') setTabPosition(side);
-                        }}
-                      >
-                        {side[0].toUpperCase() + side.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="settings-card">
-                  <div>
-                    <strong>Sidebar width</strong>
-                    <small>Resize the sidebar by dragging its inner edge.</small>
-                  </div>
-                  <span>{Math.round(sidebarWidth)} px</span>
-                </div>
-                <h2>Privacy</h2>
-                <div className="settings-card">
-                  <div>
-                    <strong>Private tab</strong>
-                    <small>
-                      Open a tab with ephemeral website storage. Private tabs are excluded from history and session
-                      recovery.
-                    </small>
-                  </div>
-                  <AppButton onClick={() => void createTab(true)}>New private tab</AppButton>
-                </div>
-                <div className="settings-card">
-                  <div>
-                    <strong>Clear browsing data</strong>
-                    <small>Clear website storage for this browser profile and remove browsing history.</small>
-                  </div>
-                  <AppButton onClick={() => void clearBrowsingData()}>Clear data</AppButton>
-                </div>
-                <div className="settings-card">
-                  <div>
-                    <strong>Content filtering</strong>
-                    <small>
-                      {filterSettings?.enabled
-                        ? filterSettings.updatedAt
-                          ? 'EasyList based blocking is active for new and reloaded pages.'
-                          : 'The built-in starter rules are active until EasyList is updated.'
-                        : 'Ad and tracker blocking is disabled.'}{' '}
-                      Changes reload open website tabs.
-                    </small>
-                  </div>
-                  <AppButton
-                    disabled={filterBusy || !filterSettings}
-                    onClick={() => void changeFilteringEnabled(!filterSettings?.enabled)}
-                  >
-                    {filterSettings?.enabled ? 'Turn off' : 'Turn on'}
-                  </AppButton>
-                </div>
-                <div className="settings-card">
-                  <div>
-                    <strong>Filter list</strong>
-                    <small>
-                      {filterSettings
-                        ? `${filterSettings.acceptedRules.toLocaleString()} supported rules · ${filterSettings.updatedAt ? `Updated ${new Date(filterSettings.updatedAt * 1000).toLocaleString()}` : 'Using the built-in starter set'}`
-                        : 'Loading filter status…'}{' '}
-                      The compiler skips unsupported EasyList syntax.
-                    </small>
-                    {filterBusy && (
-                      <div className="filter-update-progress" role="status" aria-live="polite">
-                        <span>
-                          {filterProgress?.phase === 'compiling'
-                            ? 'Compiling rules…'
-                            : filterProgress?.totalBytes
-                              ? `Downloading EasyList… ${Math.min(100, Math.floor((filterProgress.receivedBytes * 100) / filterProgress.totalBytes))}%`
-                              : 'Connecting to EasyList…'}
-                        </span>
-                        {filterProgress?.phase === 'downloading' && filterProgress.totalBytes && (
-                          <progress
-                            aria-label="EasyList download progress"
-                            max={100}
-                            value={Math.min(
-                              100,
-                              Math.floor((filterProgress.receivedBytes * 100) / filterProgress.totalBytes),
-                            )}
-                          />
-                        )}
-                        {filterProgress?.phase === 'downloading' && !filterProgress.totalBytes && (
-                          <progress aria-label="EasyList download progress" />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <AppButton disabled={filterBusy} onClick={() => void updateFilterList()}>
-                    {filterBusy ? 'Updating…' : 'Update EasyList'}
-                  </AppButton>
-                </div>
-                <div className="settings-card">
-                  <div>
-                    <strong>Current site</strong>
-                    <small>
-                      {activeSiteDomain
-                        ? `Allow requests on ${activeSiteDomain} by disabling filtering for this site.`
-                        : 'Open a website to manage its filter exception.'}
-                    </small>
-                  </div>
-                  <AppButton
-                    disabled={filterBusy || !activeSiteDomain}
-                    onClick={() =>
-                      void changeSiteFilterException(!filterSettings?.exceptions.includes(activeSiteDomain))
-                    }
-                  >
-                    {filterSettings?.exceptions.includes(activeSiteDomain) ? 'Enable for site' : 'Disable for site'}
-                  </AppButton>
-                </div>
-                {message && (
-                  <p className="message" role="status">
-                    {message}
-                  </p>
-                )}
-                <h2>About</h2>
-                <div className="settings-card">
-                  <div>
-                    <strong>Unky</strong>
-                    <small>
-                      Version {buildMetadata.version} · Build {buildMetadata.buildNumber} · Built{' '}
-                      {new Date(buildMetadata.builtAt).toLocaleString()}
-                    </small>
-                  </div>
-                  <span>{buildMetadata.version}</span>
-                </div>
-              </div>
-            </section>
+            <SettingsPage
+              activeSiteDomain={activeSiteDomain}
+              changeFilteringEnabled={changeFilteringEnabled}
+              changeSiteFilterException={changeSiteFilterException}
+              clearBrowsingData={clearBrowsingData}
+              closeSettings={closeSettings}
+              createTab={createTab}
+              customPageContextMenuEnabled={customPageContextMenuEnabled}
+              setCustomPageContextMenuEnabled={setCustomPageContextMenuEnabled}
+              filterBusy={filterBusy}
+              filterProgress={filterProgress}
+              filterSettings={filterSettings}
+              message={message}
+              sidebarSide={sidebarSide}
+              setSidebarSide={setSidebarSide}
+              setSidebarView={setSidebarView}
+              tabPosition={tabPosition}
+              setTabPosition={setTabPosition}
+              theme={theme}
+              setTheme={setTheme}
+              sidebarWidth={sidebarWidth}
+              updateFilterList={updateFilterList}
+            />
           ) : shortcutsPageOpen ? (
-            <section className="history-page shortcuts-page" aria-label="Keyboard shortcuts">
-              <header className="settings-heading">
-                <div>
-                  <p className="eyebrow">UNKY HELP</p>
-                  <h1>Keyboard Shortcuts</h1>
-                </div>
-                <AppButton
-                  className="settings-close"
-                  onClick={() => void closeTab(activeTabId)}
-                  aria-label="Close shortcuts"
-                >
-                  <X className="ui-icon" size={17} aria-hidden="true" />
-                </AppButton>
-              </header>
-              <div className="history-content">
-                <p className="shortcuts-intro">Use these shortcuts while browsing. Some shortcuts vary by platform.</p>
-                <div className="shortcuts-list">
-                  {[
-                    ['New tab', `${commandKey}+T`],
-                    ['New private tab', `${commandKey}+Shift+N`],
-                    ['Close tab', `${commandKey}+W`],
-                    ['Reopen closed tab', `${commandKey}+Shift+T`],
-                    [
-                      'Next tab',
-                      /Mac|iPhone|iPad/.test(navigator.platform)
-                        ? 'Ctrl+Tab · ⌘+Option+→ · ⇧+⌘+]'
-                        : 'Ctrl+Tab · Ctrl+PageDown',
-                    ],
-                    [
-                      'Previous tab',
-                      /Mac|iPhone|iPad/.test(navigator.platform)
-                        ? 'Ctrl+Shift+Tab · ⌘+Option+← · ⇧+⌘+['
-                        : 'Ctrl+Shift+Tab · Ctrl+PageUp',
-                    ],
-                    ['Focus address bar', `${commandKey}+L`],
-                    ['Find in page', `${commandKey}+F`],
-                    ['Reload page', `${commandKey}+R`],
-                    ['Back', /Mac|iPhone|iPad/.test(navigator.platform) ? `${commandKey}+[` : 'Alt+←'],
-                    ['Forward', /Mac|iPhone|iPad/.test(navigator.platform) ? `${commandKey}+]` : 'Alt+→'],
-                    ['Zoom in', `${commandKey}+Shift+=`],
-                    ['Zoom out', `${commandKey}+-`],
-                    ['Reset zoom', `${commandKey}+0`],
-                    ['Settings', `${commandKey}+,`],
-                  ].map(([label, keys]) => (
-                    <div className="shortcut-entry" key={label}>
-                      <span>{label}</span>
-                      <kbd>{keys}</kbd>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
+            <ShortcutsPage onClose={() => void closeTab(activeTabId)} />
           ) : historyPageOpen ? (
-            <section className="history-page" aria-label="Browsing history">
-              <header className="settings-heading">
-                <div>
-                  <p className="eyebrow">UNKY</p>
-                  <h1>History</h1>
-                </div>
-                <AppButton
-                  className="settings-close"
-                  onClick={() => void closeTab(activeTabId)}
-                  aria-label="Close history tab"
-                >
-                  <X className="ui-icon" size={17} aria-hidden="true" />
-                </AppButton>
-              </header>
-              <div className="history-content">
-                <label className="history-search">
-                  <Search className="ui-icon" size={16} aria-hidden="true" />
-                  <AppInput
-                    aria-label="Search history"
-                    placeholder="Search history"
-                    value={historySearch}
-                    onChange={(event) => setHistorySearch(event.target.value)}
-                  />
-                </label>
-                <div className="history-list" aria-label="History entries">
-                  {history
-                    .filter((item) =>
-                      `${item.title} ${item.url}`.toLowerCase().includes(historySearch.trim().toLowerCase()),
-                    )
-                    .map((item, index) => (
-                      <div className="history-entry" key={`${item.url}-${item.visitedAt}-${index}`}>
-                        <span className="history-entry-icon" aria-hidden="true">
-                          {item.favicon ? (
-                            <img
-                              className="history-favicon"
-                              src={item.favicon}
-                              alt=""
-                              onError={(event) => {
-                                event.currentTarget.hidden = true;
-                              }}
-                            />
-                          ) : (
-                            <Clock3 className="ui-icon" size={15} />
-                          )}
-                        </span>
-                        <AppButton className="history-entry-open" onClick={() => void openHistoryEntry(item.url)}>
-                          <strong>{item.title || item.url}</strong>
-                          <small>{item.url}</small>
-                        </AppButton>
-                        <time dateTime={new Date(item.visitedAt * 1000).toISOString()}>
-                          {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
-                            item.visitedAt * 1000,
-                          )}
-                        </time>
-                      </div>
-                    ))}
-                  {history.length === 0 && <p className="history-empty">Pages you visit will appear here.</p>}
-                  {history.length > 0 &&
-                    !history.some((item) =>
-                      `${item.title} ${item.url}`.toLowerCase().includes(historySearch.trim().toLowerCase()),
-                    ) && <p className="history-empty">No matching pages.</p>}
-                </div>
-              </div>
-            </section>
+            <HistoryPage
+              history={history}
+              historySearch={historySearch}
+              setHistorySearch={setHistorySearch}
+              openHistoryEntry={openHistoryEntry}
+              onClose={() => void closeTab(activeTabId)}
+            />
           ) : (
             (!activeTab?.url || !isTauri) && (
               <div

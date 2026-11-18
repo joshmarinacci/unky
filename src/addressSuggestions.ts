@@ -1,4 +1,4 @@
-import type { BookmarkNode } from './bookmarkTree';
+import type { BookmarkNode } from './bookmarks';
 
 export type AddressSuggestion = { url: string; title: string; source: 'Bookmark' | 'History' };
 export type AddressSuggestionsState = { rows: AddressSuggestion[]; selectedIndex: number };

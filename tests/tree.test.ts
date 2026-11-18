@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { groupSplitTabRows } from '../src/splitTabRows.ts';
-import { flattenBookmarkNodes } from '../src/bookmarkTree.ts';
+import { flattenTree } from '../src/tree.ts';
 import { externalBrowserMenuItems, selectInputText } from '../src/tabUiActions.ts';
 
 test('tab and folder rename focus selects the existing input text', () => {
@@ -49,8 +49,8 @@ test('split rows use pane order once and restore the original rows when unsplit'
 });
 
 test('split pairs span collapsed folders without mutating folder membership', () => {
-  const all = flattenBookmarkNodes(tree, new Set(['work', 'archive']));
-  const visible = flattenBookmarkNodes(tree, new Set(['work']));
+  const all = flattenTree(tree, new Set(['work', 'archive']));
+  const visible = flattenTree(tree, new Set(['work']));
   const saved = JSON.stringify(tree);
   const grouped = groupSplitTabRows(visible, all, { firstTabId: 'draft', secondTabId: 'old' });
   const pair = grouped.find((row) => row.type === 'split');
@@ -58,20 +58,15 @@ test('split pairs span collapsed folders without mutating folder membership', ()
   assert.equal(pair.depth, 1);
   assert.equal(pair.second.parentId, 'archive');
   assert.equal(JSON.stringify(tree), saved);
-  const collapsed = flattenBookmarkNodes(tree, new Set());
+  const collapsed = flattenTree(tree, new Set());
   assert.ok(
     groupSplitTabRows(collapsed, all, { firstTabId: 'draft', secondTabId: 'old' }).every(
       (row) => row.type === 'single',
     ),
   );
 });
-import {
-  moveBookmarkToDepth,
-  moveBookmarkToDropZone,
-  resolveBookmarkDropDepth,
-  resolveBookmarkDropZone,
-  type BookmarkNode,
-} from '../src/bookmarkTree.ts';
+import { moveNodeToDepth, moveNodeToDropZone, resolveDropDepth, resolveDropZone } from '../src/tree.ts';
+import type { BookmarkNode } from '../src/bookmarks.ts';
 import { isTabPosition, reorderTabIds, tabAxisForPosition, resolveTabDragPreview } from '../src/tabLayout.ts';
 
 const tree: BookmarkNode[] = [
@@ -99,8 +94,8 @@ function ids(nodes: BookmarkNode[]): string[] {
 }
 
 test('moves a bottom-level bookmark to the top of the root list', () => {
-  const depth = resolveBookmarkDropDepth(0, 0, 0);
-  const result = moveBookmarkToDepth(tree, 'last', 'work', depth, false);
+  const depth = resolveDropDepth(0, 0, 0);
+  const result = moveNodeToDepth(tree, 'last', 'work', depth, false);
   assert.deepEqual(
     result.nodes.map((node) => node.id),
     ['last', 'work', 'middle', 'archive'],
@@ -109,8 +104,8 @@ test('moves a bottom-level bookmark to the top of the root list', () => {
 });
 
 test('moves a nested bookmark to the root when dropped over a shallower row without horizontal movement', () => {
-  const depth = resolveBookmarkDropDepth(1, 0, 0);
-  const result = moveBookmarkToDepth(tree, 'draft', 'middle', depth, false);
+  const depth = resolveDropDepth(1, 0, 0);
+  const result = moveNodeToDepth(tree, 'draft', 'middle', depth, false);
   assert.deepEqual(
     result.nodes.map((node) => node.id),
     ['work', 'draft', 'middle', 'last', 'archive'],
@@ -122,7 +117,7 @@ test('moves a nested bookmark to the root when dropped over a shallower row with
 });
 
 test('reorders a bookmark to just after the hovered sibling', () => {
-  const result = moveBookmarkToDepth(tree, 'middle', 'last', 0, true);
+  const result = moveNodeToDepth(tree, 'middle', 'last', 0, true);
   assert.deepEqual(
     result.nodes.map((node) => node.id),
     ['work', 'last', 'middle', 'archive'],
@@ -130,8 +125,8 @@ test('reorders a bookmark to just after the hovered sibling', () => {
 });
 
 test('nests a bookmark into a folder when horizontal movement requests its child depth', () => {
-  const depth = resolveBookmarkDropDepth(0, 0, 14);
-  const result = moveBookmarkToDepth(tree, 'middle', 'work', depth, false);
+  const depth = resolveDropDepth(0, 0, 14);
+  const result = moveNodeToDepth(tree, 'middle', 'work', depth, false);
   const work = result.nodes[0] as Extract<BookmarkNode, { type: 'folder' }>;
   assert.equal(result.parentId, 'work');
   assert.deepEqual(
@@ -141,7 +136,7 @@ test('nests a bookmark into a folder when horizontal movement requests its child
 });
 
 test('moves an item between folders before the hovered child', () => {
-  const result = moveBookmarkToDepth(tree, 'draft', 'old', 1, false);
+  const result = moveNodeToDepth(tree, 'draft', 'old', 1, false);
   const archive = result.nodes.find((node) => node.id === 'archive') as Extract<BookmarkNode, { type: 'folder' }>;
   assert.equal(result.parentId, 'archive');
   assert.deepEqual(
@@ -152,23 +147,23 @@ test('moves an item between folders before the hovered child', () => {
 });
 
 test('rejects moving a folder into one of its descendants', () => {
-  const result = moveBookmarkToDepth(tree, 'work', 'draft', 1, false);
+  const result = moveNodeToDepth(tree, 'work', 'draft', 1, false);
   assert.deepEqual(result.nodes, tree);
 });
 
 test('uses the hovered shallower row depth unless the pointer is deliberately indented', () => {
-  assert.equal(resolveBookmarkDropDepth(2, 0, 0), 0);
-  assert.equal(resolveBookmarkDropDepth(2, 0, -14), 0);
-  assert.equal(resolveBookmarkDropDepth(0, 0, 14), 1);
-  assert.equal(resolveBookmarkDropDepth(0, 1, 0), 0);
+  assert.equal(resolveDropDepth(2, 0, 0), 0);
+  assert.equal(resolveDropDepth(2, 0, -14), 0);
+  assert.equal(resolveDropDepth(0, 0, 14), 1);
+  assert.equal(resolveDropDepth(0, 1, 0), 0);
 });
 
 test('classifies drop zones: folders have a middle nesting band, links split in half', () => {
-  assert.equal(resolveBookmarkDropZone(105, 100, 40, true), 'before');
-  assert.equal(resolveBookmarkDropZone(120, 100, 40, true), 'inside');
-  assert.equal(resolveBookmarkDropZone(135, 100, 40, true), 'after');
-  assert.equal(resolveBookmarkDropZone(110, 100, 40, false), 'before');
-  assert.equal(resolveBookmarkDropZone(130, 100, 40, false), 'after');
+  assert.equal(resolveDropZone(105, 100, 40, true), 'before');
+  assert.equal(resolveDropZone(120, 100, 40, true), 'inside');
+  assert.equal(resolveDropZone(135, 100, 40, true), 'after');
+  assert.equal(resolveDropZone(110, 100, 40, false), 'before');
+  assert.equal(resolveDropZone(130, 100, 40, false), 'after');
 });
 
 test('tab positions select a horizontal or vertical strip', () => {
@@ -201,7 +196,7 @@ test('dropping inside a folder appends to it without any horizontal movement', (
     { id: 'a', type: 'bookmark', title: 'A', url: 'https://a' },
     { id: 'f', type: 'folder', title: 'F', children: [{ id: 'c', type: 'bookmark', title: 'C', url: 'https://c' }] },
   ];
-  const result = moveBookmarkToDropZone(nodes, 'a', 'f', 'inside', 0, 0);
+  const result = moveNodeToDropZone(nodes, 'a', 'f', 'inside', 0, 0);
   assert.equal(result.parentId, 'f');
   assert.deepEqual(
     result.nodes.map((n) => n.id),
@@ -218,17 +213,17 @@ test('dropping before/after a row places the item as its sibling', () => {
     { id: 'c', type: 'bookmark', title: 'C', url: 'https://c' },
   ];
   assert.deepEqual(
-    moveBookmarkToDropZone(nodes, 'a', 'c', 'after', 0, 0).nodes.map((n) => n.id),
+    moveNodeToDropZone(nodes, 'a', 'c', 'after', 0, 0).nodes.map((n) => n.id),
     ['b', 'c', 'a'],
   );
   assert.deepEqual(
-    moveBookmarkToDropZone(nodes, 'c', 'a', 'before', 0, 0).nodes.map((n) => n.id),
+    moveNodeToDropZone(nodes, 'c', 'a', 'before', 0, 0).nodes.map((n) => n.id),
     ['c', 'a', 'b'],
   );
 });
 
 test('dropping onto an unknown row fails loudly', () => {
-  assert.throws(() => moveBookmarkToDropZone([], 'a', 'missing', 'after', 0, 0), /missing/);
+  assert.throws(() => moveNodeToDropZone([], 'a', 'missing', 'after', 0, 0), /missing/);
 });
 
 test('the tree helpers also move tab nodes between folders', () => {
@@ -238,12 +233,12 @@ test('the tree helpers also move tab nodes between folders', () => {
     { id: 'f', type: 'folder', collapsed: true, children: [{ id: 't2', type: 'tab' }] },
     { id: 't3', type: 'tab' },
   ];
-  const nested = moveBookmarkToDropZone(nodes, 't3', 'f', 'inside', 0, 0);
+  const nested = moveNodeToDropZone(nodes, 't3', 'f', 'inside', 0, 0);
   assert.equal(nested.parentId, 'f');
   const folder = nested.nodes[1];
   assert.equal(folder.type === 'folder' && folder.collapsed, true, 'extra folder fields are preserved');
   assert.equal(folder.type === 'folder' && folder.children.map((n) => n.id).join(), 't2,t3');
-  const reordered = moveBookmarkToDropZone(nodes, 't3', 't1', 'before', 0, 0);
+  const reordered = moveNodeToDropZone(nodes, 't3', 't1', 'before', 0, 0);
   assert.deepEqual(
     reordered.nodes.map((n) => n.id),
     ['t3', 't1', 'f'],

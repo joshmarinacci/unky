@@ -1,4 +1,4 @@
-import type { FlatNode, TreeNode } from './bookmarkTree';
+import type { FlatNode, TreeNode } from './tree';
 
 export type SidebarRow<N extends TreeNode> =
   { type: 'single'; row: FlatNode<N> } | { type: 'split'; first: FlatNode<N>; second: FlatNode<N>; depth: number };
