@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { captureNativeWindow, inspect, invoke, results } from '../wdio.conf.js';
+import {
+  browserWindowLabels,
+  captureNativeWindow,
+  closeBrowserWindows,
+  closeTabs,
+  inspect,
+  invoke,
+  results,
+} from '../wdio.conf.js';
 
 async function browserUi(action: string, tabId?: string, menuItem?: string, extra: Record<string, unknown> = {}) {
   return invoke('desktop_test_browser_ui', { action, tabId, menuItem, ...extra });
@@ -409,6 +417,16 @@ describe('native Tauri browser', () => {
       },
       { timeout: 15000, timeoutMsg: 'The starting tab did not load for the context-menu test' },
     );
+    const tabsBefore = ((await invoke('get_browser_state')) as { tabs: Array<{ id: string }> }).tabs.map(
+      (tab) => tab.id,
+    );
+    try {
+      await runTabContextMenuScenario(tabsBefore);
+    } finally {
+      await closeTabs(tabsBefore);
+    }
+  });
+  async function runTabContextMenuScenario(tabsBefore: string[]) {
     await invoke('select_tab', { tabId: 'tab-1' });
 
     await clickTabContextItem('tab-1', 'Split right');
@@ -496,11 +514,12 @@ describe('native Tauri browser', () => {
     await browser.waitUntil(
       async () => {
         const state = (await invoke('get_browser_state')) as { tabs: Array<{ id: string }> };
-        return state.tabs.length === 1 && state.tabs[0].id === 'tab-1';
+        const ids = state.tabs.map((tab) => tab.id);
+        return ids.length === tabsBefore.length && tabsBefore.every((id) => ids.includes(id));
       },
-      { timeout: 5000, timeoutMsg: 'The context-menu test should restore the initial one-tab browser state' },
+      { timeout: 5000, timeoutMsg: 'The context-menu test should restore the tabs that were open when it started' },
     );
-  });
+  }
 
   it('routes website new-window links into tabs in the current browser window', async () => {
     const privateSource = (await invoke('create_tab', { private: true })) as {
@@ -569,6 +588,20 @@ describe('native Tauri browser', () => {
   });
 
   it('loads a child WebView, navigates, switches tabs, and captures the native window', async () => {
+    const tabsBefore = ((await invoke('get_browser_state')) as { tabs: Array<{ id: string }> }).tabs.map(
+      (tab) => tab.id,
+    );
+    const windowsBefore = await browserWindowLabels();
+    try {
+      await runChildWebViewScenario();
+    } finally {
+      // The scenario ends by moving a tab into a new native window, which takes OS focus.
+      // Close it so focus-routed menu actions in later tests reach the main window again.
+      await closeBrowserWindows(windowsBefore);
+      await closeTabs(tabsBefore);
+    }
+  });
+  async function runChildWebViewScenario() {
     await browser.waitUntil(
       async () => {
         const page = await inspect('tab-1');
@@ -811,13 +844,46 @@ describe('native Tauri browser', () => {
     assert.match(requests, /"path":"\/api\/status"/);
     assert.match(requests, /"path":"\/two"/);
     assert.ok(initialScreenshot.endsWith('child-webview-rendered.png'));
-  });
+  }
   it('discovers installed browsers and validates current-page handoff', async () => {
     const browsers = (await invoke('get_external_browsers')) as Array<{ id: string; name: string }>;
     assert.ok(browsers.length > 0, 'macOS should report an installed HTTPS browser');
     assert.ok(browsers.every((item) => item.id && item.name && item.id !== 'dev.example.my-browser'));
     assert.equal(new Set(browsers.map((item) => item.id)).size, browsers.length);
     const browserId = browsers[0].id;
+    const windowsBefore = await browserWindowLabels();
+    const tabsBefore = ((await invoke('get_browser_state')) as { tabs: Array<{ id: string }> }).tabs.map(
+      (tab) => tab.id,
+    );
+    try {
+      await runHandoffScenario(browsers, browserId);
+    } finally {
+      await closeBrowserWindows(windowsBefore);
+      await closeTabs(tabsBefore);
+    }
+  });
+  async function runHandoffScenario(browsers: Array<{ id: string; name: string }>, browserId: string) {
+    // Put a tab in another native window so the handoff can be checked against it.
+    const elsewhere = (await invoke('create_tab')) as { activeTabId: string };
+    const elsewhereUrl = 'http://127.0.0.1:4179/?handoff-other-window=1';
+    await invoke('navigate', { tabId: elsewhere.activeTabId, url: elsewhereUrl });
+    await browser.waitUntil(
+      async () => {
+        const page = await inspect(elsewhere.activeTabId);
+        return page.url === elsewhereUrl && page.readyState === 'complete';
+      },
+      { timeout: 15000, timeoutMsg: 'The handoff test tab did not load before moving windows' },
+    );
+    const otherWindowLabel = (await invoke('move_tab_to_new_window', { tabId: elsewhere.activeTabId })) as string;
+    await browser.waitUntil(
+      async () =>
+        (await inspect(elsewhere.activeTabId)).browser.tabs.some(
+          (tab: { id: string; windowLabel: string }) =>
+            tab.id === elsewhere.activeTabId && tab.windowLabel === otherWindowLabel,
+        ),
+      { timeout: 10000, timeoutMsg: `The handoff test tab did not move to ${otherWindowLabel}` },
+    );
+    await invoke('select_tab', { tabId: 'tab-1' });
     const blank = (await invoke('create_tab')) as { activeTabId: string };
     const tabId = blank.activeTabId;
     await assert.rejects(
@@ -833,8 +899,11 @@ describe('native Tauri browser', () => {
     );
     await assert.rejects(invoke('open_in_external_browser', { tabId: 'missing-tab', browserId }), /does not belong/);
     const state = (await inspect(tabId)).browser;
-    const otherWindowTab = state.tabs.find((tab: { windowLabel: string }) => tab.windowLabel !== 'main');
-    assert.ok(otherWindowTab, 'the window-move test should leave a tab in another native window');
+    const otherWindowTab = state.tabs.find((tab: { id: string }) => tab.id === elsewhere.activeTabId);
+    assert.ok(
+      otherWindowTab && otherWindowTab.windowLabel !== 'main',
+      'the handoff test tab should be in another window',
+    );
     await assert.rejects(
       invoke('open_in_external_browser', { tabId: otherWindowTab.id, browserId }),
       /does not belong/,
@@ -854,7 +923,7 @@ describe('native Tauri browser', () => {
       JSON.stringify({ browsers, dispatched, launchStubbed: true }, null, 2),
     );
     await invoke('close_tab', { tabId });
-  });
+  }
 
   it('supports four tab-strip positions, pointer folder drops, pin docking, and page split feedback', async () => {
     type TabNode = { id: string; type: 'tab' } | { id: string; type: 'folder'; title: string; children: TabNode[] };
