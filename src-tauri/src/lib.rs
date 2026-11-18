@@ -1998,196 +1998,16 @@ fn create_page_webview_with_focus(
         .incognito(private)
         .focused(focus)
         .initialization_script(
-            r#"window.__MY_BROWSER_TEST_ERRORS__ = [];
-              window.addEventListener('error', event => window.__MY_BROWSER_TEST_ERRORS__.push(String(event.message)));
-              window.addEventListener('unhandledrejection', event => window.__MY_BROWSER_TEST_ERRORS__.push(String(event.reason)));"#,
+            include_str!("../page-scripts/error-capture.js"),
         )
         .initialization_script(
-            r#"(() => {
-              let pending = false;
-              const focusBrowserTab = (pointerDown = false) => {
-                if (pending && !pointerDown) return;
-                pending = true;
-                window.__TAURI_INTERNALS__?.invoke('focus_browser_tab', { pointerDown })
-                  .catch(() => {})
-                  .finally(() => { pending = false; });
-              };
-              window.addEventListener('focus', focusBrowserTab);
-              document.addEventListener('pointerdown', () => focusBrowserTab(true), true);
-            })();"#,
+            include_str!("../page-scripts/focus-tracking.js"),
         )
         .initialization_script(&format!(
             "window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__ = {custom_context_menu_enabled};"
         ))
         .initialization_script(
-            &r#"(() => {
-              const host = document.createElement('div');
-              host.setAttribute('aria-hidden', 'true');
-              if (EXPOSE_MENU_ITEMS) host.dataset.menuItems = '[]';
-              const shadow = host.attachShadow({ mode: 'closed' });
-              const style = document.createElement('style');
-              style.textContent = `
-                :host { all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none; color-scheme: light dark; }
-                .menu { position: fixed; min-width: 190px; max-width: 300px; padding: 5px; border: 1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius: 9px; color: CanvasText; background: Canvas; box-shadow: 0 8px 28px #0005; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; pointer-events: auto; }
-                .submenu { position: fixed; min-width: 190px; max-width: 300px; padding: 5px; border: 1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius: 9px; color: CanvasText; background: Canvas; box-shadow: 0 8px 28px #0005; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; pointer-events: auto; }
-                .submenu[hidden] { display: none; }
-                button { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 5px; color: inherit; background: transparent; font: inherit; text-align: left; cursor: default; }
-                button:hover, button:focus-visible { outline: none; background: color-mix(in srgb, Highlight 18%, transparent); }
-                .submenu-trigger { display: flex; align-items: center; justify-content: space-between; }
-                .submenu-arrow { margin-left: 18px; color: color-mix(in srgb, CanvasText 58%, transparent); }
-                .separator { height: 1px; margin: 4px 5px; background: color-mix(in srgb, CanvasText 14%, transparent); }
-              `;
-              shadow.append(style);
-              let menu;
-              const close = () => { menu?.remove(); menu = undefined; host.setAttribute('aria-hidden', 'true'); };
-              const copyText = async text => {
-                try { await navigator.clipboard.writeText(text); }
-                catch {
-                  const field = document.createElement('textarea');
-                  field.value = text; field.style.position = 'fixed'; field.style.opacity = '0';
-                  document.documentElement.append(field); field.select(); document.execCommand('copy'); field.remove();
-                }
-              };
-              window.addEventListener('contextmenu', event => {
-                if (!window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__) return;
-                event.preventDefault();
-                event.stopImmediatePropagation();
-                close();
-                const target = event.target instanceof Element ? event.target : null;
-                const link = target?.closest('a[href]');
-                const image = target?.closest('img');
-                const selectedText = String(window.getSelection()?.toString() || '').trim();
-                const items = [];
-                const foldersPromise = link
-                  ? Promise.resolve(window.__TAURI_INTERNALS__?.invoke('get_tab_folders')).then(folders => folders || []).catch(() => [])
-                  : Promise.resolve([]);
-                const browsersPromise = link
-                  ? Promise.resolve(window.__TAURI_INTERNALS__?.invoke('get_external_browsers')).then(browsers => browsers || []).catch(() => [])
-                  : Promise.resolve([]);
-                const add = (label, action) => items.push({ label, action });
-                const separate = () => { if (items.length && !items[items.length - 1].separator) items.push({ separator: true }); };
-                if (link) {
-                  add('Open Link in Other Split', async () => {
-                    await window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', { url: link.href, otherSplit: true });
-                  });
-                  add('Open Link in New Tab', () => window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', { url: link.href }));
-                  add('Open Link in New Window', () => window.__TAURI_INTERNALS__?.invoke('open_link_in_new_window', { url: link.href }));
-                  add('Copy Link Address', () => copyText(link.href));
-                }
-                if (image) {
-                  if (link) separate();
-                  add('Open Image in New Tab', () => window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', { url: image.currentSrc || image.src }));
-                  add('Copy Image Address', () => copyText(image.currentSrc || image.src));
-                }
-                if (selectedText) {
-                  separate();
-                  add('Copy', () => document.execCommand('copy'));
-                }
-                if (items.length) separate();
-                add('Back', () => history.back());
-                add('Forward', () => history.forward());
-                add('Reload', () => location.reload());
-                separate();
-                add('Select All', () => document.execCommand('selectAll'));
-                menu = document.createElement('div');
-                menu.className = 'menu'; menu.setAttribute('role', 'menu');
-                for (const item of items) {
-                  if (item.separator) { const divider = document.createElement('div'); divider.className = 'separator'; divider.setAttribute('role', 'separator'); menu.append(divider); continue; }
-                  const button = document.createElement('button'); button.type = 'button'; button.textContent = item.label; button.setAttribute('role', 'menuitem');
-                  button.addEventListener('click', () => {
-                    const result = item.action();
-                    if (result?.then) result.then(close).catch(error => {
-                      button.textContent = `Failed: ${String(error)}`;
-                      button.style.whiteSpace = 'normal';
-                    });
-                    else close();
-                  });
-                  menu.append(button);
-                }
-                const updateMenuItems = () => { if (EXPOSE_MENU_ITEMS) host.dataset.menuItems = JSON.stringify(Array.from(menu.querySelectorAll('button')).map(button => button.dataset.label || button.textContent)); };
-                updateMenuItems();
-                shadow.append(menu); host.setAttribute('aria-hidden', 'false');
-                const bounds = menu.getBoundingClientRect();
-                menu.style.left = Math.max(4, Math.min(event.clientX, innerWidth - bounds.width - 4)) + 'px';
-                menu.style.top = Math.max(4, Math.min(event.clientY, innerHeight - bounds.height - 4)) + 'px';
-                menu.querySelector('button')?.focus({ preventScroll: true });
-                const currentMenu = menu;
-                foldersPromise.then(folders => {
-                  if (!folders.length || menu !== currentMenu) return;
-                  const firstItem = currentMenu.querySelector('button');
-                  if (!firstItem) return;
-                  const separator = document.createElement('div');
-                  separator.className = 'separator'; separator.setAttribute('role', 'separator');
-                  const trigger = document.createElement('button');
-                  trigger.type = 'button'; trigger.className = 'submenu-trigger'; trigger.setAttribute('role', 'menuitem');
-                  trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-expanded', 'false');
-                  trigger.textContent = 'Open Link in Tab Folder'; trigger.dataset.label = trigger.textContent;
-                  const arrow = document.createElement('span'); arrow.className = 'submenu-arrow'; arrow.setAttribute('aria-hidden', 'true'); arrow.textContent = '›'; trigger.append(arrow);
-                  const submenu = document.createElement('div'); submenu.className = 'submenu'; submenu.setAttribute('role', 'menu'); submenu.setAttribute('aria-label', 'Open link in tab folder'); submenu.hidden = true;
-                  const positionSubmenu = () => {
-                    submenu.hidden = false;
-                    const triggerBounds = trigger.getBoundingClientRect();
-                    const submenuBounds = submenu.getBoundingClientRect();
-                    const left = triggerBounds.right + submenuBounds.width + 8 <= innerWidth ? triggerBounds.right + 4 : triggerBounds.left - submenuBounds.width - 4;
-                    submenu.style.left = Math.max(4, left) + 'px';
-                    submenu.style.top = Math.max(4, Math.min(triggerBounds.top, innerHeight - submenuBounds.height - 4)) + 'px';
-                  };
-                  trigger.addEventListener('click', () => {
-                    if (submenu.hidden) positionSubmenu();
-                    else submenu.hidden = true;
-                    trigger.setAttribute('aria-expanded', String(!submenu.hidden));
-                  });
-                  trigger.addEventListener('keydown', event => {
-                    if (event.key === 'ArrowRight') { event.preventDefault(); positionSubmenu(); trigger.setAttribute('aria-expanded', 'true'); submenu.querySelector('button')?.focus(); }
-                    if (event.key === 'Escape' && !submenu.hidden) { event.preventDefault(); submenu.hidden = true; trigger.setAttribute('aria-expanded', 'false'); trigger.focus(); }
-                  });
-                  for (const folder of folders) {
-                    const button = document.createElement('button'); button.type = 'button';
-                    button.textContent = 'Open Link in New Tab in “' + folder.title + '”'; button.setAttribute('role', 'menuitem');
-                    button.addEventListener('click', () => {
-                      const result = window.__TAURI_INTERNALS__?.invoke('open_link_in_tab_folder', { url: link.href, folderId: folder.id });
-                      if (result?.catch) result.catch(() => {});
-                      close();
-                    });
-                    submenu.append(button);
-                  }
-                  firstItem.after(separator, trigger);
-                  currentMenu.append(submenu);
-                  updateMenuItems();
-                  const updatedBounds = currentMenu.getBoundingClientRect();
-                  currentMenu.style.left = Math.max(4, Math.min(event.clientX, innerWidth - updatedBounds.width - 4)) + 'px';
-                  currentMenu.style.top = Math.max(4, Math.min(event.clientY, innerHeight - updatedBounds.height - 4)) + 'px';
-                });
-                browsersPromise.then(browsers => {
-                  if (!browsers.length || menu !== currentMenu) return;
-                  const trigger = document.createElement('button');
-                  trigger.type = 'button'; trigger.className = 'submenu-trigger'; trigger.setAttribute('role', 'menuitem');
-                  trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-expanded', 'false');
-                  trigger.textContent = 'Open Link in Another Browser'; trigger.dataset.label = trigger.textContent;
-                  const arrow = document.createElement('span'); arrow.className = 'submenu-arrow'; arrow.setAttribute('aria-hidden', 'true'); arrow.textContent = '›'; trigger.append(arrow);
-                  const submenu = document.createElement('div'); submenu.className = 'submenu'; submenu.setAttribute('role', 'menu'); submenu.setAttribute('aria-label', 'Open link in another browser'); submenu.hidden = true;
-                  for (const browser of browsers) {
-                    const button = document.createElement('button'); button.type = 'button'; button.textContent = browser.name; button.setAttribute('role', 'menuitem');
-                    button.addEventListener('click', async () => {
-                      try {
-                        await window.__TAURI_INTERNALS__?.invoke('open_in_external_browser', { browserId: browser.id, url: link.href });
-                        close();
-                      } catch (error) {
-                        button.textContent = `Failed: ${String(error)}`;
-                        button.style.whiteSpace = 'normal';
-                      }
-                    });
-                    submenu.append(button);
-                  }
-                  trigger.addEventListener('click', () => { submenu.hidden = !submenu.hidden; trigger.setAttribute('aria-expanded', String(!submenu.hidden)); });
-                  currentMenu.append(trigger, submenu);
-                  updateMenuItems();
-                });
-              }, true);
-              document.addEventListener('pointerdown', event => { if (menu && !host.contains(event.target)) close(); }, true);
-              document.addEventListener('keydown', event => { if (event.key === 'Escape' && menu) { close(); event.stopPropagation(); } }, true);
-              document.documentElement.append(host);
-            })();"#
+            &include_str!("../page-scripts/context-menu.js")
                 // Menu labels include tab folder names. Only desktop tests read them from
                 // the page DOM, so release builds never write them where the page can see.
                 .replace(
@@ -2200,39 +2020,10 @@ fn create_page_webview_with_focus(
                 ),
         )
         .initialization_script(
-            r#"document.addEventListener('click', event => {
-              window.__MY_BROWSER_LINK_HOOK__ = true;
-              const link = event.target instanceof Element ? event.target.closest('a[href]') : null;
-              if (!link) return;
-              if (event.button !== 0 || (!event.metaKey && link.target !== '_blank')) return;
-              event.preventDefault();
-              event.stopImmediatePropagation();
-              window.__MY_BROWSER_LINK_RESULT__ = 'pending';
-              window.__TAURI_INTERNALS__.invoke('open_link_in_new_tab', { url: link.href, background: event.metaKey })
-                .then(() => { window.__MY_BROWSER_LINK_RESULT__ = 'opened'; })
-                .catch(error => { window.__MY_BROWSER_LINK_RESULT__ = String(error); console.error(error); });
-            }, true);"#,
+            include_str!("../page-scripts/new-tab-links.js"),
         )
         .initialization_script(
-            r#"(() => {
-              let lastUrl = window.location.href;
-              const syncUrl = kind => {
-                const url = window.location.href;
-                if (url === lastUrl) return;
-                lastUrl = url;
-                window.__TAURI_INTERNALS__.invoke('sync_page_url', { url, kind }).catch(error => console.error('Could not sync browser URL', error));
-              };
-              for (const [method, kind] of [['pushState', 'push'], ['replaceState', 'replace']]) {
-                const original = history[method];
-                history[method] = function(...args) {
-                  const result = Reflect.apply(original, this, args);
-                  syncUrl(kind);
-                  return result;
-                };
-              }
-              window.addEventListener('popstate', () => syncUrl('traverse'));
-              window.addEventListener('hashchange', () => syncUrl('traverse'));
-            })();"#,
+            include_str!("../page-scripts/history-sync.js"),
         )
         .on_navigation({
             move |target| {
@@ -2882,11 +2673,7 @@ async fn get_tab_favicon(
         .find(|tab| tab.id == tab_id)
         .map(|tab| tab.url.clone())
         .unwrap_or_default();
-    let script = r#"(() => {
-      const icon = document.querySelector('link[rel~="icon" i], link[rel~="shortcut" i]');
-      if (icon && icon.href) return icon.href;
-      return /^https?:$/.test(location.protocol) ? new URL('/favicon.ico', location.href).href : '';
-    })()"#;
+    let script = include_str!("../page-scripts/favicon-url.js");
     let (sender, receiver) = std::sync::mpsc::channel();
     page.eval_with_callback(script, move |result| {
         let _ = sender.send(result);
@@ -3010,32 +2797,7 @@ async fn get_page_security_info(
     let page = get_page_for_window(&app, &state, webview.label(), &tab_id)?;
     // Permissions.query() is asynchronous in WebKit, while eval_with_callback returns
     // immediately. Cache its result in the page and read that cache on subsequent polls.
-    let script = r#"(() => {
-      const cacheKey = '__myBrowserSecurityPermissionState';
-      const state = window[cacheKey] || (window[cacheKey] = {});
-      for (const [name, key] of [['geolocation', 'location'], ['camera', 'camera'], ['microphone', 'microphone']]) {
-        if (state[key] === undefined && !state[`${key}Pending`]) {
-          state[`${key}Pending`] = true;
-          try {
-            navigator.permissions.query({ name }).then(permission => {
-              state[key] = permission.state;
-              permission.onchange = () => { state[key] = permission.state; };
-            }).catch(() => { state[key] = 'unsupported'; }).finally(() => { state[`${key}Pending`] = false; });
-          } catch (_) { state[key] = 'unsupported'; state[`${key}Pending`] = false; }
-        }
-      }
-      const mediaPlaying = [...document.querySelectorAll('audio,video')].some(media =>
-        !media.paused && !media.ended && !media.muted && media.volume > 0
-      );
-      return JSON.stringify({
-        origin: location.origin,
-        secureHttps: location.protocol === 'https:' && window.isSecureContext,
-        location: state.location || 'unknown',
-        camera: state.camera || 'unknown',
-        microphone: state.microphone || 'unknown',
-        playingAudio: mediaPlaying
-      });
-    })()"#;
+    let script = include_str!("../page-scripts/security-info.js");
     let (sender, receiver) = std::sync::mpsc::channel();
     page.eval_with_callback(script, move |result| {
         let _ = sender.send(result);

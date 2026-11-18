@@ -1,7 +1,9 @@
 # Generated, vendored, or non-JS sources.
 dist/
 target/
-src-tauri/
+# Rust, config, and generated files; page-scripts/ is JavaScript and is formatted.
+src-tauri/*
+!src-tauri/page-scripts/
 test-results/
 node_modules/
 package-lock.json
