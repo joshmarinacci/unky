@@ -44,7 +44,9 @@ struct State {
     view_all_target: Option<Retained<RevealAllTarget>>,
 }
 
-struct ViewAllIvars { view_all: ViewAll }
+struct ViewAllIvars {
+    view_all: ViewAll,
+}
 define_class!(
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
@@ -130,9 +132,15 @@ unsafe fn refresh(
     let allocated = RevealAllTarget::alloc(mtm).set_ivars(ViewAllIvars { view_all });
     let view_all_target: Retained<RevealAllTarget> = msg_send![super(allocated), init];
     let view_all_button = NSButton::buttonWithTitle_target_action(
-        &NSString::from_str("View All Downloads"), Some(&view_all_target), Some(sel!(viewAll:)), mtm,
+        &NSString::from_str("View All Downloads"),
+        Some(&view_all_target),
+        Some(sel!(viewAll:)),
+        mtm,
     );
-    view_all_button.setFrame(NSRect::new(NSPoint::new(18.0, 12.0), NSSize::new(344.0, 30.0)));
+    view_all_button.setFrame(NSRect::new(
+        NSPoint::new(18.0, 12.0),
+        NSSize::new(344.0, 30.0),
+    ));
     root.addSubview(&view_all_button);
     let controller = NSViewController::init(NSViewController::alloc(mtm));
     controller.setView(&root);
@@ -179,7 +187,7 @@ pub unsafe fn control(
                 popover,
                 rows: None,
                 targets: Vec::new(),
-                    view_all_target: None,
+                view_all_target: None,
             }
         });
         if action == "toggle" && state.popover.isShown() {
