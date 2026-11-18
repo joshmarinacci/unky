@@ -15,3 +15,6 @@ tests/fixtures/
 tests/desktop/fixtures/
 # Prose docs keep their hand formatting.
 *.md
+
+# Local Claude Code state and agent worktrees.
+.claude/
