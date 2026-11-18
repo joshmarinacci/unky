@@ -298,7 +298,10 @@ pub unsafe fn show_test_drag_feedback() -> bool {
         };
         let bounds = overlay.bounds();
         let is_tab = overlay.ivars().preview.get() == DragPreviewKind::Tab;
-        overlay.ivars().target.set(is_tab.then_some(DropTarget::Left));
+        overlay
+            .ivars()
+            .target
+            .set(is_tab.then_some(DropTarget::Left));
         overlay
             .ivars()
             .pointer_x
