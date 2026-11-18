@@ -34,6 +34,39 @@ async function invoke(command: string, args: Record<string, unknown> = {}) {
   );
 }
 
+async function browserWindowLabels() {
+  const labels = (await invoke('desktop_test_browser_ui', { action: 'inspect-windows' })) as string[];
+  return labels.filter((label) => label.startsWith('browser-window-'));
+}
+
+/**
+ * Close every extra native browser window not listed in `keep`.
+ *
+ * All spec files share one app process (the embedded provider launches it once in
+ * `onPrepare`), so a leftover `browser-window-*` keeps OS focus and changes where
+ * focus-routed menu actions land in later tests and specs.
+ */
+async function closeBrowserWindows(keep: readonly string[] = []) {
+  const stray = (await browserWindowLabels()).filter((label) => !keep.includes(label));
+  for (const label of stray) {
+    await invoke('desktop_test_browser_ui', { action: 'close-window', windowLabel: label }).catch(() => undefined);
+  }
+  await browser.waitUntil(async () => !(await browserWindowLabels()).some((label) => !keep.includes(label)), {
+    timeout: 5000,
+    timeoutMsg: `Extra browser windows did not close: ${stray.join(', ')}`,
+  });
+}
+
+/** Clear any split and close main-window tabs not listed in `keep`. */
+async function closeTabs(keep: readonly string[]) {
+  await invoke('clear_tab_split').catch(() => undefined);
+  const state = (await invoke('get_browser_state')) as { tabs: Array<{ id: string }> };
+  for (const tab of state.tabs.filter((item) => !keep.includes(item.id))) {
+    await invoke('close_tab', { tabId: tab.id }).catch(() => undefined);
+  }
+  if (keep.includes('tab-1')) await invoke('select_tab', { tabId: 'tab-1' }).catch(() => undefined);
+}
+
 export const config: WebdriverIO.Config = {
   runner: 'local',
   specs: ['./specs/**/*.spec.ts'],
@@ -98,4 +131,4 @@ export const config: WebdriverIO.Config = {
   },
 };
 
-export { captureNativeWindow, inspect, invoke, results };
+export { browserWindowLabels, captureNativeWindow, closeBrowserWindows, closeTabs, inspect, invoke, results };
