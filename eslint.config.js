@@ -8,6 +8,7 @@ export default tseslint.config(
     // Everything under src-tauri/ except page-scripts/ is Rust, config, or generated.
     ignores: [
       'dist/**',
+      '.claude/**',
       'target/**',
       'src-tauri/target/**',
       'src-tauri/gen/**',
