@@ -78,11 +78,11 @@ def run_phase(phase, session_path, report_path, app_log, downloads_dir):
     env = os.environ.copy()
     env.update({
         "CI": "true",
-        "MY_BROWSER_SESSION_TEST_PHASE": phase,
-        "MY_BROWSER_SESSION_TEST_PATH": str(session_path),
+        "UNKY_SESSION_TEST_PHASE": phase,
+        "UNKY_SESSION_TEST_PATH": str(session_path),
         "UNKY_DATABASE_PATH": str(session_path.with_name("browser.sqlite")),
-        "MY_BROWSER_SESSION_TEST_REPORT": str(report_path),
-        "MY_BROWSER_SESSION_TEST_DOWNLOAD_DIR": str(downloads_dir),
+        "UNKY_SESSION_TEST_REPORT": str(report_path),
+        "UNKY_SESSION_TEST_DOWNLOAD_DIR": str(downloads_dir),
     })
     process = subprocess.Popen(
         ["npm", "run", "tauri", "--", "dev", "--features", "macos-session-test"],
@@ -104,7 +104,7 @@ def run_phase(phase, session_path, report_path, app_log, downloads_dir):
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix="my-browser-session-test-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="unky-session-test-") as temporary:
         temp_dir = Path(temporary)
         session_path = temp_dir / "session.json"
         report_path = temp_dir / "report.json"

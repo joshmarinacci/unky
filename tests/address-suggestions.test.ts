@@ -1,11 +1,10 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
+import { expect, test } from 'vitest';
 import {
   findAddressSuggestions,
   initialAddressSuggestions,
   moveAddressSuggestionSelection,
 } from '../src/addressSuggestions.ts';
-import type { BookmarkNode } from '../src/bookmarkTree.ts';
+import type { BookmarkNode } from '../src/bookmarks.ts';
 
 const bookmarks: BookmarkNode[] = [
   { id: 'one', type: 'bookmark', title: 'Hacker News', url: 'https://news.ycombinator.com/' },
@@ -23,12 +22,12 @@ const history = [
 ];
 
 test('autocomplete matches nested bookmarks and history by title or URL, ignoring case and surrounding spaces', () => {
-  assert.deepEqual(findAddressSuggestions('  NeWs  ', bookmarks, history), [
+  expect(findAddressSuggestions('  NeWs  ', bookmarks, history)).toStrictEqual([
     { title: 'Hacker News', url: 'https://news.ycombinator.com/', source: 'Bookmark' },
     { title: 'https://news.example.com/archive', url: 'https://news.example.com/archive', source: 'Bookmark' },
     { title: 'Latest NEWS', url: 'https://example.com/latest', source: 'History' },
   ]);
-  assert.deepEqual(findAddressSuggestions('  ', bookmarks, history), []);
+  expect(findAddressSuggestions('  ', bookmarks, history)).toStrictEqual([]);
 });
 
 test('autocomplete keeps bookmark priority for duplicate URLs and limits the popup to eight results', () => {
@@ -42,19 +41,18 @@ test('autocomplete keeps bookmark priority for duplicate URLs and limits the pop
     { title: 'Duplicate', url: 'https://example.com/0' },
     { title: 'History result', url: 'https://example.com/history' },
   ]);
-  assert.equal(matches.length, 8);
-  assert.deepEqual(
-    matches.map((match) => match.url),
+  expect(matches.length).toBe(8);
+  expect(matches.map((match) => match.url)).toStrictEqual(
     Array.from({ length: 8 }, (_, index) => `https://example.com/${index}`),
   );
-  assert.ok(matches.every((match) => match.source === 'Bookmark'));
+  expect(matches.every((match) => match.source === 'Bookmark')).toBeTruthy();
 });
 
 test('arrow selection wraps at both ends of the popup', () => {
-  assert.equal(moveAddressSuggestionSelection(2, 3, 1), 0);
-  assert.equal(moveAddressSuggestionSelection(0, 3, -1), 2);
-  assert.equal(moveAddressSuggestionSelection(1, 3, 1), 2);
-  assert.equal(moveAddressSuggestionSelection(0, 0, 1), 0);
+  expect(moveAddressSuggestionSelection(2, 3, 1)).toBe(0);
+  expect(moveAddressSuggestionSelection(0, 3, -1)).toBe(2);
+  expect(moveAddressSuggestionSelection(1, 3, 1)).toBe(2);
+  expect(moveAddressSuggestionSelection(0, 0, 1)).toBe(0);
 });
 
 test('popup restores its initial rows and falls back to empty state for invalid JSON', () => {
@@ -63,7 +61,7 @@ test('popup restores its initial rows and falls back to empty state for invalid 
     selectedIndex: 0,
   };
   const params = new URLSearchParams({ initial: JSON.stringify(state) });
-  assert.deepEqual(initialAddressSuggestions(`?${params}`), state);
-  assert.deepEqual(initialAddressSuggestions('?initial=invalid'), { rows: [], selectedIndex: 0 });
-  assert.deepEqual(initialAddressSuggestions(''), { rows: [], selectedIndex: 0 });
+  expect(initialAddressSuggestions(`?${params}`)).toStrictEqual(state);
+  expect(initialAddressSuggestions('?initial=invalid')).toStrictEqual({ rows: [], selectedIndex: 0 });
+  expect(initialAddressSuggestions('')).toStrictEqual({ rows: [], selectedIndex: 0 });
 });

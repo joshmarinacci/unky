@@ -7,7 +7,7 @@ pub(crate) fn session_test_phase(webview: tauri::Webview) -> Result<String, Stri
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Session test controls are only available to the trusted browser UI".into());
     }
-    std::env::var("MY_BROWSER_SESSION_TEST_PHASE")
+    std::env::var("UNKY_SESSION_TEST_PHASE")
         .map_err(|_| "Session test phase is not configured".into())
 }
 
@@ -21,7 +21,7 @@ pub(crate) fn report_session_test(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Session test controls are only available to the trusted browser UI".into());
     }
-    let report_path = std::env::var_os("MY_BROWSER_SESSION_TEST_REPORT")
+    let report_path = std::env::var_os("UNKY_SESSION_TEST_REPORT")
         .map(PathBuf::from)
         .ok_or("Session test report path is not configured")?;
     let report =
@@ -63,7 +63,7 @@ pub(crate) async fn session_test_open_new_tab(
     let page = get_page(&app, &active_id)?;
     let (sender, receiver) = std::sync::mpsc::channel();
     page.eval_with_callback(
-        "JSON.stringify({hook:window.__MY_BROWSER_LINK_HOOK__===true,tauri:typeof window.__TAURI_INTERNALS__?.invoke,result:window.__MY_BROWSER_LINK_RESULT__||''})",
+        "JSON.stringify({hook:window.__UNKY_LINK_HOOK__===true,tauri:typeof window.__TAURI_INTERNALS__?.invoke,result:window.__UNKY_LINK_RESULT__||''})",
         move |result| { let _ = sender.send(result); },
     )
     .map_err(|error| error.to_string())?;

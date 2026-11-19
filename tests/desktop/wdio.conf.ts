@@ -6,7 +6,7 @@ import { withExecuteOptions } from '@wdio/tauri-service';
 const root = process.cwd();
 const results = resolve(process.env.DESKTOP_TEST_RESULTS ?? 'test-results');
 const logs = join(results, 'wdio-logs');
-const binary = resolve(root, 'target/debug/my-browser');
+const binary = resolve(root, 'target/debug/unky');
 
 function captureNativeWindow(filename: string) {
   const result = resolve(results, filename);
@@ -92,9 +92,9 @@ export const config: WebdriverIO.Config = {
         logLevel: 'info',
         logDir: logs,
         env: {
-          MY_BROWSER_PROFILE_DIR: resolve(results, 'disposable-profile'),
+          UNKY_PROFILE_DIR: resolve(results, 'disposable-profile'),
           UNKY_DATABASE_PATH: resolve(results, 'disposable-profile', 'browser.sqlite'),
-          MY_BROWSER_TEST_EXTERNAL_OPEN: '1',
+          UNKY_TEST_EXTERNAL_OPEN: '1',
           RUST_LOG: 'info',
         },
       },

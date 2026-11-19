@@ -39,6 +39,6 @@ The test records WebKit `PerformanceResourceTiming` resource URLs and compares t
 
 The 2026-11-08 run loaded all ten pages in both states. It recorded 167 baseline host/page observations, 26 known-host observations with filtering enabled, and 145 baseline observations absent in the enabled run (87%). These counts vary by site content and region; the generated JSON report is the detailed result for each run.
 
-The regular `npm run test:desktop` suite skips this network-dependent test. The dedicated command opts in through `MY_BROWSER_REAL_SITE_TESTS=1` and targets only `tests/desktop/specs/real-sites.spec.ts`.
+The regular `npm run test:desktop` suite skips this network-dependent test. The dedicated command opts in through `UNKY_REAL_SITE_TESTS=1` and targets only `tests/desktop/specs/real-sites.spec.ts`.
 
 The pinned upstream crate is licensed MPL-2.0. Review its notice and source-disclosure terms before distributing a product that includes or modifies it. See the [upstream project and license](https://github.com/brave/adblock-rust).

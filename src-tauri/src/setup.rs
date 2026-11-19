@@ -23,12 +23,12 @@ pub(crate) fn setup_app(
     }
     let session_path = app.path().app_data_dir()?.join("session.json");
     #[cfg(debug_assertions)]
-    let session_path = std::env::var_os("MY_BROWSER_PROFILE_DIR")
+    let session_path = profile_dir_env()
         .map(PathBuf::from)
         .map(|path| path.join("session.json"))
         .unwrap_or(session_path);
     #[cfg(feature = "macos-session-test")]
-    let session_path = std::env::var_os("MY_BROWSER_SESSION_TEST_PATH")
+    let session_path = std::env::var_os("UNKY_SESSION_TEST_PATH")
         .map(PathBuf::from)
         .unwrap_or(session_path);
     *state
@@ -36,13 +36,13 @@ pub(crate) fn setup_app(
         .lock()
         .expect("session path lock poisoned") = Some(session_path.clone());
     #[cfg(debug_assertions)]
-    let profile_database_path = std::env::var_os("MY_BROWSER_PROFILE_DIR")
+    let profile_database_path = profile_dir_env()
         .map(PathBuf::from)
         .map(|path| path.join("browser.sqlite"));
     #[cfg(not(debug_assertions))]
     let profile_database_path: Option<PathBuf> = None;
     #[cfg(feature = "macos-session-test")]
-    let session_test_database_path = std::env::var_os("MY_BROWSER_SESSION_TEST_PATH")
+    let session_test_database_path = std::env::var_os("UNKY_SESSION_TEST_PATH")
         .map(PathBuf::from)
         .and_then(|path| path.parent().map(|parent| parent.join("browser.sqlite")));
     #[cfg(not(feature = "macos-session-test"))]
@@ -87,7 +87,7 @@ pub(crate) fn setup_app(
         .filter_map(validated_session_tab)
         .take(20)
         .collect();
-    let bounds = window_bounds(&state, "main").expect("browser bounds available");
+    let bounds = window_bounds(&state, "main").map_err(std::io::Error::other)?;
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -313,9 +313,17 @@ pub(crate) fn setup_app(
                 continue;
             }
             let parsed = if saved.url.is_empty() {
-                url::Url::parse("about:blank").unwrap()
+                url::Url::parse("about:blank").expect("about:blank is a valid URL")
             } else {
-                allowed_navigation_url(&saved.url).unwrap()
+                // `validated_session_tab` already accepted this URL; skip the tab rather than
+                // stop startup if re-parsing its normalized form ever disagrees.
+                match allowed_navigation_url(&saved.url) {
+                    Ok(url) => url,
+                    Err(error) => {
+                        eprintln!("Skipping saved tab {}: {error}", saved.id);
+                        continue;
+                    }
+                }
             };
             create_page_webview(
                 app.handle(),
@@ -353,7 +361,7 @@ pub(crate) fn setup_app(
                 app.handle(),
                 &state,
                 &id,
-                url::Url::parse("about:blank").unwrap(),
+                url::Url::parse("about:blank").expect("about:blank is a valid URL"),
                 bounds,
                 false,
                 "main",
@@ -368,7 +376,7 @@ pub(crate) fn setup_app(
         persist_session(&state).map_err(std::io::Error::other)?;
     }
     #[cfg(all(debug_assertions, feature = "desktop-test"))]
-    if let Some(profile) = std::env::var_os("MY_BROWSER_PROFILE_DIR").map(PathBuf::from) {
+    if let Some(profile) = profile_dir_env().map(PathBuf::from) {
         let inventory = serde_json::json!({
             "windows": app.handle().windows().keys().collect::<Vec<_>>(),
             "webviews": app.handle().webviews().keys().collect::<Vec<_>>(),

@@ -116,3 +116,9 @@ pub(crate) fn validated_session_tab(tab: SessionTab) -> Option<SessionTab> {
         },
     })
 }
+
+/// The disposable profile directory for tests and manual checks. `MY_BROWSER_PROFILE_DIR` is the
+/// name from before the app was renamed and still works.
+pub(crate) fn profile_dir_env() -> Option<std::ffi::OsString> {
+    std::env::var_os("UNKY_PROFILE_DIR").or_else(|| std::env::var_os("MY_BROWSER_PROFILE_DIR"))
+}

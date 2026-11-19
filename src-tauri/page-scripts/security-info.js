@@ -1,5 +1,5 @@
 (() => {
-  const cacheKey = '__myBrowserSecurityPermissionState';
+  const cacheKey = '__unkySecurityPermissionState';
   const state = window[cacheKey] || (window[cacheKey] = {});
   for (const [name, key] of [
     ['geolocation', 'location'],

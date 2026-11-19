@@ -78,7 +78,7 @@ impl Default for OverlayIvars {
 define_class!(
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
-    #[name = "MyBrowserTabDragOverlay"]
+    #[name = "UnkyTabDragOverlay"]
     #[ivars = OverlayIvars]
     struct TabDragOverlay;
 

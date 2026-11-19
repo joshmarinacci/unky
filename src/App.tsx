@@ -383,8 +383,8 @@ export default function App() {
   useEffect(() => {
     if (import.meta.env.MODE !== 'desktop-test') return;
     const testWindow = window as typeof window & {
-      __myBrowserTestOpenTabContextMenu?: (tabId: string) => void;
-      __myBrowserTestSeedTabFolders?: () => void;
+      __unkyTestOpenTabContextMenu?: (tabId: string) => void;
+      __unkyTestSeedTabFolders?: () => void;
     };
     const openTestContextMenu = (tabId: string) => {
       if (!tabId) return;
@@ -401,11 +401,11 @@ export default function App() {
       ];
       setTabNodes(nodes);
     };
-    testWindow.__myBrowserTestOpenTabContextMenu = openTestContextMenu;
-    testWindow.__myBrowserTestSeedTabFolders = seedTestTabFolders;
+    testWindow.__unkyTestOpenTabContextMenu = openTestContextMenu;
+    testWindow.__unkyTestSeedTabFolders = seedTestTabFolders;
     return () => {
-      delete testWindow.__myBrowserTestOpenTabContextMenu;
-      delete testWindow.__myBrowserTestSeedTabFolders;
+      delete testWindow.__unkyTestOpenTabContextMenu;
+      delete testWindow.__unkyTestSeedTabFolders;
     };
   }, [tabContextMenuWidth]);
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
@@ -783,11 +783,11 @@ export default function App() {
   useEffect(() => {
     if (import.meta.env.MODE !== 'desktop-test') return;
     const testWindow = window as typeof window & {
-      __myBrowserTestResetTabUi?: () => void;
-      __myBrowserTestSyncTabSnapshot?: (snapshot: BrowserSnapshot) => void;
-      __myBrowserTestSetTabPosition?: (position: unknown) => void;
+      __unkyTestResetTabUi?: () => void;
+      __unkyTestSyncTabSnapshot?: (snapshot: BrowserSnapshot) => void;
+      __unkyTestSetTabPosition?: (position: unknown) => void;
     };
-    testWindow.__myBrowserTestResetTabUi = () => {
+    testWindow.__unkyTestResetTabUi = () => {
       setSidebarView('tabs');
       setSidebarCollapsed(false);
       setPinnedTabIds([]);
@@ -796,20 +796,20 @@ export default function App() {
       setTabContextMenu(null);
       storeTabTree(reconcileTabNodes([], tabsRef.current));
     };
-    testWindow.__myBrowserTestSyncTabSnapshot = (snapshot) => {
+    testWindow.__unkyTestSyncTabSnapshot = (snapshot) => {
       applySnapshot(snapshot);
       setPinnedTabIds([]);
       storeTabTree(reconcileTabNodes([], snapshot.tabs));
     };
-    testWindow.__myBrowserTestSetTabPosition = (position) => {
+    testWindow.__unkyTestSetTabPosition = (position) => {
       if (!isTabPosition(position)) return;
       setTabPosition(position);
       if (position === 'left' || position === 'right') setSidebarSide(position);
     };
     return () => {
-      delete testWindow.__myBrowserTestResetTabUi;
-      delete testWindow.__myBrowserTestSyncTabSnapshot;
-      delete testWindow.__myBrowserTestSetTabPosition;
+      delete testWindow.__unkyTestResetTabUi;
+      delete testWindow.__unkyTestSyncTabSnapshot;
+      delete testWindow.__unkyTestSetTabPosition;
     };
   }, [applySnapshot]);
 

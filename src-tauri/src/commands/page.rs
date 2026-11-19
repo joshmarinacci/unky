@@ -65,9 +65,8 @@ pub(crate) async fn open_in_external_browser(
 
     // Automated tests exercise discovery and validation without opening tabs in the user's browsers.
     #[cfg(all(debug_assertions, feature = "desktop-test"))]
-    if std::env::var("MY_BROWSER_TEST_EXTERNAL_OPEN").as_deref() == Ok("1") {
-        let profile =
-            std::env::var_os("MY_BROWSER_PROFILE_DIR").ok_or("Test profile is unavailable")?;
+    if std::env::var("UNKY_TEST_EXTERNAL_OPEN").as_deref() == Ok("1") {
+        let profile = profile_dir_env().ok_or("Test profile is unavailable")?;
         let request =
             serde_json::json!({ "browserId": browser.id, "url": url.as_str(), "tabId": tab_id });
         fs::write(
@@ -343,7 +342,7 @@ pub(crate) fn set_page_context_menu_enabled(
     for tab in tabs.iter() {
         if let Some(page) = app.get_webview(&page_label(&tab.id)) {
             let _ = page.eval(&format!(
-                "window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__ = {enabled};"
+                "window.__UNKY_CUSTOM_CONTEXT_MENU_ENABLED__ = {enabled};"
             ));
         }
     }

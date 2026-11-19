@@ -46,11 +46,11 @@ pub(crate) fn monitor_download(
 
 pub(crate) fn download_directory(app: &tauri::AppHandle) -> PathBuf {
     #[cfg(all(debug_assertions, feature = "desktop-test"))]
-    if let Some(profile) = std::env::var_os("MY_BROWSER_PROFILE_DIR") {
+    if let Some(profile) = profile_dir_env() {
         return PathBuf::from(profile).join("downloads");
     }
     #[cfg(feature = "macos-session-test")]
-    if let Some(path) = std::env::var_os("MY_BROWSER_SESSION_TEST_DOWNLOAD_DIR") {
+    if let Some(path) = std::env::var_os("UNKY_SESSION_TEST_DOWNLOAD_DIR") {
         return PathBuf::from(path);
     }
     app.path().download_dir().unwrap_or_else(|_| {

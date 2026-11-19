@@ -80,7 +80,7 @@ pub(crate) async fn desktop_test_inspect_page(
     if open_context_menu == Some(true) {
         // The synthetic contextmenu event stands in for a real right-click.
         desktop_test_simulate_gesture();
-        page.eval("window.__MY_BROWSER_CONTEXT_MENU_TEST_EVENT__ = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 100 }); (document.querySelector('a[href]') || document.body).dispatchEvent(window.__MY_BROWSER_CONTEXT_MENU_TEST_EVENT__);")
+        page.eval("window.__UNKY_CONTEXT_MENU_TEST_EVENT__ = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 100 }); (document.querySelector('a[href]') || document.body).dispatchEvent(window.__UNKY_CONTEXT_MENU_TEST_EVENT__);")
             .map_err(|error| error.to_string())?;
         tauri::async_runtime::spawn_blocking(|| thread::sleep(Duration::from_millis(100)))
             .await
@@ -94,12 +94,12 @@ pub(crate) async fn desktop_test_inspect_page(
       viewport: { width: innerWidth, height: innerHeight },
       text: document.body?.innerText ?? '',
       dom: document.documentElement?.outerHTML ?? '',
-      errors: window.__MY_BROWSER_TEST_ERRORS__ ?? [],
+      errors: window.__UNKY_TEST_ERRORS__ ?? [],
       contextMenu: {
         documentId: performance.timeOrigin,
-        enabled: window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__,
-        errorsInstalled: Array.isArray(window.__MY_BROWSER_TEST_ERRORS__),
-        prevented: window.__MY_BROWSER_CONTEXT_MENU_TEST_EVENT__?.defaultPrevented,
+        enabled: window.__UNKY_CUSTOM_CONTEXT_MENU_ENABLED__,
+        errorsInstalled: Array.isArray(window.__UNKY_TEST_ERRORS__),
+        prevented: window.__UNKY_CONTEXT_MENU_TEST_EVENT__?.defaultPrevented,
         hosts: document.querySelectorAll('div[aria-hidden]').length,
         visibleHosts: document.querySelectorAll('div[aria-hidden="false"]').length,
         menuItems: JSON.parse(document.querySelector('div[aria-hidden]')?.dataset.menuItems || '[]')
@@ -330,23 +330,23 @@ pub(crate) async fn desktop_test_browser_ui(
         r#"JSON.stringify((() => {{
           const args = {args};
           if (args.action === 'reset-tab-ui') {{
-            if (typeof window.__myBrowserTestResetTabUi !== 'function') return {{ error: 'The tab UI reset test bridge is unavailable' }};
-            window.__myBrowserTestResetTabUi();
+            if (typeof window.__unkyTestResetTabUi !== 'function') return {{ error: 'The tab UI reset test bridge is unavailable' }};
+            window.__unkyTestResetTabUi();
             return {{ reset: true }};
           }}
           if (args.action === 'sync-tab-snapshot') {{
-            if (typeof window.__myBrowserTestSyncTabSnapshot !== 'function') return {{ error: 'The tab snapshot test bridge is unavailable' }};
-            window.__myBrowserTestSyncTabSnapshot(args.snapshot);
+            if (typeof window.__unkyTestSyncTabSnapshot !== 'function') return {{ error: 'The tab snapshot test bridge is unavailable' }};
+            window.__unkyTestSyncTabSnapshot(args.snapshot);
             return {{ synced: true }};
           }}
           if (args.action === 'set-tab-position') {{
-            if (typeof window.__myBrowserTestSetTabPosition !== 'function') return {{ error: 'The tab position test bridge is unavailable' }};
-            window.__myBrowserTestSetTabPosition(args.tabPosition);
+            if (typeof window.__unkyTestSetTabPosition !== 'function') return {{ error: 'The tab position test bridge is unavailable' }};
+            window.__unkyTestSetTabPosition(args.tabPosition);
             return {{ selected: args.tabPosition }};
           }}
           if (args.action === 'seed-tab-folders') {{
-            if (typeof window.__myBrowserTestSeedTabFolders !== 'function') return {{ error: 'The desktop-test tab-folder bridge is unavailable' }};
-            window.__myBrowserTestSeedTabFolders();
+            if (typeof window.__unkyTestSeedTabFolders !== 'function') return {{ error: 'The desktop-test tab-folder bridge is unavailable' }};
+            window.__unkyTestSeedTabFolders();
             return {{ seeded: true }};
           }}
           if (args.action === 'create-tab-folder') {{
@@ -409,11 +409,11 @@ pub(crate) async fn desktop_test_browser_ui(
             const activatedX = x + 8;
             const activatedY = y + 8;
             document.dispatchEvent(new PointerEvent('pointermove', {{ ...init, clientX: activatedX, clientY: activatedY }}));
-            window.__myBrowserTestDragState = {{ pointerId, x: activatedX, y: activatedY }};
+            window.__unkyTestDragState = {{ pointerId, x: activatedX, y: activatedY }};
             return {{ started: true, x: activatedX, y: activatedY }};
           }}
           if (args.action === 'drag-over-tab' || args.action === 'drag-over-dock' || args.action === 'drag-over-page') {{
-            const state = window.__myBrowserTestDragState;
+            const state = window.__unkyTestDragState;
             if (!state) return {{ error: 'No tab drag is active' }};
             let target;
             if (args.action === 'drag-over-tab') target = Array.from(document.querySelectorAll('.tab-sortable-item, .pinned-tab-button')).find(node => node.dataset.tabNodeId === args.targetId || node.dataset.tabId === args.targetId);
@@ -435,10 +435,10 @@ pub(crate) async fn desktop_test_browser_ui(
             return {{ moved: true, x, y, targetRect: {{ x: rect.x, y: rect.y, width: rect.width, height: rect.height }} }};
           }}
           if (args.action === 'drag-end' || args.action === 'drag-cancel') {{
-            const state = window.__myBrowserTestDragState;
+            const state = window.__unkyTestDragState;
             if (!state) return {{ ended: false }};
             document.dispatchEvent(new PointerEvent(args.action === 'drag-cancel' ? 'pointercancel' : 'pointerup', {{ bubbles: true, cancelable: true, pointerId: state.pointerId, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 0, clientX: state.x, clientY: state.y }}));
-            delete window.__myBrowserTestDragState;
+            delete window.__unkyTestDragState;
             return {{ ended: true }};
           }}
           if (args.action === 'inspect-split-rows') {{
@@ -457,8 +457,8 @@ pub(crate) async fn desktop_test_browser_ui(
           if (args.action === 'open-context-menu') {{
             const row = Array.from(document.querySelectorAll('[data-tab-id]')).find(node => node.dataset.tabId === args.tabId);
             if (!row) return {{ error: `Tab row ${{args.tabId}} was not found` }};
-            if (typeof window.__myBrowserTestOpenTabContextMenu !== 'function') return {{ error: 'The desktop-test context menu bridge is unavailable' }};
-            window.__myBrowserTestOpenTabContextMenu(args.tabId);
+            if (typeof window.__unkyTestOpenTabContextMenu !== 'function') return {{ error: 'The desktop-test context menu bridge is unavailable' }};
+            window.__unkyTestOpenTabContextMenu(args.tabId);
             return {{ opened: true }};
           }}
           if (args.action === 'click-context-item') {{
@@ -528,7 +528,7 @@ pub(crate) async fn desktop_test_browser_ui(
           if (args.action === 'inspect') {{
             const page = document.querySelector('.start-page');
             const menuItems = Array.from(document.querySelectorAll('.sidebar-context-menu [role^="menuitem"]')).map(node => node.textContent.trim());
-            const hasTestContextMenuBridge = typeof window.__myBrowserTestOpenTabContextMenu === 'function';
+            const hasTestContextMenuBridge = typeof window.__unkyTestOpenTabContextMenu === 'function';
             if (!page) return {{ startPage: null, menuItems, tabRows: document.querySelectorAll('[data-tab-id]').length, menus: document.querySelectorAll('[role="menu"]').length, hasTestContextMenuBridge }};
             const rect = page.getBoundingClientRect();
             return {{ startPage: {{ text: page.innerText, left: rect.left, top: rect.top, width: rect.width, height: rect.height, className: page.className }}, slot: (() => {{ const slot = document.querySelector('.webview-slot').getBoundingClientRect(); return {{ left: slot.left, top: slot.top, width: slot.width, height: slot.height }}; }})(), menuItems, tabRows: document.querySelectorAll('[data-tab-id]').length, menus: document.querySelectorAll('[role="menu"]').length, hasTestContextMenuBridge }};

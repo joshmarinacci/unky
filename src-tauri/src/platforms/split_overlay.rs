@@ -32,7 +32,7 @@ impl Default for OverlayIvars {
 define_class!(
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
-    #[name = "MyBrowserSplitOverlay"]
+    #[name = "UnkySplitOverlay"]
     #[ivars = OverlayIvars]
     struct SplitOverlay;
 

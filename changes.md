@@ -150,3 +150,9 @@
 
 - Ignore tab snapshots containing tabs from another browser window. This prevents an out-of-order native update from replacing the current window's tab strip with another window's tabs; added a unit regression and verified the desktop suite.
 - Extracted address suggestion matching, arrow-key selection, and popup initialization into shared functions. Added unit tests for nested bookmark and history matches, duplicate URL priority, the eight-result limit, selection wrapping, and initial popup data.
+
+## 2026-11-19
+
+- Finished renaming internal names from `my-browser` to `unky`: the npm package, Rust crate and binary (`target/debug/unky`, `Contents/MacOS/unky`), `unky_lib`, `UNKY_*` environment variables, `__UNKY_*`/`__unky*` page and test globals, native overlay class names, the `scripts/unky` launcher, CI artifact names, and GitHub links. Kept on purpose: the bundle identifier `dev.example.my-browser` (macOS keys the profile, WebKit storage and permissions to it), the compiled filter-list identifier prefix, and the server upload paths. `scripts/mybrowser`, `MY_BROWSER_BIN` and `MY_BROWSER_PROFILE_DIR` still work.
+- Replaced `unwrap()` on session restore with skipping a tab whose saved URL no longer parses, and reported window-bounds errors instead of panicking during setup. The remaining production `unwrap`/`expect` calls are lock poisoning, constant URLs, and checked invariants.
+- Moved the frontend unit tests from `node:test` to Vitest 5.1.0 (`npm run test:unit`, `npm run test:unit:watch`) and removed `tsx`. The tests are now type-checked through `tsconfig.test.json`, which caught a stale `bookmarkTree.ts` import.

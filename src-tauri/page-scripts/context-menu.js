@@ -42,7 +42,7 @@
   window.addEventListener(
     'contextmenu',
     (event) => {
-      if (!window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__) return;
+      if (!window.__UNKY_CUSTOM_CONTEXT_MENU_ENABLED__) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       close();
