@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   Button as AriaButton,
   Input,
@@ -53,6 +53,8 @@ import {
   tabCollisionDetection,
 } from './components/sortableTabRows';
 import { readStored, usePersistedState } from './hooks/usePersistedState';
+import { bookmarkReducer, initialBookmarkState } from './bookmarkState';
+import { tabTreeReducer, type TabTreeAction } from './tabTreeState';
 import { useLatest } from './hooks/useLatest';
 import {
   parseCustomPageContextMenu,
@@ -125,18 +127,7 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import {
-  appendToFolder,
-  containsNode,
-  findNode,
-  flattenTree,
-  folderIds,
-  locateNode,
-  moveNodeToDropZone,
-  removeNode,
-  resolveDropZone,
-  updateNode,
-} from './tree';
+import { findNode, flattenTree, folderIds, locateNode, resolveDropZone } from './tree';
 import type { FlatNode, DropZone } from './tree';
 import { filterBookmarkNodes, findBookmarkByUrl, normalizeBookmarkNodes } from './bookmarks';
 import type { BookmarkFolder, BookmarkLink, BookmarkNode } from './bookmarks';
@@ -147,7 +138,6 @@ import {
   insertTabNode,
   reconcileTabNodes,
   tabFolders,
-  unwrapTabFolder,
 } from './tabTree';
 import type { TabFolder, TabNode } from './tabTree';
 import { groupSplitTabRows } from './splitTabRows';
@@ -232,8 +222,10 @@ export default function App() {
   );
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [sidebarView, setSidebarView] = useState<'tabs' | 'bookmarks'>('tabs');
-  const [bookmarks, setBookmarks] = useState<BookmarkNode[]>(initialBookmarks);
-  const [bookmarksLoaded, setBookmarksLoaded] = useState(false);
+  const [bookmarkState, dispatchBookmarks] = useReducer(bookmarkReducer, undefined, () =>
+    initialBookmarkState(initialBookmarks()),
+  );
+  const { nodes: bookmarks, expandedFolderIds, loaded: bookmarksLoaded } = bookmarkState;
   const [bookmarkDragOrigin, setBookmarkDragOrigin] = useState<{ id: string; depth: number } | null>(null);
   const bookmarkSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -290,7 +282,6 @@ export default function App() {
   const bookmarkContextMenuRef = useRef<Menu | null>(null);
   const [folderTitle, setFolderTitle] = useState('');
   const [editingFolderId, setEditingFolderId] = useState('');
-  const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
   const [filterSettings, setFilterSettings] = useState<FilterSettingsView | null>(null);
   const [filterBusy, setFilterBusy] = useState(false);
   const [filterProgress, setFilterProgress] = useState<FilterUpdateProgress | null>(null);
@@ -777,7 +768,7 @@ export default function App() {
       const available = Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
       setIsTauri(available);
       if (!available) {
-        setBookmarksLoaded(true);
+        dispatchBookmarks({ type: 'loaded' });
         return;
       }
       unlisten = await onEvent(tabEvent, (event) => applySnapshot(event.payload));
@@ -799,7 +790,9 @@ export default function App() {
         void browserActions.current.openShortcutsPage();
       });
       const unlistenHistory = await onEvent(historyEvent, (event) => setHistory(event.payload));
-      const unlistenBookmarks = await onEvent(bookmarksEvent, (event) => setBookmarks(event.payload));
+      const unlistenBookmarks = await onEvent(bookmarksEvent, (event) =>
+        dispatchBookmarks({ type: 'replaced', nodes: event.payload }),
+      );
       const unlistenOpenUrlFromMenu = await onEvent(openUrlFromMenuEvent, (event) => {
         void browserActions.current.openUrlFromMenu(event.payload);
       });
@@ -908,8 +901,7 @@ export default function App() {
         const databaseBookmarks = await call('load_bookmarks', {
           legacyBookmarks: initialBookmarks(),
         });
-        setBookmarks(databaseBookmarks);
-        setBookmarksLoaded(true);
+        dispatchBookmarks({ type: 'loaded', nodes: databaseBookmarks });
         localStorage.removeItem(storageKeys.bookmarks);
         applySnapshot(await call('get_browser_state'));
         const launchRequest = await call('take_launch_request');
@@ -917,7 +909,7 @@ export default function App() {
         setHistory(await call('get_history'));
         setDownloads(await call('get_downloads'));
       } catch (error) {
-        setBookmarksLoaded(true);
+        dispatchBookmarks({ type: 'loaded' });
         setMessage(String(error));
       }
       if (!cancelled) void runSessionIntegrationTest();
@@ -1270,7 +1262,7 @@ export default function App() {
         filters: [{ name: 'Netscape Bookmarks', extensions: ['html', 'htm'] }],
       });
       if (typeof path !== 'string') return;
-      setBookmarks(await call('import_bookmarks_html', { path }));
+      dispatchBookmarks({ type: 'replaced', nodes: await call('import_bookmarks_html', { path }) });
       setMessage('Bookmarks imported.');
     } catch (error) {
       setMessage(String(error));
@@ -1696,15 +1688,8 @@ export default function App() {
         description,
         favicon: activeTab && activeTab.url === url ? tabFavicons[activeTab.id] : undefined,
       };
-      setBookmarks((items) =>
-        addingBookmarkFolderId ? appendToFolder(items, addingBookmarkFolderId, bookmark).nodes : [bookmark, ...items],
-      );
-    } else
-      setBookmarks((items) =>
-        updateNode(items, editingBookmarkId, (node) =>
-          node.type === 'bookmark' ? { ...node, title, url, description } : node,
-        ),
-      );
+      dispatchBookmarks({ type: 'added', node: bookmark, parentId: addingBookmarkFolderId });
+    } else dispatchBookmarks({ type: 'bookmarkEdited', id: editingBookmarkId, title, url, description });
     cancelBookmarkEdit();
     setMessage('');
   }
@@ -1718,7 +1703,7 @@ export default function App() {
   function startAddBookmark(parentId?: string) {
     setAddingBookmarkFolderId(parentId ?? null);
     if (parentId) {
-      setExpandedFolderIds((ids) => (ids.includes(parentId) ? ids : [...ids, parentId]));
+      dispatchBookmarks({ type: 'folderExpanded', id: parentId });
       setBookmarkSearch('');
     }
     setEditingBookmarkId('');
@@ -1743,16 +1728,16 @@ export default function App() {
       setMessage('This page is already bookmarked.');
       return;
     }
-    setBookmarks((items) => [
-      {
+    dispatchBookmarks({
+      type: 'added',
+      node: {
         id: crypto.randomUUID(),
         type: 'bookmark',
         title: activeTab.title || activeTab.url,
         url: activeTab.url,
         favicon: tabFavicons[activeTab.id],
       },
-      ...items,
-    ]);
+    });
     setMessage('Bookmark added.');
   }
 
@@ -1816,27 +1801,20 @@ export default function App() {
 
   function createBookmarkFolder(parentId?: string) {
     const folder: BookmarkFolder = { id: crypto.randomUUID(), type: 'folder', title: 'New Folder', children: [] };
-    setBookmarks((items) => {
-      if (!parentId) return [folder, ...items];
-      return appendToFolder(items, parentId, folder).nodes;
-    });
-    if (parentId) setExpandedFolderIds((ids) => (ids.includes(parentId) ? ids : [...ids, parentId]));
-    setExpandedFolderIds((ids) => (ids.includes(folder.id) ? ids : [...ids, folder.id]));
+    dispatchBookmarks({ type: 'added', node: folder, parentId });
     setFolderTitle(folder.title);
     setEditingFolderId(folder.id);
   }
 
   function saveFolderTitle(folderId: string) {
     const title = folderTitle.trim() || 'New Folder';
-    setBookmarks((items) =>
-      updateNode(items, folderId, (node) => (node.type === 'folder' ? { ...node, title } : node)),
-    );
+    dispatchBookmarks({ type: 'folderRenamed', id: folderId, title });
     setEditingFolderId('');
   }
 
   function deleteBookmarkNode(node: BookmarkNode) {
     if (node.type === 'folder' && !window.confirm(`Delete “${node.title}” and everything inside it?`)) return;
-    setBookmarks((items) => removeNode(items, node.id).nodes);
+    dispatchBookmarks({ type: 'removed', id: node.id });
   }
 
   function clearBookmarkExpandTimer() {
@@ -1880,7 +1858,7 @@ export default function App() {
       id: overId,
       timer: window.setTimeout(() => {
         bookmarkExpandTimer.current = null;
-        setExpandedFolderIds((ids) => (ids.includes(overId) ? ids : [...ids, overId]));
+        dispatchBookmarks({ type: 'folderExpanded', id: overId });
       }, 600),
     };
   }
@@ -1888,17 +1866,14 @@ export default function App() {
   function handleBookmarkDragEnd(event: DragEndEvent) {
     const zone = bookmarkDropZoneFor(event);
     if (zone && bookmarkDragOrigin) {
-      const result = moveNodeToDropZone(
-        bookmarks,
-        String(event.active.id),
-        String(event.over!.id),
+      dispatchBookmarks({
+        type: 'moved',
+        activeId: String(event.active.id),
+        overId: String(event.over!.id),
         zone,
-        bookmarkDragOrigin.depth,
-        event.delta.x,
-      );
-      setBookmarks(result.nodes);
-      if (result.parentId)
-        setExpandedFolderIds((ids) => (ids.includes(result.parentId!) ? ids : [...ids, result.parentId!]));
+        originDepth: bookmarkDragOrigin.depth,
+        horizontalDelta: event.delta.x,
+      });
     }
     endBookmarkDrag();
   }
@@ -1915,6 +1890,14 @@ export default function App() {
       .catch((error) => setMessage(String(error)));
   }
 
+  /** Apply a tab-tree edit. Edits that can change tab order also send the new order to Rust. */
+  function updateTabTree(action: TabTreeAction, { reorder = false } = {}) {
+    const next = tabTreeReducer(tabNodesRef.current, action);
+    if (next === tabNodesRef.current) return;
+    if (reorder) reorderTabsFromTree(next);
+    else storeTabTree(next);
+  }
+
   function createTabFolder() {
     const folder: TabFolder = {
       id: crypto.randomUUID(),
@@ -1923,22 +1906,19 @@ export default function App() {
       collapsed: false,
       children: [],
     };
-    storeTabTree([folder, ...tabNodesRef.current]);
+    updateTabTree({ type: 'folderCreated', folder });
     setEditingTabFolderId(folder.id);
     setTabFolderTitle(folder.title);
   }
 
   function saveTabFolderTitle(folderId: string) {
     const title = tabFolderTitle.trim() || 'New Folder';
-    storeTabTree(
-      updateNode(tabNodesRef.current, folderId, (node) => (node.type === 'folder' ? { ...node, title } : node)),
-    );
+    updateTabTree({ type: 'folderRenamed', id: folderId, title });
     setEditingTabFolderId('');
   }
 
   function deleteTabFolder(folderId: string) {
-    const result = unwrapTabFolder(tabNodesRef.current, folderId);
-    if (result.unwrapped) reorderTabsFromTree(result.nodes);
+    updateTabTree({ type: 'folderUnwrapped', id: folderId }, { reorder: true });
   }
 
   function clearTabExpandTimer() {
@@ -2092,11 +2072,7 @@ export default function App() {
       id: overId,
       timer: window.setTimeout(() => {
         tabExpandTimer.current = null;
-        storeTabTree(
-          updateNode(tabNodesRef.current, overId, (node) =>
-            node.type === 'folder' ? { ...node, collapsed: false } : node,
-          ),
-        );
+        updateTabTree({ type: 'folderExpanded', id: overId });
       }, 600),
     };
   }
@@ -2130,23 +2106,11 @@ export default function App() {
           const targetId = String(event.over.data.current?.nodeId ?? event.over.id);
           const horizontal = tabAxisForPosition(tabPosition) === 'horizontal';
           const indentDelta = horizontal ? event.delta.y : event.delta.x;
-          const result = moveNodeToDropZone(
-            tabNodesRef.current,
-            activeId,
-            targetId,
-            zone,
-            tabDragOrigin.depth,
-            indentDelta,
-          );
           if (activeContainer === 'pinned') setPinnedTabIds((ids) => ids.filter((id) => id !== activeId));
-          reorderTabsFromTree(result.nodes);
-          const parentId = result.parentId;
-          if (parentId)
-            storeTabTree(
-              updateNode(tabNodesRef.current, parentId, (node) =>
-                node.type === 'folder' ? { ...node, collapsed: false } : node,
-              ),
-            );
+          updateTabTree(
+            { type: 'dropped', activeId, overId: targetId, zone, originDepth: tabDragOrigin.depth, indentDelta },
+            { reorder: true },
+          );
         }
       }
     }
@@ -2154,11 +2118,7 @@ export default function App() {
   }
 
   function toggleTabFolder(folderId: string) {
-    storeTabTree(
-      updateNode(tabNodesRef.current, folderId, (node) =>
-        node.type === 'folder' ? { ...node, collapsed: !node.collapsed } : node,
-      ),
-    );
+    updateTabTree({ type: 'folderToggled', id: folderId });
   }
 
   function moveTabNode(
@@ -2167,22 +2127,7 @@ export default function App() {
     folderId?: string,
     position: 'before' | 'after' = 'before',
   ) {
-    if (!draggedId || draggedId === targetId || draggedId === folderId) return;
-    const moving = findNode(tabNodesRef.current, draggedId);
-    const destinationId = folderId ?? targetId;
-    if (!moving || (destinationId && moving.type === 'folder' && containsNode(moving, destinationId))) return;
-    const remaining = removeNode(tabNodesRef.current, draggedId).nodes;
-    let result: TabNode[];
-    if (folderId) result = appendTabNodeToFolder(remaining, folderId, moving).nodes;
-    else if (targetId) result = insertTabNode(remaining, targetId, moving, position === 'after').nodes;
-    else result = [...remaining, moving];
-    reorderTabsFromTree(result);
-    if (folderId)
-      storeTabTree(
-        updateNode(tabNodesRef.current, folderId, (node) =>
-          node.type === 'folder' ? { ...node, collapsed: false } : node,
-        ),
-      );
+    updateTabTree({ type: 'moved', id: draggedId, targetId, folderId, position }, { reorder: true });
   }
 
   function saveTabName(tabId: string) {
@@ -2743,11 +2688,7 @@ export default function App() {
                     expanded={bookmarkExpanded.has(node.id)}
                     dropZone={bookmarkDropTarget?.overId === node.id ? bookmarkDropTarget.zone : undefined}
                     editing={editingBookmarkId === node.id}
-                    onToggle={() =>
-                      setExpandedFolderIds((ids) =>
-                        ids.includes(node.id) ? ids.filter((id) => id !== node.id) : [...ids, node.id],
-                      )
-                    }
+                    onToggle={() => dispatchBookmarks({ type: 'folderToggled', id: node.id })}
                     onOpen={(url) => void openBookmark(url)}
                     onEdit={editBookmark}
                     onDelete={deleteBookmarkNode}
