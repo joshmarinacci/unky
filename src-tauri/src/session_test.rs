@@ -2,6 +2,16 @@
 
 use crate::*;
 
+/// Stand in for the real click that a synthetic `click()` inside the page lacks. Page commands
+/// that open tabs require a recent native gesture (see `authorize_page_action`).
+fn simulate_gesture() {
+    static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX / 4);
+    browser::activation::tracker().record(
+        NEXT_ID.fetch_add(1, Ordering::Relaxed),
+        std::time::Instant::now(),
+    );
+}
+
 #[tauri::command]
 pub(crate) fn session_test_phase(webview: tauri::Webview) -> Result<String, String> {
     if !is_trusted_browser_ui(webview.label()) {
@@ -51,6 +61,7 @@ pub(crate) async fn session_test_open_new_tab(
         .map(|tab| tab.id.clone())
         .ok_or("No active tab")?;
     let page = get_page(&app, &active_id)?;
+    simulate_gesture();
     tauri::async_runtime::spawn_blocking(move || {
         page.eval("document.getElementById('new-tab-link').click()")
             .map_err(|error| error.to_string())

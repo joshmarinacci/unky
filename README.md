@@ -65,7 +65,7 @@ The standalone dnd-kit interaction playground is available at `/?page=tree` whil
 
 ## macOS session integration test
 
-After installing dependencies, run `python3 tests/macos_session_test.py` on macOS to launch the browser with real native WKWebViews. It checks find-in-page matches and misses, waits for a fixture page to finish loading and verifies its favicon appears in the sidebar, opens a `target="_blank"` fixture link in a new native tab, cycles between tabs, downloads and reveals a fixture file, checks history, closes and reopens a tab, then restarts the app and checks session and history recovery. It uses a test-only Cargo feature and temporary session, SQLite database, download, and report paths, not the normal browser profile. The test starts the fixture server on ports `4179` and `4180` itself.
+After installing dependencies, run `python3 tests/macos_session_test.py` on macOS to launch the browser with real native WKWebViews. Each launch runs the Vite dev server on a free port (passed through `UNKY_DEV_PORT` and a `--config` override of `devUrl`), so another dev server on port 1420 does not block it. It checks find-in-page matches and misses, waits for a fixture page to finish loading and verifies its favicon appears in the sidebar, opens a `target="_blank"` fixture link in a new native tab, cycles between tabs, downloads and reveals a fixture file, checks history, closes and reopens a tab, then restarts the app and checks session and history recovery. It uses a test-only Cargo feature and temporary session, SQLite database, download, and report paths, not the normal browser profile. The test starts the fixture server on ports `4179` and `4180` itself.
 
 ## macOS desktop tests
 

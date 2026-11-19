@@ -73,7 +73,15 @@ def wait_for_page_requests(server_log_path, expected_counts, timeout=20):
     raise TimeoutError(f"Expected fixture page requests were not observed:\n{server_log_path.read_text()}")
 
 
+def free_port():
+    """A port no other process is listening on, so the dev server never collides with another one."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
 def run_phase(phase, session_path, report_path, app_log, downloads_dir):
+    dev_port = free_port()
     report_path.unlink(missing_ok=True)
     env = os.environ.copy()
     env.update({
@@ -83,9 +91,11 @@ def run_phase(phase, session_path, report_path, app_log, downloads_dir):
         "UNKY_DATABASE_PATH": str(session_path.with_name("browser.sqlite")),
         "UNKY_SESSION_TEST_REPORT": str(report_path),
         "UNKY_SESSION_TEST_DOWNLOAD_DIR": str(downloads_dir),
+        "UNKY_DEV_PORT": str(dev_port),
     })
+    dev_config = json.dumps({"build": {"devUrl": f"http://localhost:{dev_port}"}})
     process = subprocess.Popen(
-        ["npm", "run", "tauri", "--", "dev", "--features", "macos-session-test"],
+        ["npm", "run", "tauri", "--", "dev", "--features", "macos-session-test", "--config", dev_config],
         cwd=ROOT,
         env=env,
         stdout=app_log,
