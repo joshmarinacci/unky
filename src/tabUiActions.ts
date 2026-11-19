@@ -16,3 +16,8 @@ export function externalBrowserMenuItems(browsers: ExternalBrowserChoice[]) {
 export function isContextMenuKey(event: Pick<KeyboardEvent, 'key' | 'shiftKey'>): boolean {
   return event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10');
 }
+
+/** The one row of a tree that Tab reaches: the first candidate still shown, else the first row. */
+export function rovingTabStop(rowIds: string[], ...preferred: string[]): string {
+  return preferred.find((id) => id && rowIds.includes(id)) ?? rowIds[0] ?? '';
+}

@@ -2336,3 +2336,6 @@ html:has(.address-popup) #root {
     margin-top: 18px;
   }
 }
+.tree-keyboard-scope {
+  display: contents;
+}

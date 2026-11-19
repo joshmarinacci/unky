@@ -24,6 +24,7 @@ export function BookmarkSortableRow({
   saveFolderTitle,
   editForm,
   onContextMenu,
+  tabbable,
 }: {
   node: BookmarkNode;
   depth: number;
@@ -43,6 +44,8 @@ export function BookmarkSortableRow({
   setFolderTitle: (value: string) => void;
   saveFolderTitle: () => void;
   editForm: React.ReactNode;
+  /** Whether Tab reaches this row; arrows move between rows. */
+  tabbable: boolean;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useSortable({
     id: node.id,
@@ -52,6 +55,8 @@ export function BookmarkSortableRow({
   const itemProps = {
     ...attributes,
     role: 'treeitem',
+    tabIndex: tabbable ? 0 : -1,
+    'data-bookmark-id': node.id,
     'aria-level': depth + 1,
     'aria-expanded': node.type === 'folder' ? expanded : undefined,
   };
