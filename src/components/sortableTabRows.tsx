@@ -14,6 +14,7 @@ export function SortableRow({
   className,
   label,
   current,
+  tabbable,
   onActivate,
   onContextMenu,
   children,
@@ -27,6 +28,8 @@ export function SortableRow({
   className: string;
   label: string;
   current?: boolean;
+  /** Whether Tab reaches this row; a tree keeps one row in the tab order and arrows move between rows. */
+  tabbable: boolean;
   onActivate?: () => void;
   onContextMenu: (event: React.MouseEvent) => void;
   children: React.ReactNode;
@@ -46,6 +49,7 @@ export function SortableRow({
       {...attributes}
       {...listeners}
       role="treeitem"
+      tabIndex={tabbable ? 0 : -1}
       aria-label={label}
       aria-level={depth + 1}
       aria-expanded={expanded}

@@ -475,6 +475,12 @@ pub(crate) async fn desktop_test_browser_ui(
             row.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'F10', shiftKey: true, bubbles: true, cancelable: true }}));
             return {{ opened: true }};
           }}
+          if (args.action === 'focus-tab-row') {{
+            const row = Array.from(document.querySelectorAll('.tab-sortable-item')).find(node => node.dataset.tabNodeId === args.tabId);
+            if (!row) return {{ error: `Tab row ${{args.tabId}} was not found` }};
+            row.focus();
+            return {{ focused: document.activeElement === row }};
+          }}
           if (args.action === 'press-key') {{
             const target = document.activeElement || document.body;
             target.dispatchEvent(new KeyboardEvent('keydown', {{ key: args.menuItem, bubbles: true, cancelable: true }}));
@@ -486,6 +492,8 @@ pub(crate) async fn desktop_test_browser_ui(
             return {{
               menus: document.querySelectorAll('.sidebar-context-menu').length,
               renameOpen: Boolean(document.querySelector('.tab-rename-input')),
+              tabNodeId: active instanceof HTMLElement ? (active.dataset.tabNodeId ?? null) : null,
+              tabStops: Array.from(document.querySelectorAll('.tab-tree [role="treeitem"]')).filter(node => node.tabIndex === 0).map(node => node.dataset.tabNodeId),
               tag: active?.tagName ?? null,
               role: active?.getAttribute('role') ?? null,
               text: active?.textContent?.trim() ?? '',

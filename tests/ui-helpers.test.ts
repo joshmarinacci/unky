@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { filterSiteDomain, siteDomain } from '../src/siteDomain.ts';
-import { isContextMenuKey } from '../src/tabUiActions.ts';
+import { isContextMenuKey, rovingTabStop } from '../src/tabUiActions.ts';
 
 test('site domain is the host of http and https pages only', () => {
   assert.equal(siteDomain('https://news.example.com/a?b=1'), 'news.example.com');
@@ -25,4 +25,11 @@ test('the Menu key and Shift+F10 open a context menu; plain F10 does not', () =>
   assert.equal(isContextMenuKey({ key: 'F10', shiftKey: true }), true);
   assert.equal(isContextMenuKey({ key: 'F10', shiftKey: false }), false);
   assert.equal(isContextMenuKey({ key: 'Enter', shiftKey: true }), false);
+});
+
+test('a tree keeps one tab stop: the first preferred row still shown, else the first row', () => {
+  assert.equal(rovingTabStop(['a', 'b', 'c'], 'b', 'c'), 'b');
+  assert.equal(rovingTabStop(['a', 'b', 'c'], 'gone', 'c'), 'c');
+  assert.equal(rovingTabStop(['a', 'b', 'c'], '', 'gone'), 'a');
+  assert.equal(rovingTabStop([], 'a'), '');
 });

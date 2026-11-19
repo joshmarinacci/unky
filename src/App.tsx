@@ -41,9 +41,9 @@ import {
 import { AppButton, AppInput } from './components/ui';
 import { DownloadsPage } from './pages/DownloadsPage';
 import { HistoryPage } from './pages/HistoryPage';
-import { SettingsPage } from './pages/SettingsPage';
+import { AppearanceSettings, GeneralSettings, PrivacySettings, SettingsPage } from './pages/SettingsPage';
 import { ShortcutsPage } from './pages/ShortcutsPage';
-import { commandKey } from './platform';
+import { commandKey, isApplePlatform } from './platform';
 import { BookmarkSortableRow } from './components/BookmarkSortableRow';
 import {
   PinnedTabsDock,
@@ -141,9 +141,11 @@ import {
 } from './tabTree';
 import type { TabFolder, TabNode } from './tabTree';
 import { groupSplitTabRows } from './splitTabRows';
-import { isContextMenuKey, selectInputText } from './tabUiActions';
+import { isContextMenuKey, rovingTabStop, selectInputText } from './tabUiActions';
+import { shortcutForKey, shortcutFromMenu, type ShortcutAction } from './shortcuts';
 import { filterSiteDomain, siteDomain } from './siteDomain';
 import { TabContextMenu, type TabContextMenuTarget } from './components/TabContextMenu';
+import { TreeKeyboardNavigation } from './components/TreeKeyboardNavigation';
 import { snapshotBelongsToWindow } from './browserSnapshot';
 import { findAddressSuggestions, moveAddressSuggestionSelection } from './addressSuggestions';
 import { isTabPosition, reorderTabIds, tabAxisForPosition, resolveTabDragPreview, type TabPosition } from './tabLayout';
@@ -274,6 +276,8 @@ export default function App() {
     null,
   );
   const [bookmarkSearch, setBookmarkSearch] = useState('');
+  const [focusedBookmarkId, setFocusedBookmarkId] = useState('');
+  const [focusedTabNodeId, setFocusedTabNodeId] = useState('');
   const [addingBookmark, setAddingBookmark] = useState(false);
   const [addingBookmarkFolderId, setAddingBookmarkFolderId] = useState<string | null>(null);
   const [editingBookmarkId, setEditingBookmarkId] = useState('');
@@ -586,6 +590,58 @@ export default function App() {
 
   // Event listeners below subscribe once; they call handlers through this ref so they
   // always use the current render's versions.
+  /** Run a browser shortcut, whether it came from the key handler or a native menu accelerator. */
+  function runShortcut(action: ShortcutAction) {
+    switch (action) {
+      case 'new-tab':
+        void createTab();
+        break;
+      case 'new-private-tab':
+        void createTab(true);
+        break;
+      case 'open-in-browser':
+        externalBrowserButtonRef.current?.click();
+        break;
+      case 'close-tab':
+        if (activeTabIdRef.current) void closeTab(activeTabIdRef.current);
+        break;
+      case 'reopen-closed-tab':
+        void reopenClosedTab();
+        break;
+      case 'focus-address':
+        addressRef.current?.focus();
+        addressRef.current?.select();
+        break;
+      case 'reload':
+        void runNavigationCommand('reload');
+        break;
+      case 'go-back':
+        void runNavigationCommand('go_back');
+        break;
+      case 'go-forward':
+        void runNavigationCommand('go_forward');
+        break;
+      case 'find':
+        openFindPanel();
+        break;
+      case 'next-tab':
+        void cycleTabs(false);
+        break;
+      case 'previous-tab':
+        void cycleTabs(true);
+        break;
+      case 'capture-full-page': {
+        const tabId = activeTabIdRef.current;
+        if (!tabId) break;
+        setMessage('Capturing full page…');
+        void call('save_full_page_screenshot', { tabId })
+          .then((saved) => setMessage(saved ? 'Full page screenshot saved.' : 'Screenshot cancelled.'))
+          .catch((error) => setMessage(String(error)));
+        break;
+      }
+    }
+  }
+
   const browserActions = useLatest({
     closeTab,
     createTab,
@@ -601,6 +657,7 @@ export default function App() {
     openUrlFromMenu,
     reopenClosedTab,
     reorderTabsFromTree,
+    runShortcut,
   });
   useEffect(() => {
     if (!isTauri) return;
@@ -837,60 +894,8 @@ export default function App() {
         .then(setFilterSettings)
         .catch((error) => setMessage(String(error)));
       const unlistenShortcuts = await onEvent(shortcutEvent, (event) => {
-        switch (event.payload) {
-          case 'new-tab':
-            void browserActions.current.createTab();
-            break;
-          case 'new-private-tab':
-            void browserActions.current.createTab(true);
-            break;
-          case 'open-in-browser':
-            externalBrowserButtonRef.current?.click();
-            break;
-          case 'close-tab':
-            if (activeTabIdRef.current) void browserActions.current.closeTab(activeTabIdRef.current);
-            break;
-          case 'reopen-closed-tab':
-            void browserActions.current.reopenClosedTab();
-            break;
-          case 'focus-address':
-            addressRef.current?.focus();
-            addressRef.current?.select();
-            break;
-          case 'reload':
-            void runNavigationCommand('reload');
-            break;
-          case 'go-back':
-            void runNavigationCommand('go_back');
-            break;
-          case 'go-forward':
-            void runNavigationCommand('go_forward');
-            break;
-          case 'find':
-            openFindPanel();
-            break;
-          case 'next-tab':
-          case 'next-tab-page':
-          case 'next-tab-mac':
-          case 'next-tab-safari':
-            void browserActions.current.cycleTabs(false);
-            break;
-          case 'previous-tab':
-          case 'previous-tab-page':
-          case 'previous-tab-mac':
-          case 'previous-tab-safari':
-            void browserActions.current.cycleTabs(true);
-            break;
-          case 'capture-full-page': {
-            const tabId = activeTabIdRef.current;
-            if (!tabId) break;
-            setMessage('Capturing full page…');
-            void call('save_full_page_screenshot', { tabId })
-              .then((saved) => setMessage(saved ? 'Full page screenshot saved.' : 'Screenshot cancelled.'))
-              .catch((error) => setMessage(String(error)));
-            break;
-          }
-        }
+        const action = shortcutFromMenu(event.payload);
+        if (action) browserActions.current.runShortcut(action);
       });
       try {
         const databaseBookmarks = await call('load_bookmarks', {
@@ -1186,38 +1191,10 @@ export default function App() {
         setFindMatches(null);
         return;
       }
-      if (!(event.metaKey || event.ctrlKey)) return;
-      const key = event.key.toLowerCase();
-      if (key === 'f') {
-        event.preventDefault();
-        openFindPanel();
-      }
-      if (key === 'l') {
-        event.preventDefault();
-        addressRef.current?.focus();
-        addressRef.current?.select();
-      }
-      if (key === 't') {
-        event.preventDefault();
-        if (event.shiftKey) void reopenClosedTab();
-        else void createTab();
-      }
-      if (key === 'n' && event.shiftKey) {
-        event.preventDefault();
-        void createTab(true);
-      }
-      if (key === 'w' && activeTabId) {
-        event.preventDefault();
-        void closeTab(activeTabId);
-      }
-      if (key === 'r' && activeTabId) {
-        event.preventDefault();
-        void runNavigationCommand('reload');
-      }
-      if (event.ctrlKey && key === 'tab') {
-        event.preventDefault();
-        void cycleTabs(event.shiftKey);
-      }
+      const action = shortcutForKey(event, isApplePlatform);
+      if (!action) return;
+      event.preventDefault();
+      runShortcut(action);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -2273,6 +2250,7 @@ export default function App() {
           disabled={editingTabFolderId === node.id}
           className="tab-sortable-item"
           label={`Folder ${node.title}`}
+          tabbable={node.id === tabbableTabNodeId}
           onContextMenu={(event) => {
             event.preventDefault();
             setTabContextMenu({
@@ -2350,6 +2328,7 @@ export default function App() {
         disabled={editingTabId === tab.id}
         className="tab-sortable-item"
         label={title}
+        tabbable={node.id === tabbableTabNodeId}
         current={tab.id === activeTabId}
         onActivate={() => void selectTab(tab.id)}
         onContextMenu={(event) => {
@@ -2516,6 +2495,16 @@ export default function App() {
     </form>
   );
   const visibleBookmarkRows = flattenTree(filterBookmarkNodes(bookmarks, bookmarkSearch.trim()), bookmarkExpanded);
+  // Each tree keeps one row in the tab order: the last focused row, else the active tab, else the first row.
+  const tabbableBookmarkId = rovingTabStop(
+    visibleBookmarkRows.map((row) => row.node.id),
+    focusedBookmarkId,
+  );
+  const tabbableTabNodeId = rovingTabStop(
+    displayedTabRows.map((row) => row.node.id),
+    focusedTabNodeId,
+    activeTabId,
+  );
   const horizontalTabStrip = tabAxisForPosition(tabPosition) === 'horizontal';
 
   function renderTabManager() {
@@ -2560,26 +2549,35 @@ export default function App() {
           aria-orientation={horizontalTabStrip ? 'horizontal' : 'vertical'}
           aria-label="Open tabs"
         >
-          <SortableContext items={displayedTabRows.map((row) => row.node.id)} strategy={() => null}>
-            {sidebarTabRows.map((row) =>
-              row.type === 'single' ? (
-                renderTabRow(row.row)
-              ) : (
-                <div
-                  key={`split-${row.first.node.id}-${row.second.node.id}`}
-                  className={`tab-split-row ${[row.first.node.id, row.second.node.id].includes(activeTabId) ? 'split-active' : ''}`}
-                  style={horizontalTabStrip ? { marginTop: row.depth * 10 } : { marginLeft: row.depth * 14 }}
-                  role="group"
-                  aria-label="Split view"
-                  data-split-first={row.first.node.id}
-                  data-split-second={row.second.node.id}
-                >
-                  {renderTabRow({ ...row.first, depth: row.depth }, true)}
-                  {renderTabRow({ ...row.second, depth: row.depth }, true)}
-                </div>
-              ),
-            )}
-          </SortableContext>
+          <TreeKeyboardNavigation
+            orientation={horizontalTabStrip ? 'horizontal' : 'vertical'}
+            disabled={Boolean(tabDragOrigin)}
+            onToggle={(item) => {
+              if (item.dataset.tabNodeId) toggleTabFolder(item.dataset.tabNodeId);
+            }}
+            onFocusItem={(item) => setFocusedTabNodeId(item.dataset.tabNodeId ?? '')}
+          >
+            <SortableContext items={displayedTabRows.map((row) => row.node.id)} strategy={() => null}>
+              {sidebarTabRows.map((row) =>
+                row.type === 'single' ? (
+                  renderTabRow(row.row)
+                ) : (
+                  <div
+                    key={`split-${row.first.node.id}-${row.second.node.id}`}
+                    className={`tab-split-row ${[row.first.node.id, row.second.node.id].includes(activeTabId) ? 'split-active' : ''}`}
+                    style={horizontalTabStrip ? { marginTop: row.depth * 10 } : { marginLeft: row.depth * 14 }}
+                    role="group"
+                    aria-label="Split view"
+                    data-split-first={row.first.node.id}
+                    data-split-second={row.second.node.id}
+                  >
+                    {renderTabRow({ ...row.first, depth: row.depth }, true)}
+                    {renderTabRow({ ...row.second, depth: row.depth }, true)}
+                  </div>
+                ),
+              )}
+            </SortableContext>
+          </TreeKeyboardNavigation>
         </div>
         <div className="tab-actions">
           <AppButton
@@ -2771,37 +2769,47 @@ export default function App() {
             aria-label="Saved bookmarks"
           >
             {visibleBookmarkRows.length ? (
-              <SortableContext items={visibleBookmarkRows.map((item) => item.node.id)} strategy={() => null}>
-                {visibleBookmarkRows.map(({ node, depth }) => (
-                  <BookmarkSortableRow
-                    key={node.id}
-                    node={node}
-                    depth={depth}
-                    expanded={bookmarkExpanded.has(node.id)}
-                    dropZone={bookmarkDropTarget?.overId === node.id ? bookmarkDropTarget.zone : undefined}
-                    editing={editingBookmarkId === node.id}
-                    onToggle={() => dispatchBookmarks({ type: 'folderToggled', id: node.id })}
-                    onOpen={(url) => void openBookmark(url)}
-                    onEdit={editBookmark}
-                    onDelete={deleteBookmarkNode}
-                    onNewFolder={createBookmarkFolder}
-                    onContextMenu={(event, bookmark) => void openBookmarkContextMenu(event, bookmark)}
-                    onRename={(folder) => {
-                      setFolderTitle(folder.title);
-                      setEditingFolderId(folder.id);
-                    }}
-                    onCancelRename={() => {
-                      setEditingFolderId('');
-                      setFolderTitle(node.type === 'folder' ? node.title : '');
-                    }}
-                    editingFolder={node.type === 'folder' && editingFolderId === node.id}
-                    folderTitle={folderTitle}
-                    setFolderTitle={setFolderTitle}
-                    saveFolderTitle={() => saveFolderTitle(node.id)}
-                    editForm={bookmarkEditForm}
-                  />
-                ))}
-              </SortableContext>
+              <TreeKeyboardNavigation
+                disabled={Boolean(bookmarkDragOrigin)}
+                onToggle={(item) => {
+                  if (item.dataset.bookmarkId)
+                    dispatchBookmarks({ type: 'folderToggled', id: item.dataset.bookmarkId });
+                }}
+                onFocusItem={(item) => setFocusedBookmarkId(item.dataset.bookmarkId ?? '')}
+              >
+                <SortableContext items={visibleBookmarkRows.map((item) => item.node.id)} strategy={() => null}>
+                  {visibleBookmarkRows.map(({ node, depth }) => (
+                    <BookmarkSortableRow
+                      key={node.id}
+                      node={node}
+                      depth={depth}
+                      expanded={bookmarkExpanded.has(node.id)}
+                      dropZone={bookmarkDropTarget?.overId === node.id ? bookmarkDropTarget.zone : undefined}
+                      editing={editingBookmarkId === node.id}
+                      onToggle={() => dispatchBookmarks({ type: 'folderToggled', id: node.id })}
+                      onOpen={(url) => void openBookmark(url)}
+                      onEdit={editBookmark}
+                      onDelete={deleteBookmarkNode}
+                      onNewFolder={createBookmarkFolder}
+                      onContextMenu={(event, bookmark) => void openBookmarkContextMenu(event, bookmark)}
+                      onRename={(folder) => {
+                        setFolderTitle(folder.title);
+                        setEditingFolderId(folder.id);
+                      }}
+                      onCancelRename={() => {
+                        setEditingFolderId('');
+                        setFolderTitle(node.type === 'folder' ? node.title : '');
+                      }}
+                      editingFolder={node.type === 'folder' && editingFolderId === node.id}
+                      folderTitle={folderTitle}
+                      setFolderTitle={setFolderTitle}
+                      saveFolderTitle={() => saveFolderTitle(node.id)}
+                      editForm={bookmarkEditForm}
+                      tabbable={node.id === tabbableBookmarkId}
+                    />
+                  ))}
+                </SortableContext>
+              </TreeKeyboardNavigation>
             ) : (
               <p className="bookmark-empty">
                 {bookmarks.length === 0 ? 'Your saved pages will appear here.' : 'No matching bookmarks.'}
@@ -3273,29 +3281,38 @@ export default function App() {
           {downloadsPageOpen ? (
             <DownloadsPage downloads={downloads} onClose={() => void closeTab(activeTabId)} setMessage={setMessage} />
           ) : settingsPageOpen ? (
-            <SettingsPage
-              siteDomain={siteForFilter}
-              changeFilteringEnabled={changeFilteringEnabled}
-              changeSiteFilterException={changeSiteFilterException}
-              clearBrowsingData={clearBrowsingData}
-              closeSettings={closeSettings}
-              createTab={createTab}
-              customPageContextMenuEnabled={customPageContextMenuEnabled}
-              setCustomPageContextMenuEnabled={setCustomPageContextMenuEnabled}
-              filterBusy={filterBusy}
-              filterProgress={filterProgress}
-              filterSettings={filterSettings}
-              message={message}
-              sidebarSide={sidebarSide}
-              setSidebarSide={setSidebarSide}
-              setSidebarView={setSidebarView}
-              tabPosition={tabPosition}
-              setTabPosition={setTabPosition}
-              theme={theme}
-              setTheme={setTheme}
-              sidebarWidth={sidebarWidth}
-              updateFilterList={updateFilterList}
-            />
+            <SettingsPage message={message} onClose={closeSettings}>
+              <GeneralSettings
+                onManageBookmarks={() => {
+                  closeSettings();
+                  setSidebarView('bookmarks');
+                }}
+                pageContextMenu={customPageContextMenuEnabled}
+                onPageContextMenuChange={setCustomPageContextMenuEnabled}
+              />
+              <AppearanceSettings
+                theme={theme}
+                setTheme={setTheme}
+                tabPosition={tabPosition}
+                setTabPosition={setTabPosition}
+                sidebarSide={sidebarSide}
+                setSidebarSide={setSidebarSide}
+                sidebarWidth={sidebarWidth}
+              />
+              <PrivacySettings
+                onNewPrivateTab={() => void createTab(true)}
+                onClearData={() => void clearBrowsingData()}
+                filtering={{
+                  settings: filterSettings,
+                  busy: filterBusy,
+                  progress: filterProgress,
+                  siteDomain: siteForFilter,
+                  setEnabled: changeFilteringEnabled,
+                  setSiteException: changeSiteFilterException,
+                  updateList: updateFilterList,
+                }}
+              />
+            </SettingsPage>
           ) : shortcutsPageOpen ? (
             <ShortcutsPage onClose={() => void closeTab(activeTabId)} />
           ) : historyPageOpen ? (

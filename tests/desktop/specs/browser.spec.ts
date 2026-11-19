@@ -586,6 +586,39 @@ describe('native Tauri browser', () => {
         { timeout: 3000, timeoutMsg: 'Clearing the name should restore the page title' },
       );
 
+      // The tab tree is one Tab stop (the active tab), and arrow keys, Home and End move between rows.
+      const second = (await invoke('create_tab')) as { activeTabId: string };
+      await invoke('select_tab', { tabId: 'tab-1' });
+      type TreeFocus = Focus & { tabNodeId: string | null; tabStops: string[] };
+      const treeFocus = () => browserUi('inspect-focus') as Promise<TreeFocus>;
+      await browser.waitUntil(
+        async () => {
+          const state = await treeFocus();
+          return state.tabStops.length === 1 && state.tabStops[0] === 'tab-1';
+        },
+        { timeout: 3000, timeoutMsg: 'Only the active tab row should be in the tab order' },
+      );
+      // React Aria returns focus on the next animation frame, which WebKit can hold back for a
+      // window that is not frontmost under test, so focus the row directly.
+      await browserUi('focus-tab-row', 'tab-1');
+      await browserUi('press-key', undefined, 'End');
+      await browser.waitUntil(async () => (await treeFocus()).tabNodeId === second.activeTabId, {
+        timeout: 2000,
+        timeoutMsg: 'End should focus the last tab row',
+      });
+      assert.deepEqual((await treeFocus()).tabStops, [second.activeTabId], 'the focused row becomes the tab stop');
+      await browserUi('press-key', undefined, 'ArrowUp');
+      await browser.waitUntil(async () => (await treeFocus()).tabNodeId !== second.activeTabId, {
+        timeout: 2000,
+        timeoutMsg: 'ArrowUp should move to the previous tab row',
+      });
+      await browserUi('press-key', undefined, 'Home');
+      await browser.waitUntil(async () => (await treeFocus()).tabNodeId === 'tab-1', {
+        timeout: 2000,
+        timeoutMsg: 'Home should focus the first tab row',
+      });
+      await invoke('close_tab', { tabId: second.activeTabId });
+
       // Settings opens in its own blank tab but still manages the website tab it was opened from.
       await browserUi('click-button', undefined, 'Settings');
       await browser.waitUntil(
