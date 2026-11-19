@@ -521,6 +521,85 @@ describe('native Tauri browser', () => {
     );
   }
 
+  it('opens the tab menu from the keyboard, renames a tab, and scopes the Settings site filter', async () => {
+    await browser.waitUntil(
+      async () => {
+        const page = await inspect('tab-1');
+        return page.url === 'http://127.0.0.1:4179/' && page.readyState === 'complete';
+      },
+      { timeout: 15000, timeoutMsg: 'The starting tab did not load for the keyboard menu test' },
+    );
+    const tabsBefore = ((await invoke('get_browser_state')) as { tabs: Array<{ id: string }> }).tabs.map(
+      (tab) => tab.id,
+    );
+    type Focus = { menus: number; role: string | null; text: string; value: string | null; selected: string | null };
+    const focus = () => browserUi('inspect-focus') as Promise<Focus>;
+    try {
+      await invoke('select_tab', { tabId: 'tab-1' });
+      await browserUi('reset-tab-ui');
+
+      // Shift+F10 on a focused row opens the menu with focus on its first item; arrows move; Escape closes.
+      await browserUi('keyboard-context-menu', 'tab-1');
+      await browser.waitUntil(async () => (await focus()).role === 'menuitem', {
+        timeout: 3000,
+        timeoutMsg: 'Shift+F10 should open the tab menu and focus its first item',
+      });
+      assert.equal((await focus()).text, 'Rename');
+      await browserUi('press-key', undefined, 'ArrowDown');
+      await browser.waitUntil(async () => (await focus()).text === 'Pin', {
+        timeout: 2000,
+        timeoutMsg: 'ArrowDown should move focus to the next menu item',
+      });
+      try {
+        captureNativeWindow('tab-context-menu-keyboard.png');
+      } catch (error) {
+        console.warn(`Could not capture the keyboard menu screenshot: ${String(error)}`);
+      }
+      await browserUi('press-key', undefined, 'Escape');
+      await browser.waitUntil(async () => (await focus()).menus === 0, {
+        timeout: 2000,
+        timeoutMsg: 'Escape should close the tab menu',
+      });
+
+      // Rename from the menu selects the current title, and Enter saves the new one.
+      await clickTabContextItem('tab-1', 'Rename');
+      await browser
+        .waitUntil(async () => (await focus()).value !== null, { timeout: 2000 })
+        .catch(async () => {
+          throw new Error(`Rename should focus the tab name field; focus: ${JSON.stringify(await focus())}`);
+        });
+      const field = await focus();
+      assert.equal(field.selected, field.value, 'the rename field should select the current tab title');
+      await browserUi('type-tab-rename', undefined, 'Renamed by test');
+      await browser.pause(50);
+      await browserUi('press-key', undefined, 'Enter');
+      await browser.waitUntil(
+        async () => ((await browserUi('tab-title', 'tab-1')) as { title: string | null }).title === 'Renamed by test',
+        { timeout: 3000, timeoutMsg: 'The renamed tab title did not appear in the tab list' },
+      );
+      await clickTabContextItem('tab-1', 'Rename');
+      await browserUi('type-tab-rename', undefined, '');
+      await browser.pause(50);
+      await browserUi('press-key', undefined, 'Enter');
+      await browser.waitUntil(
+        async () => ((await browserUi('tab-title', 'tab-1')) as { title: string | null }).title !== 'Renamed by test',
+        { timeout: 3000, timeoutMsg: 'Clearing the name should restore the page title' },
+      );
+
+      // Settings opens in its own blank tab but still manages the website tab it was opened from.
+      await browserUi('click-button', undefined, 'Settings');
+      await browser.waitUntil(
+        async () => ((await browserUi('inspect-site-filter')) as { settingsOpen: boolean }).settingsOpen,
+        { timeout: 5000, timeoutMsg: 'Settings did not open' },
+      );
+      const siteFilter = (await browserUi('inspect-site-filter')) as { text: string; enabled: boolean };
+      assert.match(siteFilter.text, /127\.0\.0\.1/);
+      assert.equal(siteFilter.enabled, true, 'the current-site filter control should be usable from Settings');
+    } finally {
+      await closeTabs(tabsBefore);
+    }
+  });
+
   it('routes website new-window links into tabs in the current browser window', async () => {
     const privateSource = (await invoke('create_tab', { private: true })) as {
       activeTabId: string;

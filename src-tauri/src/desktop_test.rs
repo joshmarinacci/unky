@@ -462,15 +462,64 @@ pub(crate) async fn desktop_test_browser_ui(
             return {{ opened: true }};
           }}
           if (args.action === 'click-context-item') {{
-            const item = Array.from(document.querySelectorAll('.sidebar-context-menu button')).find(node => node.textContent.trim() === args.menuItem);
+            const item = Array.from(document.querySelectorAll('.sidebar-context-menu [role^="menuitem"]')).find(node => node.textContent.trim() === args.menuItem);
             if (!item) return {{ error: `Context item ${{args.menuItem}} was not found` }};
             if (item.getAttribute('aria-disabled') === 'true' || item.hasAttribute('disabled')) return {{ error: `Context item ${{args.menuItem}} is disabled` }};
             item.click();
             return {{ clicked: true }};
           }}
+          if (args.action === 'keyboard-context-menu') {{
+            const row = Array.from(document.querySelectorAll('.tab-sortable-item')).find(node => node.dataset.tabNodeId === args.tabId);
+            if (!row) return {{ error: `Tab row ${{args.tabId}} was not found` }};
+            row.focus();
+            row.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'F10', shiftKey: true, bubbles: true, cancelable: true }}));
+            return {{ opened: true }};
+          }}
+          if (args.action === 'press-key') {{
+            const target = document.activeElement || document.body;
+            target.dispatchEvent(new KeyboardEvent('keydown', {{ key: args.menuItem, bubbles: true, cancelable: true }}));
+            target.dispatchEvent(new KeyboardEvent('keyup', {{ key: args.menuItem, bubbles: true, cancelable: true }}));
+            return {{ pressed: args.menuItem }};
+          }}
+          if (args.action === 'inspect-focus') {{
+            const active = document.activeElement;
+            return {{
+              menus: document.querySelectorAll('.sidebar-context-menu').length,
+              renameOpen: Boolean(document.querySelector('.tab-rename-input')),
+              tag: active?.tagName ?? null,
+              role: active?.getAttribute('role') ?? null,
+              text: active?.textContent?.trim() ?? '',
+              className: typeof active?.className === 'string' ? active.className : '',
+              value: active instanceof HTMLInputElement ? active.value : null,
+              selected: active instanceof HTMLInputElement ? active.value.slice(active.selectionStart ?? 0, active.selectionEnd ?? 0) : null,
+            }};
+          }}
+          if (args.action === 'type-tab-rename') {{
+            const input = document.querySelector('.tab-rename-input');
+            if (!(input instanceof HTMLInputElement)) return {{ error: 'The tab rename field is not open' }};
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, args.menuItem);
+            input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+            return {{ typed: true }};
+          }}
+          if (args.action === 'tab-title') {{
+            const row = Array.from(document.querySelectorAll('[data-tab-id]')).find(node => node.dataset.tabId === args.tabId && node.querySelector('.tab-title'));
+            return {{ title: row?.querySelector('.tab-title')?.textContent?.trim() ?? null }};
+          }}
+          if (args.action === 'click-button') {{
+            const button = Array.from(document.querySelectorAll('button')).find(node => node.getAttribute('aria-label') === args.menuItem);
+            if (!button) return {{ error: `Button ${{args.menuItem}} was not found` }};
+            button.click();
+            return {{ clicked: true }};
+          }}
+          if (args.action === 'inspect-site-filter') {{
+            const card = Array.from(document.querySelectorAll('.settings-card')).find(node => node.querySelector('strong')?.textContent === 'Current site');
+            if (!card) return {{ settingsOpen: false }};
+            const button = card.querySelector('button');
+            return {{ settingsOpen: true, text: card.querySelector('small')?.textContent ?? '', enabled: Boolean(button) && !button.disabled && button.getAttribute('aria-disabled') !== 'true' }};
+          }}
           if (args.action === 'inspect') {{
             const page = document.querySelector('.start-page');
-            const menuItems = Array.from(document.querySelectorAll('.sidebar-context-menu button')).map(node => node.textContent.trim());
+            const menuItems = Array.from(document.querySelectorAll('.sidebar-context-menu [role^="menuitem"]')).map(node => node.textContent.trim());
             const hasTestContextMenuBridge = typeof window.__myBrowserTestOpenTabContextMenu === 'function';
             if (!page) return {{ startPage: null, menuItems, tabRows: document.querySelectorAll('[data-tab-id]').length, menus: document.querySelectorAll('[role="menu"]').length, hasTestContextMenuBridge }};
             const rect = page.getBoundingClientRect();

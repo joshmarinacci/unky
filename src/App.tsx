@@ -141,7 +141,9 @@ import {
 } from './tabTree';
 import type { TabFolder, TabNode } from './tabTree';
 import { groupSplitTabRows } from './splitTabRows';
-import { selectInputText } from './tabUiActions';
+import { isContextMenuKey, selectInputText } from './tabUiActions';
+import { filterSiteDomain, siteDomain } from './siteDomain';
+import { TabContextMenu, type TabContextMenuTarget } from './components/TabContextMenu';
 import { snapshotBelongsToWindow } from './browserSnapshot';
 import { findAddressSuggestions, moveAddressSuggestionSelection } from './addressSuggestions';
 import { isTabPosition, reorderTabIds, tabAxisForPosition, resolveTabDragPreview, type TabPosition } from './tabLayout';
@@ -200,8 +202,6 @@ export default function App() {
     x: number;
     y: number;
   } | null>(null);
-  const [tabGroupPickerOpen, setTabGroupPickerOpen] = useState(false);
-  const [splitPickerOpen, setSplitPickerOpen] = useState(false);
   const [address, setAddress] = useState('');
   const [addressSuggestionsOpen, setAddressSuggestionsOpen] = useState(false);
   const [activeAddressSuggestion, setActiveAddressSuggestion] = useState(0);
@@ -236,6 +236,7 @@ export default function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historySearch, setHistorySearch] = useState('');
   const [historyTabIds, setHistoryTabIds] = useState(() => readStored(storageKeys.historyTabs, parseStringArray));
+  const [settingsSourceTabId, setSettingsSourceTabId] = useState('');
   const [settingsTabIds, setSettingsTabIds] = useState(() => readStored(storageKeys.settingsTabs, parseStringArray));
   const settingsTabIdsRef = useRef(settingsTabIds);
   const [shortcutsTabIds, setShortcutsTabIds] = useState<string[]>([]);
@@ -365,15 +366,13 @@ export default function App() {
       .setTitle(title)
       .catch((error) => setMessage(String(error)));
   }, [activeTabTitle]);
-  const activeSiteDomain = (() => {
-    try {
-      return activeTab?.url ? new URL(activeTab.url).hostname : '';
-    } catch {
-      return '';
-    }
-  })();
   const historyPageOpen = historyTabIds.includes(activeTabId);
   const settingsPageOpen = settingsTabIds.includes(activeTabId);
+  const siteForFilter = filterSiteDomain(
+    activeTab?.url,
+    settingsPageOpen,
+    tabs.find((tab) => tab.id === settingsSourceTabId)?.url,
+  );
   const shortcutsPageOpen = shortcutsTabIds.includes(activeTabId);
   const downloadsPageOpen = downloadsTabIds.includes(activeTabId);
   const tabContextMenuWidth = Math.min(220, window.innerWidth - 16);
@@ -385,8 +384,6 @@ export default function App() {
     };
     const openTestContextMenu = (tabId: string) => {
       if (!tabId) return;
-      setTabGroupPickerOpen(false);
-      setSplitPickerOpen(false);
       setTabContextMenu({
         id: tabId,
         type: 'tab',
@@ -739,8 +736,6 @@ export default function App() {
       setPinnedTabIds([]);
       setTabPosition('left');
       setSidebarSide('left');
-      setTabGroupPickerOpen(false);
-      setSplitPickerOpen(false);
       setTabContextMenu(null);
       storeTabTree(reconcileTabNodes([], tabsRef.current));
     };
@@ -1377,6 +1372,9 @@ export default function App() {
   }
 
   async function openSettingsPage() {
+    // Remember the website being viewed so Settings can manage its filter exception.
+    const sourceTab = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+    if (sourceTab && siteDomain(sourceTab.url)) setSettingsSourceTabId(sourceTab.id);
     const existingId = [...settingsTabIdsRef.current]
       .reverse()
       .find((id) => tabsRef.current.some((tab) => tab.id === id));
@@ -1450,6 +1448,7 @@ export default function App() {
   }
 
   async function clearBrowsingData() {
+    if (!window.confirm('Clear all website data and browsing history? Bookmarks will stay.')) return;
     try {
       await call('clear_browsing_data');
       setMessage('Website data clearing started; it may take a moment. History was cleared.');
@@ -1483,10 +1482,10 @@ export default function App() {
   }
 
   async function changeSiteFilterException(enabled: boolean) {
-    if (!activeSiteDomain) return;
+    if (!siteForFilter) return;
     setFilterBusy(true);
     try {
-      setFilterSettings(await call('set_filter_site_exception', { domain: activeSiteDomain, enabled }));
+      setFilterSettings(await call('set_filter_site_exception', { domain: siteForFilter, enabled }));
     } catch (error) {
       setMessage(String(error));
     } finally {
@@ -2171,7 +2170,6 @@ export default function App() {
   // Same menu as the full-width rows, opened to the right of the narrow rail.
   function openRailContextMenu(event: React.MouseEvent, id: string, type: 'tab' | 'folder') {
     event.preventDefault();
-    setTabGroupPickerOpen(false);
     setTabContextMenu({
       id,
       type,
@@ -2188,6 +2186,7 @@ export default function App() {
           type="button"
           className="rail-button"
           title={node.title}
+          data-tab-node-id={node.id}
           aria-label={`${node.collapsed ? 'Expand' : 'Collapse'} folder ${node.title}`}
           onClick={() => toggleTabFolder(node.id)}
           onContextMenu={(event) => openRailContextMenu(event, node.id, 'folder')}
@@ -2206,6 +2205,7 @@ export default function App() {
         className={`rail-button ${tab.id === activeTabId ? 'selected' : ''}`}
         title={title}
         aria-label={title}
+        data-tab-node-id={tab.id}
         aria-current={tab.id === activeTabId ? 'page' : undefined}
         onClick={() => void selectTab(tab.id)}
         onContextMenu={(event) => openRailContextMenu(event, tab.id, 'tab')}
@@ -2275,8 +2275,6 @@ export default function App() {
           label={`Folder ${node.title}`}
           onContextMenu={(event) => {
             event.preventDefault();
-            setTabGroupPickerOpen(false);
-            setSplitPickerOpen(false);
             setTabContextMenu({
               id: node.id,
               type: 'folder',
@@ -2356,8 +2354,6 @@ export default function App() {
         onActivate={() => void selectTab(tab.id)}
         onContextMenu={(event) => {
           event.preventDefault();
-          setTabGroupPickerOpen(false);
-          setSplitPickerOpen(false);
           setTabContextMenu({
             id: tab.id,
             type: 'tab',
@@ -2404,7 +2400,9 @@ export default function App() {
               }}
             />
           ) : (
-            <span className="tab-title">{title}</span>
+            <span className="tab-title" onDoubleClick={() => startTabRename(tab.id, 'tab')}>
+              {title}
+            </span>
           )}
           {tab.private && (
             <span className="private-tab-indicator" title="Private tab" aria-label="Private tab">
@@ -2642,6 +2640,100 @@ export default function App() {
     );
   }
 
+  function startTabRename(id: string, type: 'tab' | 'folder') {
+    // The rename field lives in the full tab list, so open it first from the icon rail.
+    if (sidebarCollapsed) {
+      setSidebarCollapsed(false);
+      setSidebarView('tabs');
+    }
+    if (type === 'tab') {
+      const tab = tabs.find((item) => item.id === id);
+      setTabNameDraft(tabNameOverrides[id] || tab?.title || '');
+      setEditingTabId(id);
+      return;
+    }
+    const folder = findNode(tabNodesRef.current, id);
+    if (folder?.type === 'folder') {
+      setTabFolderTitle(folder.title);
+      setEditingTabFolderId(folder.id);
+    }
+  }
+
+  async function createTabBelow(targetId: string) {
+    try {
+      const snapshot = await call('create_tab');
+      applySnapshot(snapshot);
+      reorderTabsFromTree(
+        insertTabNode(tabNodesRef.current, targetId, { id: snapshot.activeTabId, type: 'tab' }, true).nodes,
+      );
+    } catch (error) {
+      setMessage(String(error));
+    }
+  }
+
+  /** Open the tab or folder menu under the focused sidebar row (Menu key or Shift+F10). */
+  function openTabContextMenuFromKeyboard(event: React.KeyboardEvent) {
+    if (!isContextMenuKey(event) || !(event.target instanceof HTMLElement)) return;
+    const row = event.target.closest<HTMLElement>('[data-tab-node-id], [data-tab-id]');
+    const id = row?.dataset.tabNodeId ?? row?.dataset.tabId;
+    if (!row || !id) return;
+    event.preventDefault();
+    const rect = row.getBoundingClientRect();
+    const type = findNode(tabNodesRef.current, id)?.type === 'folder' ? 'folder' : 'tab';
+    setTabContextMenu({ id, type, x: rect.left + 12, y: rect.bottom });
+  }
+
+  function renderTabContextMenu(target: TabContextMenuTarget) {
+    const close = () => setTabContextMenu(null);
+    // A new key per opening resets the menu's expanded submenus.
+    const key = `${target.type}-${target.id}-${target.x}-${target.y}`;
+    if (target.type === 'folder')
+      return (
+        <TabContextMenu
+          key={key}
+          kind="folder"
+          target={target}
+          onClose={close}
+          onRename={() => startTabRename(target.id, 'folder')}
+          onDeleteFolder={() => deleteTabFolder(target.id)}
+        />
+      );
+    const tab = tabs.find((item) => item.id === target.id);
+    return (
+      <TabContextMenu
+        key={key}
+        kind="tab"
+        target={target}
+        onClose={close}
+        pinned={pinnedTabIds.includes(target.id)}
+        isWebsite={Boolean(tab?.url.match(/^https?:\/\//))}
+        inSplit={Boolean(
+          splitLayout && (splitLayout.firstTabId === target.id || splitLayout.secondTabId === target.id),
+        )}
+        folders={tabFolders(tabNodes).map((folder) => ({ id: folder.id, title: folder.title }))}
+        onRename={() => startTabRename(target.id, 'tab')}
+        onTogglePin={() =>
+          setPinnedTabIds((ids) =>
+            ids.includes(target.id) ? ids.filter((id) => id !== target.id) : [...ids, target.id],
+          )
+        }
+        onReload={() => void call('reload', { tabId: target.id }).catch((error) => setMessage(String(error)))}
+        onNewTabBelow={() => void createTabBelow(target.id)}
+        onDuplicate={() => void duplicateTab(target.id)}
+        onSplit={(side) =>
+          void dropTabIntoSplit(
+            side,
+            target.id,
+            target.id === activeTabIdRef.current ? target.id : activeTabIdRef.current,
+          )
+        }
+        onUnsplit={() => void closeSplitView()}
+        onMoveToFolder={(folderId) => moveTabNode(target.id, undefined, folderId)}
+        onCloseTab={() => void closeTab(target.id)}
+      />
+    );
+  }
+
   function renderBookmarkManager() {
     return (
       <div className="bookmark-manager">
@@ -2747,6 +2839,7 @@ export default function App() {
       )}
       <aside
         className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''} ${horizontalTabStrip ? 'tabs-detached' : ''}`}
+        onKeyDown={openTabContextMenuFromKeyboard}
         data-sidebar-side={sidebarSide}
         style={{
           width: sidebarCollapsed ? 48 : sidebarWidth,
@@ -2840,197 +2933,7 @@ export default function App() {
             </Tabs>
           )}
         </div>
-        {tabContextMenu && (
-          <>
-            <div className="sidebar-context-dismiss" onClick={() => setTabContextMenu(null)} />
-            <div
-              className="sidebar-context-menu"
-              style={{
-                left: tabContextMenu.x,
-                top: tabContextMenu.y,
-                width: tabContextMenu.type === 'tab' ? tabContextMenuWidth : undefined,
-              }}
-              role="menu"
-            >
-              {tabContextMenu.type === 'folder' && (
-                <AppButton
-                  role="menuitem"
-                  onClick={() => {
-                    // The rename field lives in the full tab list, so open it first from the icon rail.
-                    if (sidebarCollapsed) {
-                      setSidebarCollapsed(false);
-                      setSidebarView('tabs');
-                    }
-                    if (tabContextMenu.type === 'tab') {
-                      const tab = tabs.find((item) => item.id === tabContextMenu.id);
-                      setTabNameDraft(tabNameOverrides[tabContextMenu.id] || tab?.title || '');
-                      setEditingTabId(tabContextMenu.id);
-                    } else {
-                      const folder = findNode(tabNodesRef.current, tabContextMenu.id);
-                      if (folder?.type === 'folder') {
-                        setTabFolderTitle(folder.title);
-                        setEditingTabFolderId(folder.id);
-                      }
-                    }
-                    setTabContextMenu(null);
-                  }}
-                >
-                  Rename
-                </AppButton>
-              )}
-              {tabContextMenu.type === 'tab' && (
-                <>
-                  <AppButton
-                    role="menuitemcheckbox"
-                    aria-checked={pinnedTabIds.includes(tabContextMenu.id)}
-                    onClick={() => {
-                      const id = tabContextMenu.id;
-                      setPinnedTabIds((ids) => (ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]));
-                      setTabContextMenu(null);
-                    }}
-                  >
-                    {pinnedTabIds.includes(tabContextMenu.id) ? 'Unpin' : 'Pin'}
-                  </AppButton>
-                  <AppButton
-                    role="menuitem"
-                    disabled={!tabs.find((tab) => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)}
-                    onClick={() => {
-                      const tab = tabs.find((item) => item.id === tabContextMenu.id);
-                      if (tab) void call('reload', { tabId: tab.id }).catch((error) => setMessage(String(error)));
-                      setTabContextMenu(null);
-                    }}
-                  >
-                    Reload
-                  </AppButton>
-                  <AppButton
-                    role="menuitem"
-                    onClick={async () => {
-                      const targetId = tabContextMenu.id;
-                      setTabContextMenu(null);
-                      try {
-                        const snapshot = await call('create_tab');
-                        applySnapshot(snapshot);
-                        const nodes = insertTabNode(
-                          tabNodesRef.current,
-                          targetId,
-                          { id: snapshot.activeTabId, type: 'tab' },
-                          true,
-                        ).nodes;
-                        reorderTabsFromTree(nodes);
-                      } catch (error) {
-                        setMessage(String(error));
-                      }
-                    }}
-                  >
-                    New tab below
-                  </AppButton>
-                  <AppButton
-                    role="menuitem"
-                    onClick={() => {
-                      const tabId = tabContextMenu.id;
-                      setTabContextMenu(null);
-                      void duplicateTab(tabId);
-                    }}
-                  >
-                    Duplicate
-                  </AppButton>
-                  <div className="sidebar-context-separator" role="separator" />
-                  <AppButton
-                    role="menuitem"
-                    aria-haspopup="menu"
-                    aria-expanded={splitPickerOpen}
-                    disabled={!tabs.find((tab) => tab.id === tabContextMenu.id)?.url.match(/^https?:\/\//)}
-                    onClick={() => setSplitPickerOpen((open) => !open)}
-                  >
-                    Split <ChevronRight className="ui-icon context-menu-chevron" size={13} aria-hidden="true" />
-                  </AppButton>
-                  {splitPickerOpen && (
-                    <div className="context-menu-submenu" role="group" aria-label="Split direction">
-                      {(['left', 'right', 'top', 'bottom'] as const).map((side) => (
-                        <AppButton
-                          key={side}
-                          role="menuitem"
-                          className="context-submenu-item"
-                          onClick={() => {
-                            const tabId = tabContextMenu.id;
-                            setTabContextMenu(null);
-                            void dropTabIntoSplit(
-                              side,
-                              tabId,
-                              tabId === activeTabIdRef.current ? tabId : activeTabIdRef.current,
-                            );
-                          }}
-                        >
-                          {side === 'top' ? 'Up' : side === 'bottom' ? 'Down' : side[0].toUpperCase() + side.slice(1)}
-                        </AppButton>
-                      ))}
-                      {splitLayout &&
-                        (splitLayout.firstTabId === tabContextMenu.id ||
-                          splitLayout.secondTabId === tabContextMenu.id) && (
-                          <AppButton
-                            role="menuitem"
-                            className="context-submenu-item"
-                            onClick={() => {
-                              setTabContextMenu(null);
-                              void closeSplitView();
-                            }}
-                          >
-                            Unsplit from other tab
-                          </AppButton>
-                        )}
-                    </div>
-                  )}
-                  <AppButton
-                    role="menuitem"
-                    aria-haspopup="menu"
-                    aria-expanded={tabGroupPickerOpen}
-                    disabled={tabFolders(tabNodes).length === 0}
-                    onClick={() => setTabGroupPickerOpen((open) => !open)}
-                  >
-                    Move to group <ChevronRight className="ui-icon context-menu-chevron" size={13} aria-hidden="true" />
-                  </AppButton>
-                  {tabGroupPickerOpen &&
-                    tabFolders(tabNodes).map((folder) => (
-                      <AppButton
-                        key={folder.id}
-                        role="menuitem"
-                        className="context-submenu-item"
-                        onClick={() => {
-                          moveTabNode(tabContextMenu.id, undefined, folder.id);
-                          setTabGroupPickerOpen(false);
-                          setTabContextMenu(null);
-                        }}
-                      >
-                        {folder.title}
-                      </AppButton>
-                    ))}
-                  <div className="sidebar-context-separator" role="separator" />
-                  <AppButton
-                    role="menuitem"
-                    onClick={() => {
-                      const tabId = tabContextMenu.id;
-                      setTabContextMenu(null);
-                      void closeTab(tabId);
-                    }}
-                  >
-                    Close tab
-                  </AppButton>
-                </>
-              )}
-              {tabContextMenu.type === 'folder' && (
-                <AppButton
-                  role="menuitem"
-                  onClick={() => {
-                    deleteTabFolder(tabContextMenu.id);
-                    setTabContextMenu(null);
-                  }}
-                >
-                  Delete folder
-                </AppButton>
-              )}
-            </div>
-          </>
-        )}
+        {tabContextMenu && renderTabContextMenu(tabContextMenu)}
         <div
           className={`sidebar-sizer ${resizingSidebar ? 'dragging' : ''}`}
           role="separator"
@@ -3371,7 +3274,7 @@ export default function App() {
             <DownloadsPage downloads={downloads} onClose={() => void closeTab(activeTabId)} setMessage={setMessage} />
           ) : settingsPageOpen ? (
             <SettingsPage
-              activeSiteDomain={activeSiteDomain}
+              siteDomain={siteForFilter}
               changeFilteringEnabled={changeFilteringEnabled}
               changeSiteFilterException={changeSiteFilterException}
               clearBrowsingData={clearBrowsingData}
