@@ -11,3 +11,8 @@ export function externalBrowserMenuItems(browsers: ExternalBrowserChoice[]) {
     command: 'open_in_external_browser' as const,
   }));
 }
+
+/** The keys that open a context menu from the keyboard: the Menu key, or Shift+F10. */
+export function isContextMenuKey(event: Pick<KeyboardEvent, 'key' | 'shiftKey'>): boolean {
+  return event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10');
+}

@@ -16,7 +16,7 @@ const tabPositions: { id: TabPosition; symbol: string }[] = [
 
 type SettingsPageProps = {
   /** Hostname of the active tab, for the per-site filter exception. */
-  activeSiteDomain: string;
+  siteDomain: string;
   message: string;
   closeSettings: () => void;
   createTab: (privateMode?: boolean) => Promise<void>;
@@ -43,7 +43,7 @@ type SettingsPageProps = {
 
 /** Browser settings, shown in their own tab. */
 export function SettingsPage({
-  activeSiteDomain,
+  siteDomain,
   changeFilteringEnabled,
   changeSiteFilterException,
   clearBrowsingData,
@@ -258,16 +258,16 @@ export function SettingsPage({
           <div>
             <strong>Current site</strong>
             <small>
-              {activeSiteDomain
-                ? `Allow requests on ${activeSiteDomain} by disabling filtering for this site.`
+              {siteDomain
+                ? `Allow requests on ${siteDomain} by disabling filtering for this site.`
                 : 'Open a website to manage its filter exception.'}
             </small>
           </div>
           <AppButton
-            disabled={filterBusy || !activeSiteDomain}
-            onClick={() => void changeSiteFilterException(!filterSettings?.exceptions.includes(activeSiteDomain))}
+            disabled={filterBusy || !siteDomain}
+            onClick={() => void changeSiteFilterException(!filterSettings?.exceptions.includes(siteDomain))}
           >
-            {filterSettings?.exceptions.includes(activeSiteDomain) ? 'Enable for site' : 'Disable for site'}
+            {filterSettings?.exceptions.includes(siteDomain) ? 'Enable for site' : 'Disable for site'}
           </AppButton>
         </div>
         {message && (

@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight, Folder, FolderPlus, Pencil, Star, X } from '
 import { AppInput } from '../components/ui';
 import { useSortable } from '@dnd-kit/sortable';
 import type { DropZone } from '../tree';
+import { selectInputText } from '../tabUiActions';
 import type { BookmarkFolder, BookmarkLink, BookmarkNode } from '../bookmarks';
 
 export function BookmarkSortableRow({
@@ -91,6 +92,7 @@ export function BookmarkSortableRow({
               aria-label="Folder name"
               autoFocus
               value={folderTitle}
+              onFocus={(event) => selectInputText(event.currentTarget)}
               onPointerDown={stopDrag}
               onChange={(event) => setFolderTitle(event.target.value)}
               onBlur={saveFolderTitle}
