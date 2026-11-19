@@ -1,5 +1,5 @@
 {
-  "name": "my-browser",
+  "name": "unky",
   "private": true,
   "version": "0.1.3",
   "type": "module",
@@ -18,9 +18,10 @@
     "release:prepare": "node scripts/prepare-release.mjs",
     "sign-mac": "bash scripts/sign-mac.sh",
     "build:installer": "npm run tauri -- build --bundles nsis",
-    "test:unit": "node --import tsx --test tests/tree.test.ts tests/tab-tree.test.ts tests/browser-snapshot.test.ts tests/address-suggestions.test.ts tests/stored-preferences.test.ts tests/bookmark-state.test.ts tests/tab-tree-state.test.ts tests/ui-helpers.test.ts tests/shortcuts.test.ts",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
     "test:desktop": "node tests/desktop/run.mjs",
-    "test:desktop:real-sites": "MY_BROWSER_REAL_SITE_TESTS=1 node tests/desktop/run.mjs --spec tests/desktop/specs/real-sites.spec.ts",
+    "test:desktop:real-sites": "UNKY_REAL_SITE_TESTS=1 node tests/desktop/run.mjs --spec tests/desktop/specs/real-sites.spec.ts",
     "publish-dmg": "scp -i ../deployman_private.key target/release/bundle/dmg/*.dmg deployman@josh.earth:/sites/apps.josh.earth/my-browser/",
     "publish-site": "scp -i ../deployman_private.key -r site/* deployman@josh.earth:/sites/apps.josh.earth/my-browser/",
     "lint": "eslint .",
@@ -56,10 +57,10 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "17.14.0",
     "prettier": "3.9.10",
-    "tsx": "^4.23.15",
     "typescript": "5.9.2",
     "typescript-eslint": "8.72.1",
-    "vite": "8.3.3"
+    "vite": "8.3.3",
+    "vitest": "5.1.0"
   },
   "overrides": {
     "serialize-javascript": "7.1.4",

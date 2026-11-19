@@ -90,7 +90,7 @@ pub(crate) fn create_tab(
     let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let id = format!("tab-{number}");
     let bounds = window_bounds(&state, &owner_window)?;
-    let blank = url::Url::parse("about:blank").unwrap();
+    let blank = url::Url::parse("about:blank").expect("about:blank is a valid URL");
     let private = private.unwrap_or(false);
     create_page_webview(&app, &state, &id, blank, bounds, private, &owner_window)?;
     let mut tabs = state
@@ -326,7 +326,7 @@ pub(crate) fn reopen_closed_tab(
         .cloned()
         .ok_or("There are no recently closed tabs")?;
     let url = if restored.url.is_empty() {
-        url::Url::parse("about:blank").unwrap()
+        url::Url::parse("about:blank").expect("about:blank is a valid URL")
     } else {
         allowed_navigation_url(&restored.url)?
     };

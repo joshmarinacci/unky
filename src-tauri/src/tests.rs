@@ -15,7 +15,7 @@ fn temporary_session_path() -> std::path::PathBuf {
         .as_nanos();
     std::env::temp_dir()
         .join(format!(
-            "my-browser-session-test-{}-{unique}-{}",
+            "unky-session-test-{}-{unique}-{}",
             std::process::id(),
             TEMP_SESSION_ID.fetch_add(1, Ordering::Relaxed)
         ))
@@ -50,12 +50,12 @@ fn external_browser_context_action_accepts_only_safe_link_urls() {
 
 #[test]
 fn command_line_launch_uses_the_same_web_url_validation_as_navigation() {
-    let request = parse_launch_args(["mybrowser", "example.com", "--private"].map(str::to_string))
+    let request = parse_launch_args(["unky", "example.com", "--private"].map(str::to_string))
         .unwrap()
         .unwrap();
     assert_eq!(request.url, "https://example.com/");
     assert!(request.private);
-    assert!(parse_launch_args(["mybrowser", "file:///tmp/item"].map(str::to_string)).is_err());
+    assert!(parse_launch_args(["unky", "file:///tmp/item"].map(str::to_string)).is_err());
 }
 
 #[test]

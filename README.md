@@ -51,11 +51,13 @@ Run the Rust unit tests, including session persistence, history ordering, downlo
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
-Run the frontend unit tests with:
+Run the frontend unit tests (Vitest) with:
 
 ```sh
 npm run test:unit
 ```
+
+Use `npm run test:unit:watch` to rerun them on change. The tests live in `tests/*.test.ts` and are type-checked by `tsc -b` through `tsconfig.test.json`.
 
 These tests cover root reordering, moves between nesting levels and folders, folder nesting, cycle prevention, tab-strip orientation, pinned-tab ordering, and page drag feedback. They also check that tab snapshots stay in their owning window and that address suggestions match nested bookmarks and history, prefer bookmarks for duplicate URLs, stop at eight results, wrap keyboard selection, and initialize the popup from its URL data. Generic tree movement and drop-depth rules live in `src/tree.ts`, the tab tree in `src/tabTree.ts`, bookmark helpers in `src/bookmarks.ts`, and stored UI preferences in `src/storedPreferences.ts`; tab layout and pin ordering helpers live in `src/tabLayout.ts`; address matching and popup initialization live in `src/addressSuggestions.ts` so the app and tests exercise the same code.
 
@@ -133,7 +135,7 @@ Only the target tab's current HTTP(S) URL is sent, including its query string an
 
 The trusted UI uses `get_external_browsers` and `open_in_external_browser({ tabId, browserId })`. Rust checks that the tab belongs to the calling window, reads its actual WebView URL, validates it, and resolves the selected browser again before launching it through `/usr/bin/open`. Website tabs cannot invoke these commands. No shell command or application path is accepted from the frontend.
 
-The desktop suite checks discovery, URL preservation, invalid selections, blank pages, window ownership, and opening a background tab without changing the active tab. It captures the validated handoff in `test-results/external-browser-handoff.json` instead of launching a user's browser. This interception requires a debug `desktop-test` build and `MY_BROWSER_TEST_EXTERNAL_OPEN=1`; ordinary app runs launch the selected browser. The suite calls the commands directly; manual UI validation covered the toolbar handoff to Chrome and the context-menu picker on a background tab.
+The desktop suite checks discovery, URL preservation, invalid selections, blank pages, window ownership, and opening a background tab without changing the active tab. It captures the validated handoff in `test-results/external-browser-handoff.json` instead of launching a user's browser. This interception requires a debug `desktop-test` build and `UNKY_TEST_EXTERNAL_OPEN=1`; ordinary app runs launch the selected browser. The suite calls the commands directly; manual UI validation covered the toolbar handoff to Chrome and the context-menu picker on a background tab.
 
 ### Private tabs
 
@@ -154,7 +156,7 @@ Ad and tracker filtering is enabled by default with a small built-in set. In **S
 
 ### Command-line launcher (macOS)
 
-Install the `scripts/mybrowser` launcher into `~/.local/bin` to open the browser with `mybrowser`, or open a URL in a new tab with `mybrowser https://example.com`; add `--private` to create a private tab. Requests are forwarded to the existing app process when it is already running. See [command-line setup](docs/command-line.md).
+Install the `scripts/unky` launcher into `~/.local/bin` to open the browser with `unky`, or open a URL in a new tab with `unky https://example.com`; add `--private` to create a private tab. Requests are forwarded to the existing app process when it is already running. See [command-line setup](docs/command-line.md).
 
 ### macOS shortcuts
 
@@ -197,7 +199,7 @@ For a local macOS DMG, run `npm ci --legacy-peer-deps` and then `npm run tauri-r
 
 Every public version goes through a version-bump pull request, a candidate build, and an approved publish run. Do not change `main` directly. A dry run is optional and requires a separate publish-workflow run from the real publication.
 
-1. **Prepare the version PR.** Run `npm run release:patch` to increment the current patch version. The script drafts notes from commit subjects since the current version's Git tag, writes them to a temporary Markdown file, opens that file in `$VISUAL` or `$EDITOR` (falling back to `vi` or Notepad), and waits for the editor to close before using the saved notes. Use `npm run release:patch -- --from-git` to use commit subjects directly without opening an editor. Add `--dry-run` to preview the version and all file updates without writing them, or use `--notes "Fix a visible issue"` to supply a single note without the interactive editor. The script updates `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, the `my-browser` entry in `Cargo.lock`, and prepends the notes under the matching `## <version>` heading in `CHANGELOG.md`. Open a version-bump PR with those changes. Keep the package, Tauri, and Cargo versions identical; release preparation rejects mismatches or an empty notes section.
+1. **Prepare the version PR.** Run `npm run release:patch` to increment the current patch version. The script drafts notes from commit subjects since the current version's Git tag, writes them to a temporary Markdown file, opens that file in `$VISUAL` or `$EDITOR` (falling back to `vi` or Notepad), and waits for the editor to close before using the saved notes. Use `npm run release:patch -- --from-git` to use commit subjects directly without opening an editor. Add `--dry-run` to preview the version and all file updates without writing them, or use `--notes "Fix a visible issue"` to supply a single note without the interactive editor. The script updates `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, the `unky` entry in `Cargo.lock`, and prepends the notes under the matching `## <version>` heading in `CHANGELOG.md`. Open a version-bump PR with those changes. Keep the package, Tauri, and Cargo versions identical; release preparation rejects mismatches or an empty notes section.
 2. **Build a release candidate.** Merge the PR to `main`. In GitHub Actions, run **Build desktop bundles** from `main` and set `release_version` to that version. The workflow creates a signed and notarized macOS ARM64 DMG, captures the real macOS app window with a curated showcase page, and builds Windows x64 and ARM64 NSIS installers. Windows installers are currently unsigned. The final job uploads a `release-candidate-<version>` artifact containing the installers, versioned app screenshot, `release.json`, `RELEASE_NOTES.md`, `SHA256SUMS.txt`, and the generated download-page preview. Candidate artifacts are retained for 14 days.
 3. **Review the candidate.** Open the completed build run and download its `release-candidate-<version>` artifact. Review `Unky_<version>_screenshot.png` alongside the installers, release notes, checksums, and generated page before publishing. The publish workflow deploys the versioned screenshot with the page, which displays it beneath the download button.
 2. **Build a release candidate.** Merge the PR to `main`. In GitHub Actions, run **Build desktop bundles** from `main` and set `release_version` to that version. The workflow creates a signed and notarized macOS ARM64 DMG and builds Windows x64 and ARM64 NSIS installers. Windows installers are currently unsigned. The final job uploads a `release-candidate-<version>` artifact containing the installers, `release.json`, `RELEASE_NOTES.md`, `SHA256SUMS.txt`, and the generated download-page preview. The preview marks this release date as pending until publication. Candidate artifacts are retained for 14 days.

@@ -15,7 +15,7 @@ To build an executable without creating an installer:
 npm run tauri -- build --debug --no-bundle
 ```
 
-The workspace executable is `target/debug/my-browser.exe`. The Windows-specific
+The workspace executable is `target/debug/unky.exe`. The Windows-specific
 Tauri configuration selects `src-tauri/icons/icon.ico`. Its editable source is
 `resources/app-icon.svg`; regenerate it with `npm run tauri -- icon
 resources/app-icon.svg --output target/generated-icons`, then copy `icon.ico`
@@ -43,7 +43,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib
 
 The automated desktop suite currently requires macOS. Windows runtime smoke
 checks should use the deterministic fixture (`node tests/desktop/serve-fixtures.mjs`)
-and a disposable `MY_BROWSER_PROFILE_DIR` with a debug build. Check navigation,
+and a disposable `UNKY_PROFILE_DIR` with a debug build. Check navigation,
 native shortcuts with focus inside a website, tab creation and restoration,
 splits, moving tabs to another window, and session recovery.
 

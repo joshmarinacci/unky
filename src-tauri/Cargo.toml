@@ -1,12 +1,12 @@
 [package]
-name = "my-browser"
+name = "unky"
 version = "0.1.3"
 description = "A cross-platform desktop browser prototype"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "my_browser_lib"
+name = "unky_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]

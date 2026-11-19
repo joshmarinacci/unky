@@ -57,9 +57,9 @@ const cargoPackage =
 const cargoVersionMatch = cargoPackage.match(/^version\s*=\s*"([^"]+)"/m);
 if (!cargoVersionMatch) throw new Error('Could not find the package version in src-tauri/Cargo.toml');
 
-const cargoLockVersionMatches = [...cargoLock.matchAll(/^\[\[package\]\]\nname = "my-browser"\nversion = "([^"]+)"/gm)];
+const cargoLockVersionMatches = [...cargoLock.matchAll(/^\[\[package\]\]\nname = "unky"\nversion = "([^"]+)"/gm)];
 if (cargoLockVersionMatches.length !== 1)
-  throw new Error(`Expected one my-browser package in Cargo.lock, found ${cargoLockVersionMatches.length}`);
+  throw new Error(`Expected one unky package in Cargo.lock, found ${cargoLockVersionMatches.length}`);
 
 const versions = [
   ['package.json', packageJson.version],
@@ -67,7 +67,7 @@ const versions = [
   ['package-lock.json packages[""]', packageLock.packages?.['']?.version],
   ['src-tauri/tauri.conf.json', tauriConfig.version],
   ['src-tauri/Cargo.toml', cargoVersionMatch[1]],
-  ['Cargo.lock my-browser package', cargoLockVersionMatches[0][1]],
+  ['Cargo.lock unky package', cargoLockVersionMatches[0][1]],
 ];
 const mismatches = versions.filter(([, value]) => value !== currentVersion);
 if (mismatches.length) {
@@ -165,7 +165,7 @@ packageLock.packages[''].version = nextVersion;
 tauriConfig.version = nextVersion;
 const updatedCargoToml = cargoToml.replace(/^version\s*=\s*"[^"]+"/m, `version = "${nextVersion}"`);
 const updatedCargoLock = cargoLock.replace(
-  /^(\[\[package\]\]\nname = "my-browser"\nversion = ")[^"]+"/m,
+  /^(\[\[package\]\]\nname = "unky"\nversion = ")[^"]+"/m,
   (_match, prefix) => `${prefix}${nextVersion}"`,
 );
 const updatedChangelog = `${changelog.slice(0, firstReleaseHeading)}${releaseSection}${changelog.slice(firstReleaseHeading)}`;
@@ -177,7 +177,7 @@ if (dryRun) {
   console.log(`- package-lock.json packages[""]: version ${currentVersion} → ${nextVersion}`);
   console.log(`- src-tauri/tauri.conf.json: version ${currentVersion} → ${nextVersion}`);
   console.log(`- src-tauri/Cargo.toml: [package] version ${currentVersion} → ${nextVersion}`);
-  console.log(`- Cargo.lock: my-browser version ${currentVersion} → ${nextVersion}`);
+  console.log(`- Cargo.lock: unky version ${currentVersion} → ${nextVersion}`);
   console.log(`- CHANGELOG.md: prepend this release section:\n\n${releaseSection.trimEnd()}`);
 } else {
   writeFileSync('package.json', `${JSON.stringify(packageJson, null, 2)}\n`);

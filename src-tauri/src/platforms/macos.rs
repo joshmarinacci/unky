@@ -352,6 +352,8 @@ fn finish_rule_list(app: &AppHandle, identifier: String, pointer: Option<usize>)
 fn load_or_compile_rule_list(app: &AppHandle, json: String, completion: RuleListCompletion) {
     let mut hasher = DefaultHasher::new();
     json.hash(&mut hasher);
+    // Compiled rule lists persist in WebKit storage under this identifier, so it keeps the
+    // pre-rename prefix instead of recompiling and leaving the old list behind.
     let identifier_text = format!("my-browser-filter-{:016x}", hasher.finish());
     let pending = PENDING_RULE_LISTS.get_or_init(|| Mutex::new(HashMap::new()));
     let should_start = if let Ok(mut items) = pending.lock() {

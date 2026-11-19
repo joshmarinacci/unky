@@ -77,7 +77,7 @@ pub fn run() {
                         let _ = app.emit_to(&window_label, LAUNCH_REQUEST_EVENT, request);
                     }
                 }
-                Err(error) => eprintln!("Could not handle mybrowser arguments: {error}"),
+                Err(error) => eprintln!("Could not handle unky arguments: {error}"),
             },
         ));
     #[cfg(all(debug_assertions, feature = "desktop-test"))]

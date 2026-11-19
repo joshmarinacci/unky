@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
+import { expect, test } from 'vitest';
 import { appendToFolder, containsNode, findNode, folderIds, removeNode, updateNode } from '../src/tree.ts';
 import {
   appendTabNodeToFolder,
@@ -30,38 +29,34 @@ const tabs: TabNode[] = [
 ];
 
 test('generic tree operations find, update, remove, and contain nested nodes', () => {
-  assert.equal(findNode(tabs, 'tab-3')?.id, 'tab-3');
-  assert.equal(findNode(tabs, 'missing'), undefined);
-  assert.deepEqual(folderIds(tabs), ['work', 'inner']);
+  expect(findNode(tabs, 'tab-3')?.id).toBe('tab-3');
+  expect(findNode(tabs, 'missing')).toBe(undefined);
+  expect(folderIds(tabs)).toStrictEqual(['work', 'inner']);
 
   const renamed = updateNode(tabs, 'inner', (node) => (node.type === 'folder' ? { ...node, title: 'Renamed' } : node));
-  assert.equal((findNode(renamed, 'inner') as Extract<TabNode, { type: 'folder' }>).title, 'Renamed');
-  assert.equal(
-    (findNode(tabs, 'inner') as Extract<TabNode, { type: 'folder' }>).title,
-    'Inner',
-    'input is not mutated',
-  );
+  expect((findNode(renamed, 'inner') as Extract<TabNode, { type: 'folder' }>).title).toBe('Renamed');
+  expect((findNode(tabs, 'inner') as Extract<TabNode, { type: 'folder' }>).title, 'input is not mutated').toBe('Inner');
 
   const removed = removeNode(tabs, 'tab-2');
-  assert.equal(removed.removed?.id, 'tab-2');
-  assert.deepEqual(flattenTabIds(removed.nodes), ['tab-1', 'tab-3', 'tab-4']);
+  expect(removed.removed?.id).toBe('tab-2');
+  expect(flattenTabIds(removed.nodes)).toStrictEqual(['tab-1', 'tab-3', 'tab-4']);
 
-  assert.ok(containsNode(tabs[1], 'tab-3'));
-  assert.ok(!containsNode(tabs[1], 'tab-4'));
+  expect(containsNode(tabs[1], 'tab-3')).toBeTruthy();
+  expect(!containsNode(tabs[1], 'tab-4')).toBeTruthy();
 });
 
 test('appendToFolder adds to the end of a nested folder and reports misses', () => {
   const appended = appendToFolder(tabs, 'inner', { id: 'tab-9', type: 'tab' });
-  assert.ok(appended.inserted);
-  assert.deepEqual(flattenTabIds(appended.nodes), ['tab-1', 'tab-2', 'tab-3', 'tab-9', 'tab-4']);
-  assert.deepEqual(appendToFolder(tabs, 'missing', { id: 'tab-9', type: 'tab' }), { nodes: tabs, inserted: false });
+  expect(appended.inserted).toBeTruthy();
+  expect(flattenTabIds(appended.nodes)).toStrictEqual(['tab-1', 'tab-2', 'tab-3', 'tab-9', 'tab-4']);
+  expect(appendToFolder(tabs, 'missing', { id: 'tab-9', type: 'tab' })).toStrictEqual({ nodes: tabs, inserted: false });
 });
 
 test('appending a tab to a collapsed folder expands it', () => {
   const { nodes, inserted } = appendTabNodeToFolder(tabs, 'work', { id: 'tab-9', type: 'tab' });
-  assert.ok(inserted);
-  assert.deepEqual(expandedTabFolderIds(nodes), ['work', 'inner']);
-  assert.deepEqual(expandedTabFolderIds(tabs), ['inner']);
+  expect(inserted).toBeTruthy();
+  expect(expandedTabFolderIds(nodes)).toStrictEqual(['work', 'inner']);
+  expect(expandedTabFolderIds(tabs)).toStrictEqual(['inner']);
 });
 
 test('normalizeTabNodes keeps valid tabs and folders and fills missing folder IDs', () => {
@@ -71,38 +66,35 @@ test('normalizeTabNodes keeps valid tabs and folders and fills missing folder ID
     { type: 'bookmark', url: 'https://example.com' },
     null,
   ]);
-  assert.equal(nodes.length, 2);
-  assert.equal(nodes[1].type, 'folder');
-  assert.equal(typeof nodes[1].id, 'string');
-  assert.deepEqual(flattenTabIds(nodes), ['tab-1', 'tab-2']);
-  assert.deepEqual(normalizeTabNodes('not an array'), []);
+  expect(nodes.length).toBe(2);
+  expect(nodes[1].type).toBe('folder');
+  expect(typeof nodes[1].id).toBe('string');
+  expect(flattenTabIds(nodes)).toStrictEqual(['tab-1', 'tab-2']);
+  expect(normalizeTabNodes('not an array')).toStrictEqual([]);
 });
 
 test('reconcileTabNodes drops closed and duplicate tabs and appends unlisted open tabs', () => {
   const stale: TabNode[] = [...tabs, { id: 'tab-1', type: 'tab' }, { id: 'closed', type: 'tab' }];
   const reconciled = reconcileTabNodes(stale, [{ id: 'tab-1' }, { id: 'tab-3' }, { id: 'tab-4' }, { id: 'tab-new' }]);
-  assert.deepEqual(flattenTabIds(reconciled), ['tab-1', 'tab-3', 'tab-4', 'tab-new']);
-  assert.deepEqual(
-    tabFolders(reconciled).map((folder) => folder.id),
-    ['work', 'inner'],
-  );
+  expect(flattenTabIds(reconciled)).toStrictEqual(['tab-1', 'tab-3', 'tab-4', 'tab-new']);
+  expect(tabFolders(reconciled).map((folder) => folder.id)).toStrictEqual(['work', 'inner']);
 });
 
 test('insertTabNode places a tab before or after a nested target', () => {
   const after = insertTabNode(tabs, 'tab-2', { id: 'tab-9', type: 'tab' }, true);
-  assert.ok(after.inserted);
-  assert.deepEqual(flattenTabIds(after.nodes), ['tab-1', 'tab-2', 'tab-9', 'tab-3', 'tab-4']);
+  expect(after.inserted).toBeTruthy();
+  expect(flattenTabIds(after.nodes)).toStrictEqual(['tab-1', 'tab-2', 'tab-9', 'tab-3', 'tab-4']);
   const before = insertTabNode(tabs, 'tab-4', { id: 'tab-9', type: 'tab' }, false);
-  assert.deepEqual(flattenTabIds(before.nodes), ['tab-1', 'tab-2', 'tab-3', 'tab-9', 'tab-4']);
-  assert.equal(insertTabNode(tabs, 'missing', { id: 'tab-9', type: 'tab' }, true).inserted, false);
+  expect(flattenTabIds(before.nodes)).toStrictEqual(['tab-1', 'tab-2', 'tab-3', 'tab-9', 'tab-4']);
+  expect(insertTabNode(tabs, 'missing', { id: 'tab-9', type: 'tab' }, true).inserted).toBe(false);
 });
 
 test('unwrapTabFolder replaces a nested folder with its children in place', () => {
   const { nodes, unwrapped } = unwrapTabFolder(tabs, 'inner');
-  assert.ok(unwrapped);
-  assert.deepEqual(flattenTabIds(nodes), ['tab-1', 'tab-2', 'tab-3', 'tab-4']);
-  assert.deepEqual(folderIds(nodes), ['work']);
-  assert.equal(unwrapTabFolder(tabs, 'tab-1').unwrapped, false);
+  expect(unwrapped).toBeTruthy();
+  expect(flattenTabIds(nodes)).toStrictEqual(['tab-1', 'tab-2', 'tab-3', 'tab-4']);
+  expect(folderIds(nodes)).toStrictEqual(['work']);
+  expect(unwrapTabFolder(tabs, 'tab-1').unwrapped).toBe(false);
 });
 
 test('bookmark helpers normalize, find by URL, and filter with folder context', () => {
@@ -116,11 +108,11 @@ test('bookmark helpers normalize, find by URL, and filter with folder context', 
     },
     { title: 42 },
   ]);
-  assert.equal(bookmarks.length, 2);
-  assert.equal(findBookmarkByUrl(bookmarks, 'https://rust-lang.org')?.id, 'b2');
-  assert.equal(findBookmarkByUrl(bookmarks, 'https://missing.test'), undefined);
+  expect(bookmarks.length).toBe(2);
+  expect(findBookmarkByUrl(bookmarks, 'https://rust-lang.org')?.id).toBe('b2');
+  expect(findBookmarkByUrl(bookmarks, 'https://missing.test')).toBe(undefined);
   const filtered = filterBookmarkNodes(bookmarks, 'systems');
-  assert.equal(filtered.length, 1);
-  assert.equal(filtered[0].id, 'f1');
-  assert.equal(filterBookmarkNodes(bookmarks, ''), bookmarks);
+  expect(filtered.length).toBe(1);
+  expect(filtered[0].id).toBe('f1');
+  expect(filterBookmarkNodes(bookmarks, '')).toBe(bookmarks);
 });

@@ -146,14 +146,10 @@ pub(crate) fn create_page_webview_with_focus(
     let builder = tauri::webview::WebviewBuilder::new(label, WebviewUrl::External(initial_url))
         .incognito(private)
         .focused(focus)
-        .initialization_script(
-            include_str!("../page-scripts/error-capture.js"),
-        )
-        .initialization_script(
-            include_str!("../page-scripts/focus-tracking.js"),
-        )
+        .initialization_script(include_str!("../page-scripts/error-capture.js"))
+        .initialization_script(include_str!("../page-scripts/focus-tracking.js"))
         .initialization_script(&format!(
-            "window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__ = {custom_context_menu_enabled};"
+            "window.__UNKY_CUSTOM_CONTEXT_MENU_ENABLED__ = {custom_context_menu_enabled};"
         ))
         .initialization_script(
             &include_str!("../page-scripts/context-menu.js")
@@ -168,12 +164,8 @@ pub(crate) fn create_page_webview_with_focus(
                     },
                 ),
         )
-        .initialization_script(
-            include_str!("../page-scripts/new-tab-links.js"),
-        )
-        .initialization_script(
-            include_str!("../page-scripts/history-sync.js"),
-        )
+        .initialization_script(include_str!("../page-scripts/new-tab-links.js"))
+        .initialization_script(include_str!("../page-scripts/history-sync.js"))
         .on_navigation({
             move |target| {
                 if !matches!(target.scheme(), "http" | "https") {
@@ -198,7 +190,7 @@ pub(crate) fn create_page_webview_with_focus(
                     .page_context_menu_enabled
                     .load(std::sync::atomic::Ordering::Acquire);
                 let _ = webview.eval(&format!(
-                    "window.__MY_BROWSER_CUSTOM_CONTEXT_MENU_ENABLED__ = {custom_context_menu_enabled};"
+                    "window.__UNKY_CUSTOM_CONTEXT_MENU_ENABLED__ = {custom_context_menu_enabled};"
                 ));
             }
             if let Ok(mut tabs) = state_data.lock() {

@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
+import { expect, test } from 'vitest';
 import { tabTreeReducer } from '../src/tabTreeState.ts';
 import type { TabFolder, TabNode } from '../src/tabTree.ts';
 
@@ -13,29 +12,29 @@ const folder = (id: string, children: TabNode[] = [], collapsed = false): TabFol
 });
 
 test('creating a folder puts it first', () => {
-  assert.deepEqual(tabTreeReducer([tab('a')], { type: 'folderCreated', folder: folder('f') }), [folder('f'), tab('a')]);
+  expect(tabTreeReducer([tab('a')], { type: 'folderCreated', folder: folder('f') })).toStrictEqual([
+    folder('f'),
+    tab('a'),
+  ]);
 });
 
 test('renaming, toggling and expanding affect only folders', () => {
   const nodes = [folder('f', [], true), tab('a')];
-  assert.equal(
-    (tabTreeReducer(nodes, { type: 'folderRenamed', id: 'f', title: 'Work' })[0] as TabFolder).title,
-    'Work',
-  );
-  assert.equal((tabTreeReducer(nodes, { type: 'folderToggled', id: 'f' })[0] as TabFolder).collapsed, false);
-  assert.equal((tabTreeReducer(nodes, { type: 'folderExpanded', id: 'f' })[0] as TabFolder).collapsed, false);
-  assert.deepEqual(tabTreeReducer(nodes, { type: 'folderToggled', id: 'a' }), nodes);
+  expect((tabTreeReducer(nodes, { type: 'folderRenamed', id: 'f', title: 'Work' })[0] as TabFolder).title).toBe('Work');
+  expect((tabTreeReducer(nodes, { type: 'folderToggled', id: 'f' })[0] as TabFolder).collapsed).toBe(false);
+  expect((tabTreeReducer(nodes, { type: 'folderExpanded', id: 'f' })[0] as TabFolder).collapsed).toBe(false);
+  expect(tabTreeReducer(nodes, { type: 'folderToggled', id: 'a' })).toStrictEqual(nodes);
 });
 
 test('unwrapping a folder keeps its tabs in place, and a missing folder changes nothing', () => {
   const nodes = [tab('a'), folder('f', [tab('b'), tab('c')]), tab('d')];
-  assert.deepEqual(tabTreeReducer(nodes, { type: 'folderUnwrapped', id: 'f' }), [
+  expect(tabTreeReducer(nodes, { type: 'folderUnwrapped', id: 'f' })).toStrictEqual([
     tab('a'),
     tab('b'),
     tab('c'),
     tab('d'),
   ]);
-  assert.equal(tabTreeReducer(nodes, { type: 'folderUnwrapped', id: 'missing' }), nodes);
+  expect(tabTreeReducer(nodes, { type: 'folderUnwrapped', id: 'missing' })).toBe(nodes);
 });
 
 test('dropping a tab inside a collapsed folder moves it there and expands the folder', () => {
@@ -47,26 +46,26 @@ test('dropping a tab inside a collapsed folder moves it there and expands the fo
     originDepth: 0,
     indentDelta: 0,
   });
-  assert.deepEqual(next, [folder('f', [tab('a')])]);
+  expect(next).toStrictEqual([folder('f', [tab('a')])]);
 });
 
 test('moving next to a target, into a folder, or to the end', () => {
   const nodes = [tab('a'), tab('b'), folder('f', [], true)];
-  assert.deepEqual(tabTreeReducer(nodes, { type: 'moved', id: 'a', targetId: 'b', position: 'after' }), [
+  expect(tabTreeReducer(nodes, { type: 'moved', id: 'a', targetId: 'b', position: 'after' })).toStrictEqual([
     tab('b'),
     tab('a'),
     folder('f', [], true),
   ]);
-  assert.deepEqual(tabTreeReducer(nodes, { type: 'moved', id: 'a', folderId: 'f' }), [
+  expect(tabTreeReducer(nodes, { type: 'moved', id: 'a', folderId: 'f' })).toStrictEqual([
     tab('b'),
     folder('f', [tab('a')]),
   ]);
-  assert.deepEqual(tabTreeReducer(nodes, { type: 'moved', id: 'a' }), [tab('b'), folder('f', [], true), tab('a')]);
+  expect(tabTreeReducer(nodes, { type: 'moved', id: 'a' })).toStrictEqual([tab('b'), folder('f', [], true), tab('a')]);
 });
 
 test('moves that make no sense return the same tree', () => {
   const nodes = [folder('f', [folder('g')]), tab('a')];
-  assert.equal(tabTreeReducer(nodes, { type: 'moved', id: 'a', targetId: 'a' }), nodes);
-  assert.equal(tabTreeReducer(nodes, { type: 'moved', id: 'missing', targetId: 'a' }), nodes);
-  assert.equal(tabTreeReducer(nodes, { type: 'moved', id: 'f', folderId: 'g' }), nodes);
+  expect(tabTreeReducer(nodes, { type: 'moved', id: 'a', targetId: 'a' })).toBe(nodes);
+  expect(tabTreeReducer(nodes, { type: 'moved', id: 'missing', targetId: 'a' })).toBe(nodes);
+  expect(tabTreeReducer(nodes, { type: 'moved', id: 'f', folderId: 'g' })).toBe(nodes);
 });

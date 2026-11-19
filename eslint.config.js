@@ -38,7 +38,7 @@ export default tseslint.config(
     languageOptions: { globals: { EXPOSE_MENU_ITEMS: 'readonly' } },
   },
   {
-    // Build scripts, the fixture server, and node:test unit tests.
+    // Build scripts, the fixture server, and Vitest unit tests.
     files: ['scripts/**/*.mjs', 'tests/**/*.{ts,mjs}', '*.{js,ts}'],
     languageOptions: { globals: globals.node },
   },

@@ -55,7 +55,7 @@ const knownTrackerHosts = [
   'fastly-insights.com',
 ];
 
-const isRealSiteRun = process.env.MY_BROWSER_REAL_SITE_TESTS === '1';
+const isRealSiteRun = process.env.UNKY_REAL_SITE_TESTS === '1';
 (isRealSiteRun ? it : it.skip)(
   'compares known tracker requests on live publisher and fan-wiki sites with filtering off and on',
   async () => {

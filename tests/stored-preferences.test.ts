@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
+import { expect, test } from 'vitest';
 import {
   parseCustomPageContextMenu,
   parseSidebarCollapsed,
@@ -16,39 +15,39 @@ import {
 } from '../src/storedPreferences.ts';
 
 test('sidebar width keeps saved values in range and falls back otherwise', () => {
-  assert.equal(parseSidebarWidth('300'), 300);
-  assert.equal(parseSidebarWidth(String(sidebarMinWidth)), sidebarMinWidth);
-  assert.equal(parseSidebarWidth(String(sidebarMaxWidth)), sidebarMaxWidth);
+  expect(parseSidebarWidth('300')).toBe(300);
+  expect(parseSidebarWidth(String(sidebarMinWidth))).toBe(sidebarMinWidth);
+  expect(parseSidebarWidth(String(sidebarMaxWidth))).toBe(sidebarMaxWidth);
   for (const stored of [null, '', 'wide', '10', '9999', 'NaN'])
-    assert.equal(parseSidebarWidth(stored), sidebarDefaultWidth);
+    expect(parseSidebarWidth(stored)).toBe(sidebarDefaultWidth);
 });
 
 test('tab position, theme, and booleans fall back to their defaults', () => {
-  assert.equal(parseTabPosition('top'), 'top');
-  assert.equal(parseTabPosition('diagonal'), 'left');
-  assert.equal(parseTabPosition(null), 'left');
-  assert.equal(parseTheme('dark'), 'dark');
-  assert.equal(parseTheme('neon'), 'system');
-  assert.equal(parseSidebarCollapsed('true'), true);
-  assert.equal(parseSidebarCollapsed(null), false);
-  assert.equal(parseCustomPageContextMenu(null), true, 'the custom menu defaults on');
-  assert.equal(parseCustomPageContextMenu('false'), false);
+  expect(parseTabPosition('top')).toBe('top');
+  expect(parseTabPosition('diagonal')).toBe('left');
+  expect(parseTabPosition(null)).toBe('left');
+  expect(parseTheme('dark')).toBe('dark');
+  expect(parseTheme('neon')).toBe('system');
+  expect(parseSidebarCollapsed('true')).toBe(true);
+  expect(parseSidebarCollapsed(null)).toBe(false);
+  expect(parseCustomPageContextMenu(null), 'the custom menu defaults on').toBe(true);
+  expect(parseCustomPageContextMenu('false')).toBe(false);
 });
 
 test('sidebar side uses its saved value, else follows a right-docked tab strip', () => {
-  assert.equal(parseSidebarSide('right', 'left'), 'right');
-  assert.equal(parseSidebarSide(null, 'right'), 'right');
-  assert.equal(parseSidebarSide(null, 'top'), 'left');
-  assert.equal(parseSidebarSide('middle', null), 'left');
+  expect(parseSidebarSide('right', 'left')).toBe('right');
+  expect(parseSidebarSide(null, 'right')).toBe('right');
+  expect(parseSidebarSide(null, 'top')).toBe('left');
+  expect(parseSidebarSide('middle', null)).toBe('left');
 });
 
 test('JSON preferences survive corrupt or mistyped storage', () => {
-  assert.deepEqual(parseStringArray('["a", 2, "b"]'), ['a', 'b']);
-  assert.deepEqual(parseStringArray('{not json'), []);
-  assert.deepEqual(parseStringArray('{"a": 1}'), []);
-  assert.deepEqual(parseStringRecord('{"tab-1": "Mail", "tab-2": 3}'), { 'tab-1': 'Mail' });
-  assert.deepEqual(parseStringRecord('["x"]'), {});
-  assert.deepEqual(parseStringRecord(null), {});
-  assert.deepEqual(parseTabNodes('[{"id":"tab-1","type":"tab"}]'), [{ id: 'tab-1', type: 'tab' }]);
-  assert.deepEqual(parseTabNodes('oops'), []);
+  expect(parseStringArray('["a", 2, "b"]')).toStrictEqual(['a', 'b']);
+  expect(parseStringArray('{not json')).toStrictEqual([]);
+  expect(parseStringArray('{"a": 1}')).toStrictEqual([]);
+  expect(parseStringRecord('{"tab-1": "Mail", "tab-2": 3}')).toStrictEqual({ 'tab-1': 'Mail' });
+  expect(parseStringRecord('["x"]')).toStrictEqual({});
+  expect(parseStringRecord(null)).toStrictEqual({});
+  expect(parseTabNodes('[{"id":"tab-1","type":"tab"}]')).toStrictEqual([{ id: 'tab-1', type: 'tab' }]);
+  expect(parseTabNodes('oops')).toStrictEqual([]);
 });
