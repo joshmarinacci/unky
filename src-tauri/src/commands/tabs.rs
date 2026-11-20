@@ -166,7 +166,9 @@ pub(crate) fn close_browser_window(
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Windows can only be closed from the trusted browser UI".into());
     }
-    app.get_webview_window(browser_window_for_ui(webview.label()))
+    // get_window, not get_webview_window: a browser window holds its UI and page webviews, and
+    // get_webview_window only finds windows with a single webview.
+    app.get_window(browser_window_for_ui(webview.label()))
         .ok_or("The browser window is already closed")?
         .close()
         .map_err(|error| error.to_string())

@@ -9,6 +9,7 @@
  */
 import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
 import { listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { BookmarkNode } from './bookmarks';
 import type { AddressSuggestion, AddressSuggestionsState } from './addressSuggestions';
 
@@ -229,10 +230,16 @@ export type Events = {
 };
 export type EventName = keyof Events;
 
-/** Listen for a Rust event with a typed payload. Resolves to the unlisten function. */
+/**
+ * Listen for a Rust event with a typed payload. Resolves to the unlisten function.
+ *
+ * The listener targets this webview's own label. Tauri's default target, `Any`, receives every
+ * event whatever window Rust sent it to, so a menu shortcut meant for the focused window would run
+ * in every browser window. Events Rust broadcasts with `emit` still reach every window.
+ */
 export function onEvent<E extends EventName>(
   event: E,
   handler: (event: Event<Events[E]>) => void,
 ): Promise<UnlistenFn> {
-  return listen<Events[E]>(event, handler);
+  return listen<Events[E]>(event, handler, { target: { kind: 'AnyLabel', label: getCurrentWebview().label } });
 }
