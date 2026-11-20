@@ -28,6 +28,12 @@
 - Tab cycling and ⌘1–⌘9 skip tabs inside collapsed folders (`visibleTabCycleOrder` and `nextVisibleTab` in `src/tabTree.ts`). The UI picks the target and calls `select_tab`, because `cycle_tab` adds any tab missing from its order list back onto the end.
 - New shortcuts need a menu item in `src-tauri/src/setup.rs` (id `shortcut-<action>`), a `ShortcutAction` in `src/shortcuts.ts`, a case in `runShortcut` in `src/App.tsx`, an entry in the Windows page-key table in `src-tauri/src/platforms/windows.rs`, a row on the Shortcuts page, and an update to `docs/keyboard-shortcuts.md`. Option-modified shortcuts on macOS (⌥⌘R, ⌥⌘I, ⌥⌘U) are handled only by their menu items, because Option changes `event.key`.
 
+## Testing native menu shortcuts
+
+- WebDriver cannot see or drive the macOS menu bar, and a real popup menu blocks the main thread. Desktop specs press menu-bar shortcuts with the debug-only `press-key-equivalent` bridge action (`desktop_test_browser_ui`, e.g. `menuItem: 'cmd+shift+w'`). It builds the `NSEvent` a real key press would produce (real ANSI key code; uppercase characters with Shift) and passes it to `NSApp.mainMenu.performKeyEquivalent:`. That exercises AppKit's accelerator matching and the routing to the focused window. See `tests/desktop/specs/menu-shortcuts.spec.ts`.
+- macOS does not let a background app take focus during automation, so `focus-window` also sets a debug-only override (`TEST_FOCUSED_WINDOW` in `src-tauri/src/windows.rs`) that `focused_browser_window_label` honors. Clear it with `clear-focus-override` when a spec ends.
+- muda writes `CmdOrCtrl+Shift+<letter>` as a lowercase key equivalent with the Shift flag, which AppKit does not match against a real Shift press. On macOS, `platforms::menu_keys::normalize_shift_key_equivalents` rewrites these to Apple's uppercase form after `set_menu`. Call it again if the menu bar is ever rebuilt.
+
 ## Tab context menu and rename behavior
 
 - The page custom context menu's “Open Link in Other Split” action must route through the page-authorized `open_link_in_new_tab` command with `otherSplit: true`; website child WebViews cannot invoke trusted-UI commands such as `navigate`.

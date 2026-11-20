@@ -399,6 +399,8 @@ pub(crate) fn setup_app(
         let menu = menu.item(&window_menu);
         let menu = menu.item(&help_menu).build()?;
         app.set_menu(menu)?;
+        #[cfg(target_os = "macos")]
+        platforms::menu_keys::normalize_shift_key_equivalents();
         refresh_browser_menus(app.handle(), &state).map_err(std::io::Error::other)?;
     }
     #[cfg(all(target_os = "macos", feature = "macos-interception-test"))]
