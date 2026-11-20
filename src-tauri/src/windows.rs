@@ -12,7 +12,22 @@ pub(crate) fn is_trusted_browser_ui(label: &str) -> bool {
         || (cfg!(all(debug_assertions, feature = "desktop-test")) && label == "wdio-host")
 }
 
+/// Debug desktop-test builds only: the browser window the tests treat as focused. macOS does not
+/// let a background app take focus during automation, so tests name the window instead.
+#[cfg(all(debug_assertions, feature = "desktop-test"))]
+pub(crate) static TEST_FOCUSED_WINDOW: Mutex<Option<String>> = Mutex::new(None);
+
 pub(crate) fn focused_browser_window_label(app: &tauri::AppHandle) -> Option<String> {
+    #[cfg(all(debug_assertions, feature = "desktop-test"))]
+    if let Some(label) = TEST_FOCUSED_WINDOW
+        .lock()
+        .ok()
+        .and_then(|label| label.clone())
+    {
+        if app.get_window(&label).is_some() {
+            return Some(label);
+        }
+    }
     app.windows().into_iter().find_map(|(label, window)| {
         let is_browser_window = label == "main" || label.starts_with("browser-window-");
         (is_browser_window && window.is_focused().unwrap_or(false)).then_some(label)

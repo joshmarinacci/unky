@@ -3,6 +3,8 @@ pub mod downloads_popover;
 #[cfg(target_os = "macos")]
 pub mod macos;
 #[cfg(target_os = "macos")]
+pub mod menu_keys;
+#[cfg(target_os = "macos")]
 pub mod security_popover;
 #[cfg(target_os = "macos")]
 pub mod split_overlay;

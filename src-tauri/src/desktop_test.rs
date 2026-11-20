@@ -262,6 +262,86 @@ pub(crate) fn desktop_test_show_tab_drag_feedback(
     }
 }
 
+/// The US-ANSI virtual key code (`kVK_ANSI_*`) of a key. AppKit uses the key code, not only the
+/// characters, to match Shift key equivalents, so the synthesized event must carry the real one.
+#[cfg(target_os = "macos")]
+fn ansi_key_code(key: char) -> Option<u16> {
+    // Index = key code, for codes 0–47 ('\0' marks codes that are not character keys).
+    const KEYS: &str = "asdfhgzxcv\0bqweryt123465=97-80]ou[ip\0lj'k;\\,/nm.";
+    KEYS.chars()
+        .position(|candidate| candidate == key)
+        .map(|index| index as u16)
+}
+
+/// Parse a shortcut such as `cmd+shift+l` into AppKit modifier flags, the characters a real key
+/// press reports, and the key code.
+#[cfg(target_os = "macos")]
+fn key_equivalent_parts(
+    spec: &str,
+) -> Result<(objc2_app_kit::NSEventModifierFlags, String, u16), String> {
+    use objc2_app_kit::NSEventModifierFlags;
+    let mut flags = NSEventModifierFlags::empty();
+    let mut key = None;
+    for part in spec.split('+') {
+        match part.trim().to_ascii_lowercase().as_str() {
+            "cmd" => flags |= NSEventModifierFlags::Command,
+            "shift" => flags |= NSEventModifierFlags::Shift,
+            "alt" | "option" => flags |= NSEventModifierFlags::Option,
+            "ctrl" => flags |= NSEventModifierFlags::Control,
+            other if other.chars().count() == 1 => key = Some(other.to_string()),
+            other => return Err(format!("Unsupported key in shortcut: {other}")),
+        }
+    }
+    let key: String = key.ok_or("The shortcut needs a key")?;
+    let key_char = key.chars().next().ok_or("The shortcut needs a key")?;
+    let key_code = ansi_key_code(key_char).ok_or(format!("No key code for {key}"))?;
+    // A real Shift+letter press reports the uppercase letter in both character fields
+    // (charactersIgnoringModifiers keeps Shift).
+    let characters = if flags.contains(NSEventModifierFlags::Shift) {
+        key.to_uppercase()
+    } else {
+        key
+    };
+    Ok((flags, characters, key_code))
+}
+
+/// Offer a synthesized key-down to the app's main menu, exactly as AppKit does for a real key
+/// press before the focused view sees it. This exercises the real accelerator matching and the
+/// menu's routing to the focused window, without OS input permissions or a real keyboard.
+#[cfg(target_os = "macos")]
+fn press_key_equivalent(app: &tauri::AppHandle, spec: &str) -> Result<bool, String> {
+    let (flags, characters, key_code) = key_equivalent_parts(spec)?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        use objc2_app_kit::{NSApplication, NSEvent, NSEventType};
+        use objc2_foundation::{MainThreadMarker, NSPoint, NSString};
+        let result = (|| {
+            let main_thread = MainThreadMarker::new().ok_or("Not on the main thread")?;
+            let characters = NSString::from_str(&characters);
+            let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+                NSEventType::KeyDown,
+                NSPoint::ZERO,
+                flags,
+                0.0,
+                0,
+                None,
+                &characters,
+                &characters,
+                false,
+                key_code,
+            )
+            .ok_or("Could not create the key event")?;
+            let menu = NSApplication::sharedApplication(main_thread)
+                .mainMenu()
+                .ok_or("The app has no main menu")?;
+            Ok::<bool, &str>(menu.performKeyEquivalent(&event))
+        })();
+        let _ = sender.send(result.map_err(str::to_string));
+    })
+    .map_err(|error| error.to_string())?;
+    receiver.recv().map_err(|error| error.to_string())?
+}
+
 /// Drive and inspect the trusted browser UI from the debug-only WebDriver host.
 #[tauri::command]
 pub(crate) async fn desktop_test_browser_ui(
@@ -347,6 +427,37 @@ pub(crate) async fn desktop_test_browser_ui(
             .map_err(|error| error.to_string())?;
         return Ok(serde_json::Value::Bool(true));
     }
+    if action == "press-key-equivalent" {
+        let spec = menu_item
+            .clone()
+            .ok_or("A shortcut such as cmd+n is required")?;
+        #[cfg(target_os = "macos")]
+        return press_key_equivalent(&app, &spec).map(serde_json::Value::Bool);
+        #[cfg(not(target_os = "macos"))]
+        return Err(format!("Key equivalents are macOS-only ({spec})"));
+    }
+    if action == "focus-window" {
+        // Treat the window as focused for menu routing, and ask the OS to focus it as well.
+        let label = window_label.clone().unwrap_or_else(|| "main".into());
+        let window = app
+            .get_window(&label)
+            .ok_or("The requested browser window does not exist")?;
+        *TEST_FOCUSED_WINDOW
+            .lock()
+            .map_err(|_| "The test focus override is unavailable")? = Some(label);
+        let _ = window.set_focus();
+        return Ok(serde_json::Value::Bool(true));
+    }
+    if action == "clear-focus-override" {
+        *TEST_FOCUSED_WINDOW
+            .lock()
+            .map_err(|_| "The test focus override is unavailable")? = None;
+        return Ok(serde_json::Value::Bool(true));
+    }
+    if action == "focused-window" {
+        return Ok(focused_browser_window_label(&app)
+            .map_or(serde_json::Value::Null, serde_json::Value::String));
+    }
     if action == "run-shortcut" {
         // The same event a native menu accelerator sends to the focused window.
         let shortcut = menu_item.clone().ok_or("A shortcut action is required")?;
@@ -374,8 +485,13 @@ pub(crate) async fn desktop_test_browser_ui(
             .map_err(|error| error.to_string())?;
         return Ok(serde_json::Value::Bool(true));
     }
+    // Scripts run in the main window's UI unless a test-created browser window is named.
+    let ui_label = window_label
+        .as_deref()
+        .filter(|label| label.starts_with("browser-window-"))
+        .unwrap_or("main");
     let ui = app
-        .get_webview("main")
+        .get_webview(ui_label)
         .ok_or("The trusted browser UI is unavailable")?;
     let args = serde_json::json!({
         "action": action,
@@ -584,6 +700,13 @@ pub(crate) async fn desktop_test_browser_ui(
             if (!button) return {{ error: `Button ${{args.menuItem}} was not found` }};
             button.click();
             return {{ clicked: true }};
+          }}
+          if (args.action === 'inspect-window-ui') {{
+            const shell = document.querySelector('[data-sidebar-collapsed]');
+            return {{
+              sidebarCollapsed: shell?.getAttribute('data-sidebar-collapsed') === 'true',
+              findOpen: document.querySelector('input[aria-label="Find in page"]') !== null,
+            }};
           }}
           if (args.action === 'inspect-source-page') {{
             const address = document.querySelector('input[aria-label="Search or enter address"]');
