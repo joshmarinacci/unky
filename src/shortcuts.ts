@@ -25,6 +25,7 @@ export type ShortcutAction =
   | 'bookmark-page'
   | 'toggle-sidebar'
   | 'toggle-devtools'
+  | 'view-source'
   | 'print'
   | 'next-tab'
   | 'previous-tab'
@@ -60,6 +61,7 @@ export function shortcutFromMenu(id: string): ShortcutAction | null {
     'bookmark-page',
     'toggle-sidebar',
     'toggle-devtools',
+    'view-source',
     'print',
     'stop-loading',
     'select-last-tab',
@@ -95,6 +97,7 @@ export function shortcutForKey(event: ShortcutKey, apple: boolean): ShortcutActi
     if (key === 'd') return 'bookmark-page';
     if (key === 'g') return 'find-next';
     if (key === 'p') return 'print';
+    if (!apple && key === 'u') return 'view-source';
     if (!apple && key === 'F5') return 'reload-ignoring-cache';
     if (key === 'l') return 'focus-address';
     if (key === 'f') return 'find';
@@ -108,7 +111,7 @@ export function shortcutForKey(event: ShortcutKey, apple: boolean): ShortcutActi
     if (!apple && key === 'PageUp') return 'previous-tab';
     return null;
   }
-  // ⌥⌘R and ⌥⌘I turn event.key into symbols on macOS; their native menu items handle them.
+  // ⌥⌘R, ⌥⌘I and ⌥⌘U turn event.key into symbols on macOS; their native menu items handle them.
   if (apple && metaKey && altKey && !ctrlKey && !shiftKey) {
     if (key === 'ArrowRight') return 'next-tab';
     if (key === 'ArrowLeft') return 'previous-tab';

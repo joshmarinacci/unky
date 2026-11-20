@@ -117,6 +117,7 @@ commands.allow = [
   "close_browser_window",
   "print_page",
   "reload_ignoring_cache",
+  "get_page_source",
   "get_split_tabs",
   "split_tab",
   "clear_tab_split",

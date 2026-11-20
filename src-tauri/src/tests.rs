@@ -151,3 +151,15 @@ fn theme_names_map_to_native_window_themes() {
         .collect();
     assert!(options.iter().all(|id| crate::native_theme(id).is_ok()));
 }
+
+#[test]
+fn view_source_downloads_only_web_pages() {
+    use super::should_download_source;
+    let parse = |url: &str| url::Url::parse(url).unwrap();
+    assert!(should_download_source(&parse("https://example.com/")));
+    assert!(should_download_source(&parse(
+        "http://127.0.0.1:4179/index.html"
+    )));
+    assert!(!should_download_source(&parse("file:///tmp/page.html")));
+    assert!(!should_download_source(&parse("about:blank")));
+}

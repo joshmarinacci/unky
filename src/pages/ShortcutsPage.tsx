@@ -38,6 +38,7 @@ export function ShortcutsPage({ onClose }: { onClose: () => void }) {
             ['Show/hide sidebar', `${commandKey}+Shift+L`],
             ['Print', `${commandKey}+P`],
             ['Web Inspector', isApplePlatform ? '⌘+Option+I' : 'Ctrl+Shift+I'],
+            ['View source', isApplePlatform ? '⌘+Option+U' : 'Ctrl+U'],
             ...(isApplePlatform ? [['Stop loading', '⌘+.']] : []),
             ['Back', isApplePlatform ? `${commandKey}+[` : 'Alt+←'],
             ['Forward', isApplePlatform ? `${commandKey}+]` : 'Alt+→'],

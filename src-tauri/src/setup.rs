@@ -292,6 +292,13 @@ pub(crate) fn setup_app(
             MenuItemBuilder::with_id("shortcut-toggle-sidebar", "Show/Hide Sidebar")
                 .accelerator("CmdOrCtrl+Shift+L")
                 .build(app)?;
+        let view_source = MenuItemBuilder::with_id("shortcut-view-source", "View Source")
+            .accelerator(if cfg!(target_os = "macos") {
+                "CmdOrCtrl+Alt+U"
+            } else {
+                "Ctrl+U"
+            })
+            .build(app)?;
         let toggle_devtools = MenuItemBuilder::with_id("shortcut-toggle-devtools", "Web Inspector")
             .accelerator(if cfg!(target_os = "macos") {
                 "CmdOrCtrl+Alt+I"
@@ -365,6 +372,7 @@ pub(crate) fn setup_app(
             .separator()
             .item(&actual_size)
             .separator()
+            .item(&view_source)
             .item(&toggle_devtools);
         #[cfg(target_os = "macos")]
         let view_menu = view_menu.separator().fullscreen();

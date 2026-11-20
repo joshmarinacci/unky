@@ -347,6 +347,13 @@ pub(crate) async fn desktop_test_browser_ui(
             .map_err(|error| error.to_string())?;
         return Ok(serde_json::Value::Bool(true));
     }
+    if action == "run-shortcut" {
+        // The same event a native menu accelerator sends to the focused window.
+        let shortcut = menu_item.clone().ok_or("A shortcut action is required")?;
+        app.emit_to("main", SHORTCUT_EVENT, shortcut)
+            .map_err(|error| error.to_string())?;
+        return Ok(serde_json::Value::Bool(true));
+    }
     if action == "choose-tab-position-menu" {
         let position = tab_position.ok_or("A tab position is required")?;
         choose_tab_position_from_menu(&app, "main", &position)?;
@@ -577,6 +584,17 @@ pub(crate) async fn desktop_test_browser_ui(
             if (!button) return {{ error: `Button ${{args.menuItem}} was not found` }};
             button.click();
             return {{ clicked: true }};
+          }}
+          if (args.action === 'inspect-source-page') {{
+            const address = document.querySelector('input[aria-label="Search or enter address"]');
+            const code = document.querySelector('.source-page-code');
+            return {{
+              address: address instanceof HTMLInputElement ? address.value : null,
+              open: Boolean(document.querySelector('.source-page')),
+              notes: Array.from(document.querySelectorAll('.source-page-note')).map(node => node.textContent.trim()),
+              lineCount: code ? code.querySelectorAll('.source-line').length : 0,
+              text: code ? code.textContent : null,
+            }};
           }}
           if (args.action === 'inspect-appearance') {{
             const root = document.documentElement;

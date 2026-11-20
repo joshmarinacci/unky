@@ -21,6 +21,7 @@ fn shortcut(key: u32, ctrl: bool, shift: bool, alt: bool) -> Option<&'static str
         (0x4c, true, true, false) => Some("toggle-sidebar"),
         (0x50, true, false, false) => Some("print"),
         (0x49, true, true, false) => Some("toggle-devtools"),
+        (0x55, true, false, false) => Some("view-source"),
         (0x54, true, true, false) => Some("reopen-closed-tab"),
         (0x4e, true, true, false) => Some("new-private-tab"),
         (0x57, true, false, false) => Some("close-tab"),
@@ -135,6 +136,7 @@ mod tests {
             Some("reload-ignoring-cache")
         );
         assert_eq!(shortcut(0x74, false, false, false), Some("reload"));
+        assert_eq!(shortcut(0x55, true, false, false), Some("view-source"));
         for key in [0x43, 0x56, 0x58, 0x41, 0x5a] {
             assert_eq!(shortcut(key, true, false, false), None);
         }

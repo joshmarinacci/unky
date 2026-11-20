@@ -40,8 +40,9 @@ This compares Unky's macOS shortcuts with the ones that Safari and Chrome share.
 | Show/hide sidebar      | ⇧⌘L (Safari)                     | none                   | ⇧⌘L                            |
 | Print                  | ⌘P                               | none                   | ⌘P (File menu)                 |
 | Web Inspector          | ⌥⌘I                              | toolbar button only    | ⌥⌘I (View menu)                |
+| View source | ⌥⌘U | none | ⌥⌘U (View menu): downloads the page again, or shows the live DOM if that fails |
 
-On Windows the same commands use Ctrl (Ctrl+1 … Ctrl+9, Ctrl+N, Ctrl+Shift+W, Ctrl+D, Ctrl+G, Ctrl+Shift+R or Ctrl+F5, Ctrl+Shift+L, Ctrl+P, Ctrl+Shift+I), both in the browser UI and while a website has focus. Show history, downloads and bookmarks, full screen and the Window menu are macOS-only. Reload ignoring cache is a normal reload on Windows, since WebView2 has no cache-bypassing reload.
+On Windows the same commands use Ctrl (Ctrl+1 … Ctrl+9, Ctrl+N, Ctrl+Shift+W, Ctrl+D, Ctrl+G, Ctrl+Shift+R or Ctrl+F5, Ctrl+Shift+L, Ctrl+P, Ctrl+Shift+I, Ctrl+U), both in the browser UI and while a website has focus. Show history, downloads and bookmarks, full screen and the Window menu are macOS-only. Reload ignoring cache is a normal reload on Windows, since WebView2 has no cache-bypassing reload.
 
 ## Remaining differences (not changed)
 
@@ -51,6 +52,5 @@ These need features Unky doesn't have yet, or would break existing behavior, so 
 | ---------------------------- | -------------------------------- | ----------------------- | ---------------------------------------------------------------------------- |
 | Show bookmarks/favorites bar | ⇧⌘B                              | none                    | No bookmarks bar.                                                            |
 | Save page                    | ⌘S                               | none                    | Needs a page-archive format; Save Full Page Screenshot covers images.        |
-| View source                  | ⌥⌘U                              | none                    | WKWebView has no `view-source:` support.                                    |
 | Reopen closed tab (undo)     | ⌘Z (Safari, outside text fields) | none                    | Edit › Undo owns ⌘Z for text fields; ⇧⌘T already reopens tabs.               |
 | Private window               | ⇧⌘N opens a window               | ⇧⌘N opens a private tab | Same keys, different result; Unky has private tabs, not private windows.     |

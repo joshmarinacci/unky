@@ -43,6 +43,8 @@ import { DownloadsPage } from './pages/DownloadsPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { AppearanceSettings, GeneralSettings, PrivacySettings, SettingsPage } from './pages/SettingsPage';
 import { ShortcutsPage } from './pages/ShortcutsPage';
+import { SourcePage } from './pages/SourcePage';
+import { canViewSource, sourceTabTitle, viewSourceUrl, sourceTabUrl, type SourceTabState } from './viewSource';
 import { commandKey, isApplePlatform } from './platform';
 import { BookmarkSortableRow } from './components/BookmarkSortableRow';
 import {
@@ -247,6 +249,8 @@ export default function App() {
   const [settingsTabIds, setSettingsTabIds] = useState(() => readStored(storageKeys.settingsTabs, parseStringArray));
   const settingsTabIdsRef = useRef(settingsTabIds);
   const [shortcutsTabIds, setShortcutsTabIds] = useState<string[]>([]);
+  /** View Source tabs and their HTML. Not persisted: after a restart the tab is blank. */
+  const [sourceTabs, setSourceTabs] = useState<Record<string, SourceTabState>>({});
   const shortcutsTabIdsRef = useRef<string[]>([]);
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [downloadsTabIds, setDownloadsTabIds] = useState<string[]>([]);
@@ -393,6 +397,8 @@ export default function App() {
   );
   const shortcutsPageOpen = shortcutsTabIds.includes(activeTabId);
   const downloadsPageOpen = downloadsTabIds.includes(activeTabId);
+  const activeSourceTab = sourceTabs[activeTabId];
+  const sourcePageOpen = activeSourceTab !== undefined;
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
   const nativeAddressSuggestions = isTauri && /Mac/.test(navigator.platform);
   // Memoized because the native popover effect below depends on the list's identity.
@@ -571,7 +577,14 @@ export default function App() {
     if (shortcutsTabIds.includes(tabId)) return 'shortcuts';
     return null;
   }
-  const internalPageOfTabRef = useLatest(internalPageOfTab);
+  /** The address bar text for a built-in page or source tab, or null for a website. */
+  function builtInAddressOfTab(tabId: string | undefined): string | null {
+    const source = tabId ? sourceTabs[tabId] : undefined;
+    if (source) return viewSourceUrl(sourceTabUrl(source));
+    const internalPage = internalPageOfTab(tabId);
+    return internalPage ? internalPageUrl(internalPage) : null;
+  }
+  const builtInAddressOfTabRef = useLatest(builtInAddressOfTab);
   const applySnapshot = useCallback(
     (snapshot: BrowserSnapshot) => {
       if (!snapshotBelongsToWindow(snapshot.tabs, getCurrentWindow().label)) return;
@@ -581,10 +594,9 @@ export default function App() {
       activeTabIdRef.current = snapshot.activeTabId;
       setTabsLoaded(true);
       const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
-      const internalPage = internalPageOfTabRef.current(active?.id);
-      setAddress(internalPage ? internalPageUrl(internalPage) : (active?.url ?? ''));
+      setAddress(builtInAddressOfTabRef.current(active?.id) ?? active?.url ?? '');
     },
-    [internalPageOfTabRef],
+    [builtInAddressOfTabRef],
   );
 
   // Event listeners below subscribe once; they call handlers through this ref so they
@@ -615,6 +627,9 @@ export default function App() {
         break;
       case 'toggle-devtools':
         void call('toggle_devtools').catch((error) => setMessage(String(error)));
+        break;
+      case 'view-source':
+        void openViewSource();
         break;
       case 'reload-ignoring-cache':
         void runNavigationCommand('reload_ignoring_cache');
@@ -798,9 +813,9 @@ export default function App() {
   useEffect(() => {
     if (!isTauri || !tabsLoaded) return;
     void call('set_settings_open', {
-      open: settingsPageOpen || historyPageOpen || shortcutsPageOpen || downloadsPageOpen,
+      open: settingsPageOpen || historyPageOpen || shortcutsPageOpen || downloadsPageOpen || sourcePageOpen,
     }).catch((error) => setMessage(String(error)));
-  }, [isTauri, tabsLoaded, settingsPageOpen, historyPageOpen, shortcutsPageOpen, downloadsPageOpen]);
+  }, [isTauri, tabsLoaded, settingsPageOpen, historyPageOpen, shortcutsPageOpen, downloadsPageOpen, sourcePageOpen]);
 
   useEffect(() => {
     for (const tab of tabs) {
@@ -1506,8 +1521,10 @@ export default function App() {
       historyTabIds.includes(tabId) ||
       settingsTabIds.includes(tabId) ||
       shortcutsTabIds.includes(tabId) ||
-      downloadsTabIds.includes(tabId);
+      downloadsTabIds.includes(tabId) ||
+      tabId in sourceTabs;
     if (!wasInternalPage) return;
+    forgetSourceTab(tabId);
     setHistoryTabIds((ids) => ids.filter((id) => id !== tabId));
     setSettingsTabIds((ids) => {
       const next = ids.filter((id) => id !== tabId);
@@ -1663,7 +1680,50 @@ export default function App() {
     }
   }
 
+  function forgetSourceTab(tabId: string) {
+    setSourceTabs((tabs) => {
+      if (!(tabId in tabs)) return tabs;
+      const next = { ...tabs };
+      delete next[tabId];
+      return next;
+    });
+  }
+
+  /** ⌥⌘U: show the active page's HTML in a new tab below it. */
+  async function openViewSource() {
+    const page = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+    if (!page || sourceTabs[page.id] || !canViewSource(page.url)) {
+      setMessage('This tab has no page source to show.');
+      return;
+    }
+    const { id: pageTabId, url, title } = page;
+    let sourceTabId: string;
+    try {
+      const snapshot = await call('create_tab');
+      sourceTabId = snapshot.activeTabId;
+      setSourceTabs((tabs) => ({ ...tabs, [sourceTabId]: { status: 'loading', url } }));
+      applySnapshot(snapshot);
+      reorderTabsFromTree(insertTabNode(tabNodesRef.current, pageTabId, { id: sourceTabId, type: 'tab' }, true).nodes);
+      setTabNameOverrides((names) => ({ ...names, [sourceTabId]: sourceTabTitle(title, url) }));
+      setAddress(viewSourceUrl(url));
+    } catch (error) {
+      setMessage(String(error));
+      return;
+    }
+    try {
+      const source = await call('get_page_source', { tabId: pageTabId });
+      setSourceTabs((tabs) =>
+        sourceTabId in tabs ? { ...tabs, [sourceTabId]: { status: 'ready', page: source } } : tabs,
+      );
+    } catch (error) {
+      setSourceTabs((tabs) =>
+        sourceTabId in tabs ? { ...tabs, [sourceTabId]: { status: 'error', url, message: String(error) } } : tabs,
+      );
+    }
+  }
+
   async function closeTab(id: string) {
+    forgetSourceTab(id);
     try {
       applySnapshot(await call('close_tab', { tabId: id }));
     } catch (error) {
@@ -1722,8 +1782,7 @@ export default function App() {
     const internalPage = parseInternalPageUrl(address);
     if (internalPage) {
       // Restore the current tab's address; the page opens in its own tab.
-      const currentPage = internalPageOfTab(activeTabId);
-      setAddress(currentPage ? internalPageUrl(currentPage) : (activeTab?.url ?? ''));
+      setAddress(builtInAddressOfTab(activeTabId) ?? activeTab?.url ?? '');
       await openInternalPage(internalPage);
       return;
     }
@@ -3479,6 +3538,8 @@ export default function App() {
             </SettingsPage>
           ) : shortcutsPageOpen ? (
             <ShortcutsPage onClose={() => void closeTab(activeTabId)} />
+          ) : activeSourceTab ? (
+            <SourcePage state={activeSourceTab} onClose={() => void closeTab(activeTabId)} />
           ) : historyPageOpen ? (
             <HistoryPage
               history={history}

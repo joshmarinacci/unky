@@ -11,6 +11,7 @@ import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
 import { listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { BookmarkNode } from './bookmarks';
+import type { PageSource } from './viewSource';
 import type { AddressSuggestion, AddressSuggestionsState } from './addressSuggestions';
 
 export type Tab = {
@@ -86,6 +87,7 @@ export type Commands = {
   close_browser_window: { result: void };
   print_page: { args: TabArgs; result: void };
   reload_ignoring_cache: { args: TabArgs; result: void };
+  get_page_source: { args: TabArgs; result: PageSource };
   sync_tab_position_menu: { args: { position: string }; result: void };
   sync_theme_menu: { args: { theme: string }; result: void };
   take_launch_request: { result: LaunchRequest | null };
