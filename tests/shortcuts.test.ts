@@ -55,3 +55,22 @@ test('menu item IDs map to one action per command', () => {
   expect(shortcutFromMenu('capture-full-page')).toBe('capture-full-page');
   expect(shortcutFromMenu('unknown')).toBe(null);
 });
+
+test('Command+1–9 select tabs, Command+. stops loading on macOS', () => {
+  expect(shortcutForKey(press('1', { meta: true }), true)).toBe('select-tab-1');
+  expect(shortcutForKey(press('8', { meta: true }), true)).toBe('select-tab-8');
+  expect(shortcutForKey(press('9', { meta: true }), true)).toBe('select-last-tab');
+  expect(shortcutForKey(press('0', { meta: true }), true)).toBe(null);
+  expect(shortcutForKey(press('.', { meta: true }), true)).toBe('stop-loading');
+  expect(shortcutForKey(press('1', { ctrl: true }), false)).toBe('select-tab-1');
+  expect(shortcutForKey(press('9', { ctrl: true }), false)).toBe('select-last-tab');
+  expect(shortcutForKey(press('.', { ctrl: true }), false)).toBe(null);
+  expect(shortcutForKey(press('1', { meta: true, shift: true }), true)).toBe(null);
+});
+
+test('the new menu items map to their shortcuts', () => {
+  expect(shortcutFromMenu('select-tab-3')).toBe('select-tab-3');
+  expect(shortcutFromMenu('select-last-tab')).toBe('select-last-tab');
+  expect(shortcutFromMenu('stop-loading')).toBe('stop-loading');
+  expect(shortcutFromMenu('select-tab-9')).toBe(null);
+});

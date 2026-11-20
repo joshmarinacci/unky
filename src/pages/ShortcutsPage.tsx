@@ -25,15 +25,27 @@ export function ShortcutsPage({ onClose }: { onClose: () => void }) {
             ['Reopen closed tab', `${commandKey}+Shift+T`],
             ['Next tab', isApplePlatform ? 'Ctrl+Tab · ⌘+Option+→ · ⇧+⌘+]' : 'Ctrl+Tab · Ctrl+PageDown'],
             ['Previous tab', isApplePlatform ? 'Ctrl+Shift+Tab · ⌘+Option+← · ⇧+⌘+[' : 'Ctrl+Shift+Tab · Ctrl+PageUp'],
+            ['Select tab 1–8', `${commandKey}+1 … ${commandKey}+8`],
+            ['Select last tab', `${commandKey}+9`],
             ['Focus address bar', `${commandKey}+L`],
             ['Find in page', `${commandKey}+F`],
             ['Reload page', `${commandKey}+R`],
+            ...(isApplePlatform ? [['Stop loading', '⌘+.']] : []),
             ['Back', isApplePlatform ? `${commandKey}+[` : 'Alt+←'],
             ['Forward', isApplePlatform ? `${commandKey}+]` : 'Alt+→'],
-            ['Zoom in', `${commandKey}+Shift+=`],
+            ['Zoom in', `${commandKey}+=`],
             ['Zoom out', `${commandKey}+-`],
             ['Reset zoom', `${commandKey}+0`],
             ['Settings', `${commandKey}+,`],
+            ...(isApplePlatform
+              ? [
+                  ['Show all history', '⌘+Y'],
+                  ['Show downloads', '⌘+Option+L'],
+                  ['Show all bookmarks', '⌘+Option+B'],
+                  ['Enter full screen', 'Ctrl+⌘+F'],
+                  ['Minimize window', '⌘+M'],
+                ]
+              : []),
           ].map(([label, keys]) => (
             <div className="shortcut-entry" key={label}>
               <span>{label}</span>

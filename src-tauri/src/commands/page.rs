@@ -241,7 +241,8 @@ pub(crate) async fn open_link_in_tab_folder(
     if !exists {
         return Err("That tab folder no longer exists".into());
     }
-    let tab_id = open_url_in_new_tab(&app, &state, &url, private, &owner, false)?;
+    // Opened in the background so the folder fills without leaving the current tab.
+    let tab_id = open_url_in_new_tab(&app, &state, &url, private, &owner, true)?;
     app.emit_to(&owner, "browser://open-tab-in-folder", (tab_id, folder_id))
         .map_err(|error| error.to_string())
 }

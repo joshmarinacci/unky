@@ -43,3 +43,7 @@ pub(crate) const FILTER_UPDATE_PROGRESS_EVENT: &str = "browser://filter-update-p
 pub(crate) const LAUNCH_REQUEST_EVENT: &str = "browser://launch-request";
 
 pub(crate) const TAB_POSITION_MENU_EVENT: &str = "browser://tab-position-menu";
+
+pub(crate) const SHOW_BOOKMARKS_EVENT: &str = "browser://show-bookmarks";
+
+pub(crate) const THEME_MENU_EVENT: &str = "browser://theme-menu";

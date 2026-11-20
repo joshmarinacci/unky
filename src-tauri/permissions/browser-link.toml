@@ -108,6 +108,7 @@ commands.allow = [
   "set_settings_open",
   "set_page_context_menu_enabled",
   "sync_tab_position_menu",
+  "sync_theme_menu",
   "set_view_bounds",
   "reopen_closed_tab",
   "set_tab_dragging",

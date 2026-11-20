@@ -82,6 +82,7 @@ export type Commands = {
   set_settings_open: { args: { open: boolean }; result: void };
   toggle_devtools: { result: void };
   sync_tab_position_menu: { args: { position: string }; result: void };
+  sync_theme_menu: { args: { theme: string }; result: void };
   take_launch_request: { result: LaunchRequest | null };
   // Navigation and page tools
   navigate: { args: TabArgs & { url: string }; result: void };
@@ -176,6 +177,8 @@ export const showAllDownloadsEvent = 'browser://show-all-downloads';
 export const showShortcutsEvent = 'browser://show-shortcuts';
 export const shortcutEvent = 'browser://shortcut';
 export const tabPositionMenuEvent = 'browser://tab-position-menu';
+export const showBookmarksEvent = 'browser://show-bookmarks';
+export const themeMenuEvent = 'browser://theme-menu';
 export const historyEvent = 'browser://history-changed';
 export const bookmarksEvent = 'browser://bookmarks-changed';
 export const openUrlFromMenuEvent = 'browser://open-url-from-menu';
@@ -204,6 +207,8 @@ export type Events = {
   [showShortcutsEvent]: null;
   [shortcutEvent]: string;
   [tabPositionMenuEvent]: { windowLabel: string; position: string };
+  [showBookmarksEvent]: null;
+  [themeMenuEvent]: string;
   [historyEvent]: HistoryEntry[];
   [bookmarksEvent]: BookmarkNode[];
   [openUrlFromMenuEvent]: string;

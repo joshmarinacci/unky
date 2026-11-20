@@ -9,7 +9,8 @@ document.addEventListener(
     event.stopImmediatePropagation();
     window.__UNKY_LINK_RESULT__ = 'pending';
     window.__TAURI_INTERNALS__
-      .invoke('open_link_in_new_tab', { url: link.href, background: event.metaKey })
+      // Cmd-click opens behind the current tab; Cmd-Shift-click switches to it (Safari and Chrome).
+      .invoke('open_link_in_new_tab', { url: link.href, background: event.metaKey && !event.shiftKey })
       .then(() => {
         window.__UNKY_LINK_RESULT__ = 'opened';
       })

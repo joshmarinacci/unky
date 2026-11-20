@@ -1,5 +1,7 @@
 import { expect, test } from 'vitest';
 import {
+  isTheme,
+  parseAccentColor,
   parseCustomPageContextMenu,
   parseSidebarCollapsed,
   parseSidebarSide,
@@ -50,4 +52,18 @@ test('JSON preferences survive corrupt or mistyped storage', () => {
   expect(parseStringRecord(null)).toStrictEqual({});
   expect(parseTabNodes('[{"id":"tab-1","type":"tab"}]')).toStrictEqual([{ id: 'tab-1', type: 'tab' }]);
   expect(parseTabNodes('oops')).toStrictEqual([]);
+});
+
+test('accent color defaults to the original orange and accepts only known hues', () => {
+  expect(parseAccentColor(null)).toBe('orange');
+  expect(parseAccentColor('system')).toBe('system');
+  expect(parseAccentColor('graphite')).toBe('graphite');
+  expect(parseAccentColor('chartreuse')).toBe('orange');
+});
+
+test('theme menu payloads are validated', () => {
+  expect(isTheme('light')).toBe(true);
+  expect(isTheme('system')).toBe(true);
+  expect(isTheme('sepia')).toBe(false);
+  expect(isTheme(undefined)).toBe(false);
 });

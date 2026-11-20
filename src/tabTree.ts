@@ -1,6 +1,7 @@
 /** The sidebar tab tree: tabs grouped into collapsible folders. Generic operations live in `tree.ts`. */
 
-import { appendToFolder, updateNode } from './tree';
+import { groupSplitTabRows } from './splitTabRows';
+import { appendToFolder, flattenTree, updateNode } from './tree';
 
 export type TabReference = { id: string; type: 'tab' };
 export type TabFolder = { id: string; type: 'folder'; title: string; collapsed: boolean; children: TabNode[] };
@@ -125,4 +126,34 @@ export function unwrapTabFolder(nodes: TabNode[], folderId: string): { nodes: Ta
     }
   }
   return { nodes, unwrapped: false };
+}
+
+/**
+ * Tab IDs in the order the sidebar shows them, for next/previous-tab and ⌘1–⌘9: pinned tabs first,
+ * then the tree (including tabs in collapsed folders) with a split pair kept together where the
+ * sidebar draws it, at the first of the two tabs. Only tabs open in this window are included.
+ */
+export function tabCycleOrder(
+  nodes: TabNode[],
+  pinnedIds: readonly string[],
+  openIds: ReadonlySet<string>,
+  split: { firstTabId: string; secondTabId: string } | null,
+): string[] {
+  const pinned = new Set(pinnedIds);
+  const unpinned = (items: TabNode[]): TabNode[] =>
+    items.flatMap<TabNode>((node) =>
+      node.type === 'tab' ? (pinned.has(node.id) ? [] : [node]) : [{ ...node, children: unpinned(node.children) }],
+    );
+  const tree = unpinned(nodes);
+  const rows = flattenTree(tree, new Set(tabFolders(tree).map((folder) => folder.id)));
+  const sidebarSplit = split && !pinned.has(split.firstTabId) && !pinned.has(split.secondTabId) ? split : null;
+  const treeIds = groupSplitTabRows(rows, rows, sidebarSplit).flatMap((row) =>
+    row.type === 'single' ? [row.row.node.id] : [row.first.node.id, row.second.node.id],
+  );
+  return [...new Set([...pinnedIds, ...treeIds])].filter((id) => openIds.has(id));
+}
+
+/** The tab ⌘1–⌘8 (position 1–8) or ⌘9 (`'last'`) selects, or undefined when there is none. */
+export function tabAtShortcutPosition(order: readonly string[], position: number | 'last'): string | undefined {
+  return position === 'last' ? order.at(-1) : order[position - 1];
 }

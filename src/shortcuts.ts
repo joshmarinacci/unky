@@ -19,6 +19,11 @@ export type ShortcutAction =
   | 'find'
   | 'next-tab'
   | 'previous-tab'
+  | 'stop-loading'
+  /** ⌘1–⌘8 (Ctrl elsewhere): the tab at that position in cycle order. */
+  | `select-tab-${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8}`
+  /** ⌘9: the last tab, as in Safari and Chrome. */
+  | 'select-last-tab'
   | 'capture-full-page';
 
 export type ShortcutKey = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>;
@@ -38,7 +43,10 @@ export function shortcutFromMenu(id: string): ShortcutAction | null {
     'go-back',
     'go-forward',
     'find',
+    'stop-loading',
+    'select-last-tab',
     'capture-full-page',
+    ...([1, 2, 3, 4, 5, 6, 7, 8] as const).map((n) => `select-tab-${n}` as const),
   ];
   return actions.find((action) => action === id) ?? null;
 }
@@ -64,6 +72,9 @@ export function shortcutForKey(event: ShortcutKey, apple: boolean): ShortcutActi
     if (key === 'l') return 'focus-address';
     if (key === 'f') return 'find';
     if (key === 'r') return 'reload';
+    if (apple && key === '.') return 'stop-loading';
+    if (key === '9') return 'select-last-tab';
+    if (key >= '1' && key <= '8') return `select-tab-${Number(key) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8}`;
     if (apple && key === '[') return 'go-back';
     if (apple && key === ']') return 'go-forward';
     if (!apple && key === 'PageDown') return 'next-tab';

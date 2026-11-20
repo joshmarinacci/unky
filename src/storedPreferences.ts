@@ -3,6 +3,22 @@ import { isTabPosition, type TabPosition } from './tabLayout';
 import { normalizeTabNodes, type TabNode } from './tabTree';
 
 export type Theme = 'system' | 'light' | 'dark';
+
+/** Browser chrome accent hues, matching the macOS accent swatches, plus the system's own accent. */
+export const accentColors = [
+  'system',
+  'blue',
+  'purple',
+  'pink',
+  'red',
+  'orange',
+  'yellow',
+  'green',
+  'graphite',
+] as const;
+export type AccentColor = (typeof accentColors)[number];
+/** Orange was the only accent before the setting existed, so it stays the default. */
+export const defaultAccentColor: AccentColor = 'orange';
 export type SidebarSide = 'left' | 'right';
 
 export const storageKeys = {
@@ -16,6 +32,7 @@ export const storageKeys = {
   settingsTabs: 'browser.settingsTabs',
   pinnedTabs: 'browser.pinnedTabs',
   theme: 'browser.theme',
+  accentColor: 'browser.accentColor',
   customPageContextMenu: 'browser.customPageContextMenu',
   bookmarks: 'browser.bookmarks',
 } as const;
@@ -56,6 +73,14 @@ export const parseCustomPageContextMenu = (stored: string | null): boolean => st
 
 export function parseTheme(stored: string | null): Theme {
   return stored === 'light' || stored === 'dark' ? stored : 'system';
+}
+
+export function isTheme(value: unknown): value is Theme {
+  return value === 'system' || value === 'light' || value === 'dark';
+}
+
+export function parseAccentColor(stored: string | null): AccentColor {
+  return accentColors.find((color) => color === stored) ?? defaultAccentColor;
 }
 
 export function parseTabNodes(stored: string | null): TabNode[] {

@@ -446,9 +446,9 @@ describe('native Tauri browser', () => {
     assert.match(splitUi.startPage?.text ?? '', /Where to\?/);
     assert.ok(splitUi.startPage!.width < splitUi.slot.width, 'the start page should fit within one split pane');
 
-    await clickTabContextItem('tab-1', 'Unsplit from other tab');
+    await clickTabContextItem('tab-1', 'Unsplit from Other Tab');
     assert.equal(await invoke('get_split_tabs'), null, 'the tab context action should remove the split');
-    await clickTabContextItem(companionTabId, 'Close tab');
+    await clickTabContextItem(companionTabId, 'Close Tab');
     await browser.waitUntil(
       async () => {
         const state = (await invoke('get_browser_state')) as { tabs: Array<{ id: string }> };
@@ -472,7 +472,7 @@ describe('native Tauri browser', () => {
       },
       { timeout: 5000, timeoutMsg: 'Duplicate tab did not copy the page URL' },
     );
-    await clickTabContextItem(duplicateTabId, 'Close tab');
+    await clickTabContextItem(duplicateTabId, 'Close Tab');
     await browser.waitUntil(
       async () => {
         const state = (await invoke('get_browser_state')) as { tabs: Array<{ id: string }> };
@@ -538,28 +538,43 @@ describe('native Tauri browser', () => {
       await invoke('select_tab', { tabId: 'tab-1' });
       await browserUi('reset-tab-ui');
 
-      // Shift+F10 on a focused row opens the menu with focus on its first item; arrows move; Escape closes.
+      // Shift+F10 on a focused row opens the native menu (its entries are exposed in desktop-test builds).
+      // Arrow keys and Escape inside the menu are handled by AppKit, so only the opening is checked here.
       await browserUi('keyboard-context-menu', 'tab-1');
-      await browser.waitUntil(async () => (await focus()).role === 'menuitem', {
+      await browser.waitUntil(async () => (await focus()).menus === 1, {
         timeout: 3000,
-        timeoutMsg: 'Shift+F10 should open the tab menu and focus its first item',
+        timeoutMsg: 'Shift+F10 should open the tab menu',
       });
-      assert.equal((await focus()).text, 'Rename');
-      await browserUi('press-key', undefined, 'ArrowDown');
-      await browser.waitUntil(async () => (await focus()).text === 'Pin', {
-        timeout: 2000,
-        timeoutMsg: 'ArrowDown should move focus to the next menu item',
-      });
-      try {
-        captureNativeWindow('tab-context-menu-keyboard.png');
-      } catch (error) {
-        console.warn(`Could not capture the keyboard menu screenshot: ${String(error)}`);
-      }
-      await browserUi('press-key', undefined, 'Escape');
+      type MenuProbe = { entries: Array<{ label: string; path: string[]; enabled: boolean; accelerator?: string }> };
+      const menu = (await browserUi('inspect-tab-menu')) as MenuProbe;
+      assert.equal(menu.entries[0]?.label, 'Rename');
+      assert.equal(menu.entries.find((entry) => entry.label === 'Reload')?.accelerator, 'CmdOrCtrl+R');
+      assert.equal(menu.entries.find((entry) => entry.label === 'Close Tab')?.accelerator, 'CmdOrCtrl+W');
+      assert.deepEqual(menu.entries.find((entry) => entry.label === 'New Group')?.path, ['Move to Group']);
+      await browserUi('close-context-menu');
       await browser.waitUntil(async () => (await focus()).menus === 0, {
         timeout: 2000,
-        timeoutMsg: 'Escape should close the tab menu',
+        timeoutMsg: 'Closing should clear the tab menu',
       });
+
+      // Move to Group > New Group wraps the tab in a group and opens the group's name for editing.
+      await clickTabContextItem('tab-1', 'New Group');
+      await browser
+        .waitUntil(async () => (await focus()).value === 'New Group', { timeout: 2000 })
+        .catch(async () => {
+          throw new Error(`New Group should focus the group name field; focus: ${JSON.stringify(await focus())}`);
+        });
+      assert.equal((await focus()).selected, 'New Group', 'the new group name should be selected for typing');
+      await browserUi('finish-tab-folder-name');
+      const grouped = (await browserUi('inspect-tab-layout')) as {
+        tree: Array<{ id: string; type: string; children?: Array<{ id: string }> }>;
+      };
+      const newGroup = grouped.tree.find(
+        (node) => node.type === 'folder' && node.children?.some((child) => child.id === 'tab-1'),
+      );
+      assert.ok(newGroup, `tab-1 should be inside the new group: ${JSON.stringify(grouped.tree)}`);
+      await browserUi('open-folder-context-menu', newGroup.id);
+      await browserUi('click-context-item', undefined, 'Delete Folder');
 
       // Rename from the menu selects the current title, and Enter saves the new one.
       await clickTabContextItem('tab-1', 'Rename');
@@ -1303,7 +1318,7 @@ describe('native Tauri browser', () => {
       }
       if (folderId) {
         await browserUi('open-folder-context-menu', folderId).catch(() => undefined);
-        await browserUi('click-context-item', undefined, 'Delete folder').catch(() => undefined);
+        await browserUi('click-context-item', undefined, 'Delete Folder').catch(() => undefined);
       }
       await browserUi('set-tab-position', undefined, undefined, { tabPosition: originalPosition }).catch(
         () => undefined,

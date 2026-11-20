@@ -28,6 +28,15 @@ fn shortcut(key: u32, ctrl: bool, shift: bool, alt: bool) -> Option<&'static str
         (0xbd, true, false, false) | (0x6d, true, false, false) => Some("zoom-out"),
         (0x30, true, false, false) | (0x60, true, false, false) => Some("zoom-reset"),
         (0xbc, true, false, false) => Some("settings"),
+        (0x31, true, false, false) => Some("select-tab-1"),
+        (0x32, true, false, false) => Some("select-tab-2"),
+        (0x33, true, false, false) => Some("select-tab-3"),
+        (0x34, true, false, false) => Some("select-tab-4"),
+        (0x35, true, false, false) => Some("select-tab-5"),
+        (0x36, true, false, false) => Some("select-tab-6"),
+        (0x37, true, false, false) => Some("select-tab-7"),
+        (0x38, true, false, false) => Some("select-tab-8"),
+        (0x39, true, false, false) => Some("select-last-tab"),
         _ => None,
     }
 }
