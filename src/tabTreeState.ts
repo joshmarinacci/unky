@@ -12,6 +12,8 @@ export type TabTreeAction =
   /** Replace the tree, for example after reconciling it with the open tabs. */
   | { type: 'replaced'; nodes: TabNode[] }
   | { type: 'folderCreated'; folder: TabFolder }
+  /** Put a new folder where a tab is and move the tab into it. */
+  | { type: 'tabWrappedInFolder'; tabId: string; folder: TabFolder }
   | { type: 'folderRenamed'; id: string; title: string }
   | { type: 'folderToggled'; id: string }
   | { type: 'folderExpanded'; id: string }
@@ -41,6 +43,11 @@ export function tabTreeReducer(nodes: TabNode[], action: TabTreeAction): TabNode
       return action.nodes;
     case 'folderCreated':
       return [action.folder, ...nodes];
+    case 'tabWrappedInFolder': {
+      const tab = findNode(nodes, action.tabId);
+      if (!tab || tab.type !== 'tab') return nodes;
+      return updateNode(nodes, action.tabId, (node) => ({ ...action.folder, collapsed: false, children: [node] }));
+    }
     case 'folderRenamed':
       return updateNode(nodes, action.id, (node) => (node.type === 'folder' ? { ...node, title: action.title } : node));
     case 'folderToggled':

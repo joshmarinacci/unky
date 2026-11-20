@@ -12,13 +12,19 @@
                 .menu { position: fixed; min-width: 190px; max-width: 300px; padding: 5px; border: 1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius: 9px; color: CanvasText; background: Canvas; box-shadow: 0 8px 28px #0005; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; pointer-events: auto; }
                 .submenu { position: fixed; min-width: 190px; max-width: 300px; padding: 5px; border: 1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius: 9px; color: CanvasText; background: Canvas; box-shadow: 0 8px 28px #0005; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; pointer-events: auto; }
                 .submenu[hidden] { display: none; }
-                button { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 5px; color: inherit; background: transparent; font: inherit; text-align: left; cursor: default; }
+                button { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 7px 10px; border: 0; border-radius: 5px; color: inherit; background: transparent; font: inherit; text-align: left; cursor: default; }
                 button:hover, button:focus-visible { outline: none; background: color-mix(in srgb, Highlight 18%, transparent); }
                 .submenu-trigger { display: flex; align-items: center; justify-content: space-between; }
                 .submenu-arrow { margin-left: 18px; color: color-mix(in srgb, CanvasText 58%, transparent); }
+                .shortcut { margin-left: 24px; color: color-mix(in srgb, CanvasText 52%, transparent); }
                 .separator { height: 1px; margin: 4px 5px; background: color-mix(in srgb, CanvasText 14%, transparent); }
               `;
   shadow.append(style);
+  // Shortcut hints match the browser's own menu accelerators for the same commands.
+  const apple = /Mac|iPhone|iPad/.test(navigator.platform);
+  const keys = apple
+    ? { back: '⌘[', forward: '⌘]', reload: '⌘R', copy: '⌘C', selectAll: '⌘A' }
+    : { back: 'Alt+←', forward: 'Alt+→', reload: 'Ctrl+R', copy: 'Ctrl+C', selectAll: 'Ctrl+A' };
   let menu;
   const close = () => {
     menu?.remove();
@@ -61,7 +67,7 @@
             .then((browsers) => browsers || [])
             .catch(() => [])
         : Promise.resolve([]);
-      const add = (label, action) => items.push({ label, action });
+      const add = (label, action, shortcut) => items.push({ label, action, shortcut });
       const separate = () => {
         if (items.length && !items[items.length - 1].separator) items.push({ separator: true });
       };
@@ -69,8 +75,9 @@
         add('Open Link in Other Split', async () => {
           await window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', { url: link.href, otherSplit: true });
         });
+        // Like Safari and Chrome, a link opened from the menu loads behind the current tab.
         add('Open Link in New Tab', () =>
-          window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', { url: link.href }),
+          window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', { url: link.href, background: true }),
         );
         add('Open Link in New Window', () =>
           window.__TAURI_INTERNALS__?.invoke('open_link_in_new_window', { url: link.href }),
@@ -80,20 +87,23 @@
       if (image) {
         if (link) separate();
         add('Open Image in New Tab', () =>
-          window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', { url: image.currentSrc || image.src }),
+          window.__TAURI_INTERNALS__?.invoke('open_link_in_new_tab', {
+            url: image.currentSrc || image.src,
+            background: true,
+          }),
         );
         add('Copy Image Address', () => copyText(image.currentSrc || image.src));
       }
       if (selectedText) {
         separate();
-        add('Copy', () => document.execCommand('copy'));
+        add('Copy', () => document.execCommand('copy'), keys.copy);
       }
       if (items.length) separate();
-      add('Back', () => history.back());
-      add('Forward', () => history.forward());
-      add('Reload', () => location.reload());
+      add('Back', () => history.back(), keys.back);
+      add('Forward', () => history.forward(), keys.forward);
+      add('Reload', () => location.reload(), keys.reload);
       separate();
-      add('Select All', () => document.execCommand('selectAll'));
+      add('Select All', () => document.execCommand('selectAll'), keys.selectAll);
       menu = document.createElement('div');
       menu.className = 'menu';
       menu.setAttribute('role', 'menu');
@@ -108,7 +118,14 @@
         const button = document.createElement('button');
         button.type = 'button';
         button.textContent = item.label;
+        button.dataset.label = item.label;
         button.setAttribute('role', 'menuitem');
+        if (item.shortcut) {
+          const shortcut = document.createElement('span');
+          shortcut.className = 'shortcut';
+          shortcut.textContent = item.shortcut;
+          button.append(shortcut);
+        }
         button.addEventListener('click', () => {
           const result = item.action();
           if (result?.then)

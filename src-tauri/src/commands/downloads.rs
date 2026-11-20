@@ -6,8 +6,15 @@ pub(crate) fn emit_downloads(
     app: &tauri::AppHandle,
     downloads: &std::sync::Arc<std::sync::Mutex<Vec<DownloadEntry>>>,
 ) {
+    // Downloads are app-wide, so every browser window's list stays current.
     if let Ok(items) = downloads.lock() {
-        let _ = app.emit_to("main", DOWNLOADS_EVENT, items.clone());
+        for label in app
+            .windows()
+            .keys()
+            .filter(|label| label.as_str() == "main" || label.starts_with("browser-window-"))
+        {
+            let _ = app.emit_to(label, DOWNLOADS_EVENT, items.clone());
+        }
     }
 }
 

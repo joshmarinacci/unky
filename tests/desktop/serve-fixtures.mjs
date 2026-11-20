@@ -28,6 +28,21 @@ const server = createServer((request, response) => {
     response.end('Native downloads popover fixture.');
     return;
   }
+  if (pathname === '/browser-only') {
+    // Serves only requests that ask for HTML the way a browser does, so View Source's plain
+    // re-download is refused and it falls back to the page's live DOM.
+    if (!(request.headers.accept ?? '').includes('text/html')) {
+      response.writeHead(403, { 'content-type': 'text/plain', 'cache-control': 'no-store' });
+      response.end('Browsers only');
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+    response.end(
+      '<!doctype html><title>Browser only</title><p id="marker">Served to the browser</p>' +
+        '<script>document.getElementById("marker").dataset.changed = "by-script"</script>',
+    );
+    return;
+  }
   if (pathname === '/api/status') {
     response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     response.end(JSON.stringify({ ok: true, fixture: 'desktop-testing' }));

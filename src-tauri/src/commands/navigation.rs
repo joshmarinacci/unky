@@ -28,6 +28,113 @@ pub(crate) async fn find_in_page(
     serde_json::from_str(&result).map_err(|error| error.to_string())
 }
 
+/// A tab's HTML for View Source. `original` is false when the download failed and `source` is the
+/// page's current DOM instead.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PageSource {
+    url: String,
+    source: String,
+    original: bool,
+}
+
+/// The largest page View Source downloads or shows.
+pub(crate) const PAGE_SOURCE_LIMIT: usize = 5 * 1024 * 1024;
+
+/// View Source downloads only web pages again; other schemes use the live DOM.
+pub(crate) fn should_download_source(url: &url::Url) -> bool {
+    matches!(url.scheme(), "http" | "https")
+}
+
+/// Serializes the page's doctype and root element, for when the original can't be downloaded.
+pub(crate) const PAGE_DOM_SOURCE_SCRIPT: &str = r#"(() => {
+    const doctype = document.doctype ? new XMLSerializer().serializeToString(document.doctype) + '\n' : '';
+    return doctype + (document.documentElement ? document.documentElement.outerHTML : '');
+})()"#;
+
+/// Download the page again, as Chrome's View Source does. The request carries no cookies, so a
+/// signed-in page may differ from what the tab shows. The URL is the one the tab already loaded.
+async fn download_page_source(url: &url::Url) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .user_agent(concat!(
+            "Mozilla/5.0 (Macintosh) Unky/",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .get(url.as_str())
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("the server answered {}", response.status()));
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > PAGE_SOURCE_LIMIT as u64)
+    {
+        return Err("the page is too large".into());
+    }
+    let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+    if bytes.len() > PAGE_SOURCE_LIMIT {
+        return Err("the page is too large".into());
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// ⌥⌘U: the active page's HTML, downloaded again, or its live DOM when that fails.
+#[tauri::command]
+pub(crate) async fn get_page_source(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    tab_id: String,
+) -> Result<PageSource, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("View Source is only available to the trusted browser UI".into());
+    }
+    let page = get_page_for_window(&app, &state, webview.label(), &tab_id)?;
+    let url = page.url().map_err(|error| error.to_string())?;
+    if should_download_source(&url) {
+        match download_page_source(&url).await {
+            Ok(source) => {
+                return Ok(PageSource {
+                    url: url.to_string(),
+                    source,
+                    original: true,
+                })
+            }
+            Err(error) => eprintln!("View Source download failed for {url}: {error}"),
+        }
+    }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    page.eval_with_callback(PAGE_DOM_SOURCE_SCRIPT, move |result| {
+        let _ = sender.send(result);
+    })
+    .map_err(|error| error.to_string())?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        receiver.recv().map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let mut source: String = serde_json::from_str(&result).map_err(|error| error.to_string())?;
+    if source.len() > PAGE_SOURCE_LIMIT {
+        let mut end = PAGE_SOURCE_LIMIT;
+        while !source.is_char_boundary(end) {
+            end -= 1;
+        }
+        source.truncate(end);
+    }
+    Ok(PageSource {
+        url: url.to_string(),
+        source,
+        original: false,
+    })
+}
+
 #[tauri::command]
 pub(crate) async fn get_tab_favicon(
     webview: tauri::Webview,
@@ -248,6 +355,33 @@ pub(crate) fn reload(
     get_page_for_window(&app, &state, webview.label(), &tab_id)?
         .reload()
         .map_err(|e| e.to_string())
+}
+
+/// ⇧⌘R / ⌥⌘R: reload without using cached responses. WKWebView revalidates every resource with
+/// the server; other platforms fall back to a normal reload.
+#[tauri::command]
+pub(crate) fn reload_ignoring_cache(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    tab_id: String,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Navigation is only available from the trusted browser UI".into());
+    }
+    let page = get_page_for_window(&app, &state, webview.label(), &tab_id)?;
+    #[cfg(target_os = "macos")]
+    {
+        page.with_webview(|platform| {
+            let web_view = unsafe { &*(platform.inner() as *mut objc2_web_kit::WKWebView) };
+            unsafe { web_view.reloadFromOrigin() };
+        })
+        .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        page.reload().map_err(|error| error.to_string())
+    }
 }
 
 #[tauri::command]

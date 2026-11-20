@@ -12,6 +12,16 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_ME
 fn shortcut(key: u32, ctrl: bool, shift: bool, alt: bool) -> Option<&'static str> {
     match (key, ctrl, shift, alt) {
         (0x54, true, false, false) => Some("new-tab"),
+        (0x4e, true, false, false) => Some("new-window"),
+        (0x57, true, true, false) => Some("close-window"),
+        (0x44, true, false, false) => Some("bookmark-page"),
+        (0x47, true, false, false) => Some("find-next"),
+        (0x47, true, true, false) => Some("find-previous"),
+        (0x52, true, true, false) | (0x74, true, false, false) => Some("reload-ignoring-cache"),
+        (0x4c, true, true, false) => Some("toggle-sidebar"),
+        (0x50, true, false, false) => Some("print"),
+        (0x49, true, true, false) => Some("toggle-devtools"),
+        (0x55, true, false, false) => Some("view-source"),
         (0x54, true, true, false) => Some("reopen-closed-tab"),
         (0x4e, true, true, false) => Some("new-private-tab"),
         (0x57, true, false, false) => Some("close-tab"),
@@ -28,6 +38,15 @@ fn shortcut(key: u32, ctrl: bool, shift: bool, alt: bool) -> Option<&'static str
         (0xbd, true, false, false) | (0x6d, true, false, false) => Some("zoom-out"),
         (0x30, true, false, false) | (0x60, true, false, false) => Some("zoom-reset"),
         (0xbc, true, false, false) => Some("settings"),
+        (0x31, true, false, false) => Some("select-tab-1"),
+        (0x32, true, false, false) => Some("select-tab-2"),
+        (0x33, true, false, false) => Some("select-tab-3"),
+        (0x34, true, false, false) => Some("select-tab-4"),
+        (0x35, true, false, false) => Some("select-tab-5"),
+        (0x36, true, false, false) => Some("select-tab-6"),
+        (0x37, true, false, false) => Some("select-tab-7"),
+        (0x38, true, false, false) => Some("select-tab-8"),
+        (0x39, true, false, false) => Some("select-last-tab"),
         _ => None,
     }
 }
@@ -109,6 +128,15 @@ mod tests {
         assert_eq!(shortcut(0x54, true, true, false), Some("reopen-closed-tab"));
         assert_eq!(shortcut(0x09, true, true, false), Some("previous-tab"));
         assert_eq!(shortcut(0x25, false, false, true), Some("go-back"));
+        assert_eq!(shortcut(0x4e, true, false, false), Some("new-window"));
+        assert_eq!(shortcut(0x57, true, true, false), Some("close-window"));
+        assert_eq!(shortcut(0x47, true, true, false), Some("find-previous"));
+        assert_eq!(
+            shortcut(0x74, true, false, false),
+            Some("reload-ignoring-cache")
+        );
+        assert_eq!(shortcut(0x74, false, false, false), Some("reload"));
+        assert_eq!(shortcut(0x55, true, false, false), Some("view-source"));
         for key in [0x43, 0x56, 0x58, 0x41, 0x5a] {
             assert_eq!(shortcut(key, true, false, false), None);
         }

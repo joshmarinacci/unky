@@ -159,13 +159,24 @@ pub(crate) fn setup_app(
             MenuItemBuilder::with_id("shortcut-previous-tab-safari", "Previous Tab (Safari)")
                 .accelerator("CmdOrCtrl+Shift+[")
                 .build(app)?;
+        let new_window = MenuItemBuilder::with_id("shortcut-new-window", "New Window")
+            .accelerator("CmdOrCtrl+N")
+            .build(app)?;
+        let close_window = MenuItemBuilder::with_id("shortcut-close-window", "Close Window")
+            .accelerator("CmdOrCtrl+Shift+W")
+            .build(app)?;
+        let print = MenuItemBuilder::with_id("shortcut-print", "Print…")
+            .accelerator("CmdOrCtrl+P")
+            .build(app)?;
         let file_menu = SubmenuBuilder::new(app, "File")
             .item(&new_tab)
+            .item(&new_window)
             .item(&new_private_tab);
         #[cfg(target_os = "macos")]
         let file_menu = file_menu.item(&open_in_browser);
         let file_menu = file_menu
             .item(&close_tab)
+            .item(&close_window)
             .item(&reopen_closed_tab)
             .item(&next_tab)
             .item(&previous_tab);
@@ -175,6 +186,7 @@ pub(crate) fn setup_app(
         let file_menu = file_menu.item(&next_tab_mac).item(&previous_tab_mac);
         #[cfg(target_os = "macos")]
         let file_menu = file_menu.item(&next_tab_safari).item(&previous_tab_safari);
+        let file_menu = file_menu.separator().item(&print);
         #[cfg(not(target_os = "macos"))]
         let file_menu = file_menu.separator().item(&settings).separator().quit();
         let file_menu = file_menu.build()?;
@@ -182,9 +194,43 @@ pub(crate) fn setup_app(
         let capture_full_page =
             MenuItemBuilder::with_id("shortcut-capture-full-page", "Save Full Page Screenshot…")
                 .build(app)?;
+        // ⌘1–⌘8 pick a tab by position and ⌘9 picks the last one, as in Safari and Chrome.
+        // Windows handles Ctrl+1–9 in the UI key handler and the page-view table instead.
         #[cfg(target_os = "macos")]
-        let tabs_menu = SubmenuBuilder::new(app, "Tabs")
-            .item(&capture_full_page)
+        let mut select_tab_items = Vec::new();
+        #[cfg(target_os = "macos")]
+        for number in 1..=8 {
+            select_tab_items.push(
+                MenuItemBuilder::with_id(
+                    format!("shortcut-select-tab-{number}"),
+                    format!("Select Tab {number}"),
+                )
+                .accelerator(format!("CmdOrCtrl+{number}"))
+                .build(app)?,
+            );
+        }
+        #[cfg(target_os = "macos")]
+        select_tab_items.push(
+            MenuItemBuilder::with_id("shortcut-select-last-tab", "Select Last Tab")
+                .accelerator("CmdOrCtrl+9")
+                .build(app)?,
+        );
+        #[cfg(target_os = "macos")]
+        let tabs_menu = {
+            let mut tabs_menu = SubmenuBuilder::new(app, "Tabs")
+                .item(&capture_full_page)
+                .separator();
+            for item in &select_tab_items {
+                tabs_menu = tabs_menu.item(item);
+            }
+            tabs_menu.build()?
+        };
+        #[cfg(target_os = "macos")]
+        let window_menu = SubmenuBuilder::new(app, "Window")
+            .minimize()
+            .maximize()
+            .separator()
+            .bring_all_to_front()
             .build()?;
         let edit_menu = SubmenuBuilder::new(app, "Edit")
             .undo()
@@ -196,8 +242,9 @@ pub(crate) fn setup_app(
             .separator()
             .select_all()
             .build()?;
+        // Plain ⌘= like Safari and Chrome: the key is labeled "+" but needs no Shift.
         let zoom_in = MenuItemBuilder::with_id("zoom-in", "Zoom In")
-            .accelerator("CmdOrCtrl+Shift+=")
+            .accelerator("CmdOrCtrl+=")
             .build(app)?;
         let zoom_out = MenuItemBuilder::with_id("zoom-out", "Zoom Out")
             .accelerator("CmdOrCtrl+-")
@@ -209,13 +256,55 @@ pub(crate) fn setup_app(
             .accelerator("CmdOrCtrl+L")
             .build(app)?;
         let show_history = MenuItemBuilder::with_id("show-history", "Show History").build(app)?;
-        let show_downloads =
-            MenuItemBuilder::with_id("show-downloads", "Show Downloads").build(app)?;
+        let show_downloads = MenuItemBuilder::with_id("show-downloads", "Show Downloads");
+        // ⌥⌘L shows downloads in Safari and Chrome.
+        #[cfg(target_os = "macos")]
+        let show_downloads = show_downloads.accelerator("CmdOrCtrl+Alt+L");
+        let show_downloads = show_downloads.build(app)?;
+        let stop_loading = MenuItemBuilder::with_id("shortcut-stop-loading", "Stop")
+            .accelerator("CmdOrCtrl+.")
+            .build(app)?;
         let find = MenuItemBuilder::with_id("shortcut-find", "Find in Page")
             .accelerator("CmdOrCtrl+F")
             .build(app)?;
         let reload = MenuItemBuilder::with_id("shortcut-reload", "Reload Page")
             .accelerator("CmdOrCtrl+R")
+            .build(app)?;
+        let find_next = MenuItemBuilder::with_id("shortcut-find-next", "Find Next")
+            .accelerator("CmdOrCtrl+G")
+            .build(app)?;
+        let find_previous = MenuItemBuilder::with_id("shortcut-find-previous", "Find Previous")
+            .accelerator("CmdOrCtrl+Shift+G")
+            .build(app)?;
+        // Chrome uses ⇧⌘R and Safari ⌥⌘R; both reload without the cache.
+        let reload_ignoring_cache =
+            MenuItemBuilder::with_id("shortcut-reload-ignoring-cache", "Reload Ignoring Cache")
+                .accelerator("CmdOrCtrl+Shift+R")
+                .build(app)?;
+        #[cfg(target_os = "macos")]
+        let reload_ignoring_cache_safari = MenuItemBuilder::with_id(
+            "shortcut-reload-ignoring-cache-safari",
+            "Reload Ignoring Cache (Safari)",
+        )
+        .accelerator("CmdOrCtrl+Alt+R")
+        .build(app)?;
+        let toggle_sidebar =
+            MenuItemBuilder::with_id("shortcut-toggle-sidebar", "Show/Hide Sidebar")
+                .accelerator("CmdOrCtrl+Shift+L")
+                .build(app)?;
+        let view_source = MenuItemBuilder::with_id("shortcut-view-source", "View Source")
+            .accelerator(if cfg!(target_os = "macos") {
+                "CmdOrCtrl+Alt+U"
+            } else {
+                "Ctrl+U"
+            })
+            .build(app)?;
+        let toggle_devtools = MenuItemBuilder::with_id("shortcut-toggle-devtools", "Web Inspector")
+            .accelerator(if cfg!(target_os = "macos") {
+                "CmdOrCtrl+Alt+I"
+            } else {
+                "Ctrl+Shift+I"
+            })
             .build(app)?;
         let go_back = MenuItemBuilder::with_id("shortcut-go-back", "Back")
             .accelerator(if cfg!(target_os = "macos") {
@@ -243,6 +332,14 @@ pub(crate) fn setup_app(
         let tab_position_bottom = CheckMenuItemBuilder::with_id("tab-position-bottom", "Bottom")
             .checked(false)
             .build(app)?;
+        let mut theme_menu = SubmenuBuilder::with_id(app, "theme-menu", "Appearance");
+        for (theme, label) in THEME_MENU_OPTIONS {
+            let item = CheckMenuItemBuilder::with_id(format!("theme-{theme}"), label)
+                .checked(theme == "system")
+                .build(app)?;
+            theme_menu = theme_menu.item(&item);
+        }
+        let theme_menu = theme_menu.build()?;
         let tab_position_menu = SubmenuBuilder::with_id(app, "tab-position-menu", "Tabs Position")
             .item(&tab_position_left)
             .item(&tab_position_right)
@@ -252,12 +349,21 @@ pub(crate) fn setup_app(
         let view_menu = SubmenuBuilder::with_id(app, "view-menu", "View")
             .item(&show_history)
             .item(&show_downloads)
+            .item(&toggle_sidebar)
             .separator()
+            .item(&theme_menu)
             .item(&tab_position_menu)
             .separator()
             .item(&focus_address)
             .item(&find)
+            .item(&find_next)
+            .item(&find_previous)
             .item(&reload)
+            .item(&reload_ignoring_cache);
+        #[cfg(target_os = "macos")]
+        let view_menu = view_menu.item(&reload_ignoring_cache_safari);
+        let view_menu = view_menu
+            .item(&stop_loading)
             .item(&go_back)
             .item(&go_forward)
             .separator()
@@ -265,7 +371,12 @@ pub(crate) fn setup_app(
             .item(&zoom_out)
             .separator()
             .item(&actual_size)
-            .build()?;
+            .separator()
+            .item(&view_source)
+            .item(&toggle_devtools);
+        #[cfg(target_os = "macos")]
+        let view_menu = view_menu.separator().fullscreen();
+        let view_menu = view_menu.build()?;
         let bookmarks_menu = SubmenuBuilder::with_id(app, "bookmarks-menu", "Bookmarks").build()?;
         let history_menu = SubmenuBuilder::with_id(app, "history-menu", "History").build()?;
         let show_shortcuts =
@@ -283,9 +394,10 @@ pub(crate) fn setup_app(
             .item(&edit_menu)
             .item(&view_menu)
             .item(&bookmarks_menu)
-            .item(&history_menu)
-            .item(&help_menu)
-            .build()?;
+            .item(&history_menu);
+        #[cfg(target_os = "macos")]
+        let menu = menu.item(&window_menu);
+        let menu = menu.item(&help_menu).build()?;
         app.set_menu(menu)?;
         refresh_browser_menus(app.handle(), &state).map_err(std::io::Error::other)?;
     }

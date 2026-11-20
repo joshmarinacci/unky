@@ -1,6 +1,7 @@
 /** The sidebar tab tree: tabs grouped into collapsible folders. Generic operations live in `tree.ts`. */
 
-import { appendToFolder, updateNode } from './tree';
+import { groupSplitTabRows } from './splitTabRows';
+import { appendToFolder, flattenTree, updateNode } from './tree';
 
 export type TabReference = { id: string; type: 'tab' };
 export type TabFolder = { id: string; type: 'folder'; title: string; collapsed: boolean; children: TabNode[] };
@@ -125,4 +126,83 @@ export function unwrapTabFolder(nodes: TabNode[], folderId: string): { nodes: Ta
     }
   }
   return { nodes, unwrapped: false };
+}
+
+type SplitPair = { firstTabId: string; secondTabId: string };
+
+function cycleOrder(
+  nodes: TabNode[],
+  pinnedIds: readonly string[],
+  openIds: ReadonlySet<string>,
+  split: SplitPair | null,
+  includeCollapsed: boolean,
+): string[] {
+  const pinned = new Set(pinnedIds);
+  const unpinned = (items: TabNode[]): TabNode[] =>
+    items.flatMap<TabNode>((node) =>
+      node.type === 'tab' ? (pinned.has(node.id) ? [] : [node]) : [{ ...node, children: unpinned(node.children) }],
+    );
+  const tree = unpinned(nodes);
+  const all = flattenTree(tree, new Set(tabFolders(tree).map((folder) => folder.id)));
+  const visible = includeCollapsed ? all : flattenTree(tree, new Set(expandedTabFolderIds(tree)));
+  const sidebarSplit = split && !pinned.has(split.firstTabId) && !pinned.has(split.secondTabId) ? split : null;
+  const treeIds = groupSplitTabRows(visible, all, sidebarSplit).flatMap((row) =>
+    row.type === 'single' ? [row.row.node.id] : [row.first.node.id, row.second.node.id],
+  );
+  return [...new Set([...pinnedIds, ...treeIds])].filter((id) => openIds.has(id));
+}
+
+/**
+ * Every tab ID in the order the sidebar lists them: pinned tabs first, then the tree (including tabs
+ * in collapsed folders) with a split pair kept together where the sidebar draws it, at the first of
+ * the two tabs. Only tabs open in this window are included.
+ */
+export function tabCycleOrder(
+  nodes: TabNode[],
+  pinnedIds: readonly string[],
+  openIds: ReadonlySet<string>,
+  split: SplitPair | null,
+): string[] {
+  return cycleOrder(nodes, pinnedIds, openIds, split, true);
+}
+
+/**
+ * The tabs the sidebar actually shows, in order, for next/previous-tab and ⌘1–⌘9: like
+ * `tabCycleOrder` but without tabs hidden inside collapsed folders. A split pair whose row is
+ * visible keeps both tabs, matching the sidebar, which draws the pair wherever either tab shows.
+ */
+export function visibleTabCycleOrder(
+  nodes: TabNode[],
+  pinnedIds: readonly string[],
+  openIds: ReadonlySet<string>,
+  split: SplitPair | null,
+): string[] {
+  return cycleOrder(nodes, pinnedIds, openIds, split, false);
+}
+
+/**
+ * The tab next/previous-tab moves to: the nearest visible tab after (or before) the active one,
+ * wrapping around. `fullOrder` places an active tab that is itself hidden in a collapsed folder,
+ * so cycling continues from where it sits. Returns undefined when no other visible tab exists.
+ */
+export function nextVisibleTab(
+  fullOrder: readonly string[],
+  visibleOrder: readonly string[],
+  activeId: string | null,
+  backwards: boolean,
+): string | undefined {
+  const visible = new Set(visibleOrder);
+  const start = activeId ? fullOrder.indexOf(activeId) : -1;
+  if (start < 0) return backwards ? visibleOrder.at(-1) : visibleOrder[0];
+  const step = backwards ? -1 : 1;
+  for (let offset = 1; offset < fullOrder.length; offset += 1) {
+    const id = fullOrder[(((start + step * offset) % fullOrder.length) + fullOrder.length) % fullOrder.length];
+    if (visible.has(id)) return id === activeId ? undefined : id;
+  }
+  return undefined;
+}
+
+/** The tab ⌘1–⌘8 (position 1–8) or ⌘9 (`'last'`) selects, or undefined when there is none. */
+export function tabAtShortcutPosition(order: readonly string[], position: number | 'last'): string | undefined {
+  return position === 'last' ? order.at(-1) : order[position - 1];
 }

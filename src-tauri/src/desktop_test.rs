@@ -294,6 +294,66 @@ pub(crate) async fn desktop_test_browser_ui(
         }
         return Ok(serde_json::Value::Object(checks));
     }
+    if action == "inspect-theme-menu" {
+        let menu = app.menu().ok_or("The app menu is unavailable")?;
+        let Some(tauri::menu::MenuItemKind::Submenu(view_menu)) = menu.get("view-menu") else {
+            return Err("The View menu is unavailable".into());
+        };
+        let Some(tauri::menu::MenuItemKind::Submenu(theme_menu)) = view_menu.get("theme-menu")
+        else {
+            return Err("The Appearance menu is unavailable".into());
+        };
+        let mut checks = serde_json::Map::new();
+        for (theme, _) in THEME_MENU_OPTIONS {
+            let Some(tauri::menu::MenuItemKind::Check(item)) =
+                theme_menu.get(&format!("theme-{theme}"))
+            else {
+                return Err(format!("The {theme} appearance item is unavailable"));
+            };
+            checks.insert(
+                theme.to_string(),
+                serde_json::Value::Bool(item.is_checked().map_err(|error| error.to_string())?),
+            );
+        }
+        return Ok(serde_json::Value::Object(checks));
+    }
+    if action == "choose-theme-menu" {
+        // Same path as clicking View > Appearance > <theme>.
+        let theme = menu_item.clone().ok_or("A theme is required")?;
+        apply_theme(&app, &theme)?;
+        app.emit(THEME_MENU_EVENT, &theme)
+            .map_err(|error| error.to_string())?;
+        return Ok(serde_json::Value::Bool(true));
+    }
+    if action == "inspect-bookmarks-menu" {
+        let menu = app.menu().ok_or("The app menu is unavailable")?;
+        let Some(tauri::menu::MenuItemKind::Submenu(bookmarks_menu)) = menu.get("bookmarks-menu")
+        else {
+            return Err("The Bookmarks menu is unavailable".into());
+        };
+        let mut texts = Vec::new();
+        for item in bookmarks_menu.items().map_err(|error| error.to_string())? {
+            if let tauri::menu::MenuItemKind::MenuItem(item) = item {
+                texts.push(serde_json::json!({
+                    "id": item.id().0,
+                    "text": item.text().map_err(|error| error.to_string())?,
+                }));
+            }
+        }
+        return Ok(serde_json::Value::Array(texts));
+    }
+    if action == "choose-bookmarks-menu-show-all" {
+        app.emit_to("main", SHOW_BOOKMARKS_EVENT, ())
+            .map_err(|error| error.to_string())?;
+        return Ok(serde_json::Value::Bool(true));
+    }
+    if action == "run-shortcut" {
+        // The same event a native menu accelerator sends to the focused window.
+        let shortcut = menu_item.clone().ok_or("A shortcut action is required")?;
+        app.emit_to("main", SHORTCUT_EVENT, shortcut)
+            .map_err(|error| error.to_string())?;
+        return Ok(serde_json::Value::Bool(true));
+    }
     if action == "choose-tab-position-menu" {
         let position = tab_position.ok_or("A tab position is required")?;
         choose_tab_position_from_menu(&app, "main", &position)?;
@@ -461,12 +521,18 @@ pub(crate) async fn desktop_test_browser_ui(
             window.__unkyTestOpenTabContextMenu(args.tabId);
             return {{ opened: true }};
           }}
+          // The tab menu is native in real builds; desktop-test builds expose its entries instead.
           if (args.action === 'click-context-item') {{
-            const item = Array.from(document.querySelectorAll('.sidebar-context-menu [role^="menuitem"]')).find(node => node.textContent.trim() === args.menuItem);
-            if (!item) return {{ error: `Context item ${{args.menuItem}} was not found` }};
-            if (item.getAttribute('aria-disabled') === 'true' || item.hasAttribute('disabled')) return {{ error: `Context item ${{args.menuItem}} is disabled` }};
-            item.click();
+            if (typeof window.__unkyTestActivateTabMenuItem !== 'function') return {{ error: 'The desktop-test context menu bridge is unavailable' }};
+            if (!window.__unkyTestActivateTabMenuItem(args.menuItem)) return {{ error: `Context item ${{args.menuItem}} was not found or is disabled` }};
             return {{ clicked: true }};
+          }}
+          if (args.action === 'inspect-tab-menu') {{
+            return {{ entries: window.__unkyTestTabMenu?.() ?? null }};
+          }}
+          if (args.action === 'close-context-menu') {{
+            window.__unkyTestCloseTabMenu?.();
+            return {{ closed: true }};
           }}
           if (args.action === 'keyboard-context-menu') {{
             const row = Array.from(document.querySelectorAll('.tab-sortable-item')).find(node => node.dataset.tabNodeId === args.tabId);
@@ -490,7 +556,7 @@ pub(crate) async fn desktop_test_browser_ui(
           if (args.action === 'inspect-focus') {{
             const active = document.activeElement;
             return {{
-              menus: document.querySelectorAll('.sidebar-context-menu').length,
+              menus: window.__unkyTestTabMenu?.() ? 1 : 0,
               renameOpen: Boolean(document.querySelector('.tab-rename-input')),
               tabNodeId: active instanceof HTMLElement ? (active.dataset.tabNodeId ?? null) : null,
               tabStops: Array.from(document.querySelectorAll('.tab-tree [role="treeitem"]')).filter(node => node.tabIndex === 0).map(node => node.dataset.tabNodeId),
@@ -519,6 +585,54 @@ pub(crate) async fn desktop_test_browser_ui(
             button.click();
             return {{ clicked: true }};
           }}
+          if (args.action === 'inspect-source-page') {{
+            const address = document.querySelector('input[aria-label="Search or enter address"]');
+            const code = document.querySelector('.source-page-code');
+            return {{
+              address: address instanceof HTMLInputElement ? address.value : null,
+              open: Boolean(document.querySelector('.source-page')),
+              notes: Array.from(document.querySelectorAll('.source-page-note')).map(node => node.textContent.trim()),
+              lineCount: code ? code.querySelectorAll('.source-line').length : 0,
+              text: code ? code.textContent : null,
+            }};
+          }}
+          if (args.action === 'inspect-appearance') {{
+            const root = document.documentElement;
+            const address = document.querySelector('input[aria-label="Search or enter address"]');
+            const swatch = document.querySelector('.accent-swatch[data-selected]');
+            return {{
+              theme: root.dataset.theme ?? null,
+              accent: root.dataset.accent ?? null,
+              tint: getComputedStyle(root).getPropertyValue('--tint').trim(),
+              tint1000: getComputedStyle(root).getPropertyValue('--tint-1000').trim(),
+              accentColor: getComputedStyle(root).getPropertyValue('--accent').trim(),
+              address: address instanceof HTMLInputElement ? address.value : null,
+              selectedSwatch: swatch?.getAttribute('data-accent-swatch') ?? null,
+              pressedTheme: Array.from(document.querySelectorAll('.theme-picker button[aria-pressed="true"]')).map(node => node.textContent.trim()),
+              sidebarView: document.querySelector('.sidebar-switcher [role="tab"][aria-selected="true"]')?.textContent?.trim().toLowerCase() ?? null,
+              settingsHeadings: Array.from(document.querySelectorAll('.settings-page h2, section h2')).map(node => node.textContent.trim()),
+            }};
+          }}
+          if (args.action === 'choose-accent') {{
+            const swatch = document.querySelector(`.accent-swatch[data-accent-swatch="${{args.menuItem}}"] input`);
+            if (!(swatch instanceof HTMLInputElement)) return {{ error: `Accent ${{args.menuItem}} was not found` }};
+            swatch.click();
+            return {{ chosen: args.menuItem }};
+          }}
+          if (args.action === 'choose-theme-button') {{
+            const button = Array.from(document.querySelectorAll('.theme-picker button')).find(node => node.textContent.trim() === args.menuItem);
+            if (!button) return {{ error: `Theme ${{args.menuItem}} was not found` }};
+            button.click();
+            return {{ chosen: args.menuItem }};
+          }}
+          if (args.action === 'submit-address') {{
+            const input = document.querySelector('input[aria-label="Search or enter address"]');
+            if (!(input instanceof HTMLInputElement)) return {{ error: 'The address field was not found' }};
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, args.menuItem);
+            input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+            input.form?.requestSubmit();
+            return {{ submitted: args.menuItem }};
+          }}
           if (args.action === 'inspect-site-filter') {{
             const card = Array.from(document.querySelectorAll('.settings-card')).find(node => node.querySelector('strong')?.textContent === 'Current site');
             if (!card) return {{ settingsOpen: false }};
@@ -527,11 +641,12 @@ pub(crate) async fn desktop_test_browser_ui(
           }}
           if (args.action === 'inspect') {{
             const page = document.querySelector('.start-page');
-            const menuItems = Array.from(document.querySelectorAll('.sidebar-context-menu [role^="menuitem"]')).map(node => node.textContent.trim());
+            const tabMenu = window.__unkyTestTabMenu?.() ?? null;
+            const menuItems = (tabMenu ?? []).map(entry => entry.label);
             const hasTestContextMenuBridge = typeof window.__unkyTestOpenTabContextMenu === 'function';
-            if (!page) return {{ startPage: null, menuItems, tabRows: document.querySelectorAll('[data-tab-id]').length, menus: document.querySelectorAll('[role="menu"]').length, hasTestContextMenuBridge }};
+            if (!page) return {{ startPage: null, menuItems, tabRows: document.querySelectorAll('[data-tab-id]').length, menus: tabMenu ? 1 : 0, hasTestContextMenuBridge }};
             const rect = page.getBoundingClientRect();
-            return {{ startPage: {{ text: page.innerText, left: rect.left, top: rect.top, width: rect.width, height: rect.height, className: page.className }}, slot: (() => {{ const slot = document.querySelector('.webview-slot').getBoundingClientRect(); return {{ left: slot.left, top: slot.top, width: slot.width, height: slot.height }}; }})(), menuItems, tabRows: document.querySelectorAll('[data-tab-id]').length, menus: document.querySelectorAll('[role="menu"]').length, hasTestContextMenuBridge }};
+            return {{ startPage: {{ text: page.innerText, left: rect.left, top: rect.top, width: rect.width, height: rect.height, className: page.className }}, slot: (() => {{ const slot = document.querySelector('.webview-slot').getBoundingClientRect(); return {{ left: slot.left, top: slot.top, width: slot.width, height: slot.height }}; }})(), menuItems, tabRows: document.querySelectorAll('[data-tab-id]').length, menus: tabMenu ? 1 : 0, hasTestContextMenuBridge }};
           }}
           throw new Error(`Unsupported UI test action ${{args.action}}`);
         }})())"#,

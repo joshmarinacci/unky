@@ -43,6 +43,8 @@ import { DownloadsPage } from './pages/DownloadsPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { AppearanceSettings, GeneralSettings, PrivacySettings, SettingsPage } from './pages/SettingsPage';
 import { ShortcutsPage } from './pages/ShortcutsPage';
+import { SourcePage } from './pages/SourcePage';
+import { canViewSource, sourceTabTitle, viewSourceUrl, sourceTabUrl, type SourceTabState } from './viewSource';
 import { commandKey, isApplePlatform } from './platform';
 import { BookmarkSortableRow } from './components/BookmarkSortableRow';
 import {
@@ -57,6 +59,8 @@ import { bookmarkReducer, initialBookmarkState } from './bookmarkState';
 import { tabTreeReducer, type TabTreeAction } from './tabTreeState';
 import { useLatest } from './hooks/useLatest';
 import {
+  isTheme,
+  parseAccentColor,
   parseCustomPageContextMenu,
   parseSidebarCollapsed,
   parseSidebarSide,
@@ -70,6 +74,7 @@ import {
   sidebarMaxWidth,
   sidebarMinWidth,
   storageKeys,
+  type AccentColor,
   type SidebarSide,
   type Theme,
 } from './storedPreferences';
@@ -95,6 +100,8 @@ import {
   showDownloadsEvent,
   showHistoryEvent,
   showShortcutsEvent,
+  showBookmarksEvent,
+  themeMenuEvent,
   splitEvent,
   splitResizeEvent,
   tabDragDropEvent,
@@ -136,15 +143,21 @@ import {
   expandedTabFolderIds,
   flattenTabIds,
   insertTabNode,
+  nextVisibleTab,
   reconcileTabNodes,
+  tabAtShortcutPosition,
+  tabCycleOrder,
   tabFolders,
+  visibleTabCycleOrder,
 } from './tabTree';
 import type { TabFolder, TabNode } from './tabTree';
 import { groupSplitTabRows } from './splitTabRows';
 import { isContextMenuKey, rovingTabStop, selectInputText } from './tabUiActions';
 import { shortcutForKey, shortcutFromMenu, type ShortcutAction } from './shortcuts';
 import { filterSiteDomain, siteDomain } from './siteDomain';
-import { TabContextMenu, type TabContextMenuTarget } from './components/TabContextMenu';
+import { folderMenuEntries, tabMenuEntries, type TabContextMenuTarget } from './tabContextMenu';
+import { flattenMenuEntries, popupNativeMenu, type MenuEntry } from './nativeMenu';
+import { internalPageUrl, parseInternalPageUrl, type InternalPage } from './internalPages';
 import { TreeKeyboardNavigation } from './components/TreeKeyboardNavigation';
 import { snapshotBelongsToWindow } from './browserSnapshot';
 import { findAddressSuggestions, moveAddressSuggestionSelection } from './addressSuggestions';
@@ -198,12 +211,6 @@ export default function App() {
   const [editingTabId, setEditingTabId] = useState('');
   const [editingTabFolderId, setEditingTabFolderId] = useState('');
   const [tabFolderTitle, setTabFolderTitle] = useState('');
-  const [tabContextMenu, setTabContextMenu] = useState<{
-    id: string;
-    type: 'tab' | 'folder';
-    x: number;
-    y: number;
-  } | null>(null);
   const [address, setAddress] = useState('');
   const [addressSuggestionsOpen, setAddressSuggestionsOpen] = useState(false);
   const [activeAddressSuggestion, setActiveAddressSuggestion] = useState(0);
@@ -242,6 +249,8 @@ export default function App() {
   const [settingsTabIds, setSettingsTabIds] = useState(() => readStored(storageKeys.settingsTabs, parseStringArray));
   const settingsTabIdsRef = useRef(settingsTabIds);
   const [shortcutsTabIds, setShortcutsTabIds] = useState<string[]>([]);
+  /** View Source tabs and their HTML. Not persisted: after a restart the tab is blank. */
+  const [sourceTabs, setSourceTabs] = useState<Record<string, SourceTabState>>({});
   const shortcutsTabIdsRef = useRef<string[]>([]);
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [downloadsTabIds, setDownloadsTabIds] = useState<string[]>([]);
@@ -291,6 +300,9 @@ export default function App() {
   const [filterBusy, setFilterBusy] = useState(false);
   const [filterProgress, setFilterProgress] = useState<FilterUpdateProgress | null>(null);
   const [theme, setTheme] = useState<Theme>(() => readStored(storageKeys.theme, parseTheme));
+  const [accentColor, setAccentColor] = useState<AccentColor>(() =>
+    readStored(storageKeys.accentColor, parseAccentColor),
+  );
   const [customPageContextMenuEnabled, setCustomPageContextMenuEnabled] = useState(() =>
     readStored(storageKeys.customPageContextMenu, parseCustomPageContextMenu),
   );
@@ -305,6 +317,7 @@ export default function App() {
   usePersistedState(storageKeys.historyTabs, historyTabIds);
   usePersistedState(storageKeys.settingsTabs, settingsTabIds);
   usePersistedState(storageKeys.theme, theme, String);
+  usePersistedState(storageKeys.accentColor, accentColor, String);
   usePersistedState(storageKeys.customPageContextMenu, customPageContextMenuEnabled, String);
   const addressRef = useRef<HTMLInputElement>(null);
   const securityButtonRef = useRef<HTMLButtonElement>(null);
@@ -317,18 +330,23 @@ export default function App() {
   const tabsRef = useRef(tabs);
   const tabNodesRef = useRef(tabNodes);
   const pinnedTabIdsRef = useRef(pinnedTabIds);
+  /** Desktop-test builds only: the tab menu that would be showing natively. */
+  const testTabMenuRef = useRef<MenuEntry[] | null>(null);
   pinnedTabIdsRef.current = pinnedTabIds;
+  const openTabIdSet = () => new Set(tabsRef.current.map((tab) => tab.id));
+  /** Tabs the sidebar shows, in order, skipping collapsed folders: used for tab cycling and ⌘1–⌘9. */
+  const visibleTabOrder = () =>
+    visibleTabCycleOrder(tabNodesRef.current, pinnedTabIdsRef.current, openTabIdSet(), splitLayout);
   const cycleTabs = (backwards: boolean) => {
-    const openIds = new Set(tabsRef.current.map((tab) => tab.id));
-    const ids = [
-      ...pinnedTabIdsRef.current,
-      ...flattenTree(tabNodesRef.current, new Set(tabFolders(tabNodesRef.current).map((folder) => folder.id))).map(
-        (row) => row.node.id,
-      ),
-    ].filter((id) => openIds.has(id));
-    return call('cycle_tab', { backwards, orderedTabIds: ids.length ? ids : null })
-      .then(applySnapshot)
-      .catch((error) => setMessage(String(error)));
+    const fullOrder = tabCycleOrder(tabNodesRef.current, pinnedTabIdsRef.current, openTabIdSet(), splitLayout);
+    if (!fullOrder.length) {
+      // The tab tree has not caught up with the native tabs yet; let Rust cycle in its own order.
+      return call('cycle_tab', { backwards, orderedTabIds: null })
+        .then(applySnapshot)
+        .catch((error) => setMessage(String(error)));
+    }
+    const target = nextVisibleTab(fullOrder, visibleTabOrder(), activeTabIdRef.current, backwards);
+    return target ? selectTab(target) : Promise.resolve();
   };
   const faviconRequests = useRef(new Set<string>());
   const sessionTestStarted = useRef(false);
@@ -379,35 +397,8 @@ export default function App() {
   );
   const shortcutsPageOpen = shortcutsTabIds.includes(activeTabId);
   const downloadsPageOpen = downloadsTabIds.includes(activeTabId);
-  const tabContextMenuWidth = Math.min(220, window.innerWidth - 16);
-  useEffect(() => {
-    if (import.meta.env.MODE !== 'desktop-test') return;
-    const testWindow = window as typeof window & {
-      __unkyTestOpenTabContextMenu?: (tabId: string) => void;
-      __unkyTestSeedTabFolders?: () => void;
-    };
-    const openTestContextMenu = (tabId: string) => {
-      if (!tabId) return;
-      setTabContextMenu({
-        id: tabId,
-        type: 'tab',
-        x: Math.max(8, Math.min(100, window.innerWidth - tabContextMenuWidth - 8)),
-        y: 100,
-      });
-    };
-    const seedTestTabFolders = () => {
-      const nodes: TabNode[] = [
-        { id: 'desktop-test-folder', type: 'folder', title: 'Desktop Test Folder', collapsed: false, children: [] },
-      ];
-      setTabNodes(nodes);
-    };
-    testWindow.__unkyTestOpenTabContextMenu = openTestContextMenu;
-    testWindow.__unkyTestSeedTabFolders = seedTestTabFolders;
-    return () => {
-      delete testWindow.__unkyTestOpenTabContextMenu;
-      delete testWindow.__unkyTestSeedTabFolders;
-    };
-  }, [tabContextMenuWidth]);
+  const activeSourceTab = sourceTabs[activeTabId];
+  const sourcePageOpen = activeSourceTab !== undefined;
   const currentBookmark = activeTab?.url ? findBookmarkByUrl(bookmarks, activeTab.url) : undefined;
   const nativeAddressSuggestions = isTauri && /Mac/.test(navigator.platform);
   // Memoized because the native popover effect below depends on the list's identity.
@@ -577,16 +568,36 @@ export default function App() {
     localStorage.setItem(storageKeys.bookmarks, JSON.stringify(bookmarks));
   }, [bookmarks, bookmarksLoaded, isTauri]);
 
-  const applySnapshot = useCallback((snapshot: BrowserSnapshot) => {
-    if (!snapshotBelongsToWindow(snapshot.tabs, getCurrentWindow().label)) return;
-    setTabs(snapshot.tabs);
-    tabsRef.current = snapshot.tabs;
-    setActiveTabId(snapshot.activeTabId);
-    activeTabIdRef.current = snapshot.activeTabId;
-    setTabsLoaded(true);
-    const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
-    setAddress(active?.url ?? '');
-  }, []);
+  /** The built-in page a tab shows, which the address bar names with its `unky://` address. */
+  function internalPageOfTab(tabId: string | undefined): InternalPage | null {
+    if (!tabId) return null;
+    if (settingsTabIds.includes(tabId)) return 'settings';
+    if (historyTabIds.includes(tabId)) return 'history';
+    if (downloadsTabIds.includes(tabId)) return 'downloads';
+    if (shortcutsTabIds.includes(tabId)) return 'shortcuts';
+    return null;
+  }
+  /** The address bar text for a built-in page or source tab, or null for a website. */
+  function builtInAddressOfTab(tabId: string | undefined): string | null {
+    const source = tabId ? sourceTabs[tabId] : undefined;
+    if (source) return viewSourceUrl(sourceTabUrl(source));
+    const internalPage = internalPageOfTab(tabId);
+    return internalPage ? internalPageUrl(internalPage) : null;
+  }
+  const builtInAddressOfTabRef = useLatest(builtInAddressOfTab);
+  const applySnapshot = useCallback(
+    (snapshot: BrowserSnapshot) => {
+      if (!snapshotBelongsToWindow(snapshot.tabs, getCurrentWindow().label)) return;
+      setTabs(snapshot.tabs);
+      tabsRef.current = snapshot.tabs;
+      setActiveTabId(snapshot.activeTabId);
+      activeTabIdRef.current = snapshot.activeTabId;
+      setTabsLoaded(true);
+      const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
+      setAddress(builtInAddressOfTabRef.current(active?.id) ?? active?.url ?? '');
+    },
+    [builtInAddressOfTabRef],
+  );
 
   // Event listeners below subscribe once; they call handlers through this ref so they
   // always use the current render's versions.
@@ -598,6 +609,36 @@ export default function App() {
         break;
       case 'new-private-tab':
         void createTab(true);
+        break;
+      case 'new-window':
+        void call('new_browser_window').catch((error) => setMessage(String(error)));
+        break;
+      case 'close-window':
+        void call('close_browser_window').catch((error) => setMessage(String(error)));
+        break;
+      case 'print':
+        void runNavigationCommand('print_page');
+        break;
+      case 'bookmark-page':
+        addCurrentPage();
+        break;
+      case 'toggle-sidebar':
+        setSidebarCollapsed((collapsed) => !collapsed);
+        break;
+      case 'toggle-devtools':
+        void call('toggle_devtools').catch((error) => setMessage(String(error)));
+        break;
+      case 'view-source':
+        void openViewSource();
+        break;
+      case 'reload-ignoring-cache':
+        void runNavigationCommand('reload_ignoring_cache');
+        break;
+      case 'find-next':
+      case 'find-previous':
+        // Like Safari, ⌘G with no search yet opens the find bar.
+        if (findOpen && findQuery.trim()) void findInPage(findQuery, action === 'find-previous');
+        else openFindPanel();
         break;
       case 'open-in-browser':
         externalBrowserButtonRef.current?.click();
@@ -627,6 +668,23 @@ export default function App() {
       case 'next-tab':
         void cycleTabs(false);
         break;
+      case 'stop-loading':
+        void runNavigationCommand('stop_loading');
+        break;
+      case 'select-last-tab':
+      case 'select-tab-1':
+      case 'select-tab-2':
+      case 'select-tab-3':
+      case 'select-tab-4':
+      case 'select-tab-5':
+      case 'select-tab-6':
+      case 'select-tab-7':
+      case 'select-tab-8': {
+        const position = action === 'select-last-tab' ? 'last' : Number(action.slice('select-tab-'.length));
+        const tabId = tabAtShortcutPosition(visibleTabOrder(), position);
+        if (tabId && tabId !== activeTabIdRef.current) void selectTab(tabId);
+        break;
+      }
       case 'previous-tab':
         void cycleTabs(true);
         break;
@@ -643,6 +701,8 @@ export default function App() {
   }
 
   const browserActions = useLatest({
+    openTabContextMenu,
+    showBookmarksManager,
     closeTab,
     createTab,
     cycleTabs,
@@ -658,7 +718,53 @@ export default function App() {
     reopenClosedTab,
     reorderTabsFromTree,
     runShortcut,
+    storeTabTree,
   });
+  useEffect(() => {
+    if (import.meta.env.MODE !== 'desktop-test') return;
+    const testWindow = window as typeof window & {
+      __unkyTestOpenTabContextMenu?: (tabId: string) => void;
+      __unkyTestTabMenu?: () => { label: string; path: string[]; enabled: boolean; accelerator?: string }[] | null;
+      __unkyTestActivateTabMenuItem?: (label: string) => boolean;
+      __unkyTestCloseTabMenu?: () => void;
+      __unkyTestSeedTabFolders?: () => void;
+    };
+    testWindow.__unkyTestOpenTabContextMenu = (tabId) => {
+      if (tabId) browserActions.current.openTabContextMenu({ id: tabId, type: 'tab', x: 100, y: 100 });
+    };
+    testWindow.__unkyTestTabMenu = () =>
+      testTabMenuRef.current &&
+      flattenMenuEntries(testTabMenuRef.current).map(({ label, path, enabled, accelerator }) => ({
+        label,
+        path,
+        enabled,
+        accelerator,
+      }));
+    testWindow.__unkyTestActivateTabMenuItem = (label) => {
+      const item = flattenMenuEntries(testTabMenuRef.current ?? []).find(
+        (entry) => entry.label === label && entry.enabled,
+      );
+      if (!item) return false;
+      testTabMenuRef.current = null;
+      item.action();
+      return true;
+    };
+    testWindow.__unkyTestCloseTabMenu = () => {
+      testTabMenuRef.current = null;
+    };
+    testWindow.__unkyTestSeedTabFolders = () => {
+      browserActions.current.storeTabTree([
+        { id: 'desktop-test-folder', type: 'folder', title: 'Desktop Test Folder', collapsed: false, children: [] },
+      ]);
+    };
+    return () => {
+      delete testWindow.__unkyTestOpenTabContextMenu;
+      delete testWindow.__unkyTestTabMenu;
+      delete testWindow.__unkyTestActivateTabMenuItem;
+      delete testWindow.__unkyTestCloseTabMenu;
+      delete testWindow.__unkyTestSeedTabFolders;
+    };
+  }, [browserActions]);
   useEffect(() => {
     if (!isTauri) return;
     let unlisten: (() => void) | undefined;
@@ -707,9 +813,9 @@ export default function App() {
   useEffect(() => {
     if (!isTauri || !tabsLoaded) return;
     void call('set_settings_open', {
-      open: settingsPageOpen || historyPageOpen || shortcutsPageOpen || downloadsPageOpen,
+      open: settingsPageOpen || historyPageOpen || shortcutsPageOpen || downloadsPageOpen || sourcePageOpen,
     }).catch((error) => setMessage(String(error)));
-  }, [isTauri, tabsLoaded, settingsPageOpen, historyPageOpen, shortcutsPageOpen, downloadsPageOpen]);
+  }, [isTauri, tabsLoaded, settingsPageOpen, historyPageOpen, shortcutsPageOpen, downloadsPageOpen, sourcePageOpen]);
 
   useEffect(() => {
     for (const tab of tabs) {
@@ -740,6 +846,33 @@ export default function App() {
     preference.addEventListener('change', apply);
     return () => preference.removeEventListener('change', apply);
   }, [theme]);
+
+  useEffect(() => {
+    document.documentElement.dataset.accent = accentColor;
+  }, [accentColor]);
+
+  // The View > Appearance menu and native window chrome follow the theme in every browser window.
+  useEffect(() => {
+    if (isTauri) void call('sync_theme_menu', { theme }).catch((error) => setMessage(String(error)));
+  }, [theme, isTauri]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void onEvent(themeMenuEvent, (event) => {
+      if (isTheme(event.payload)) setTheme(event.payload);
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch((error) => setMessage(String(error)));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [isTauri]);
 
   useEffect(() => {
     if (isTauri && tabsLoaded) {
@@ -793,7 +926,7 @@ export default function App() {
       setPinnedTabIds([]);
       setTabPosition('left');
       setSidebarSide('left');
-      setTabContextMenu(null);
+      testTabMenuRef.current = null;
       storeTabTree(reconcileTabNodes([], tabsRef.current));
     };
     testWindow.__unkyTestSyncTabSnapshot = (snapshot) => {
@@ -840,6 +973,9 @@ export default function App() {
       });
       const unlistenShowShortcuts = await onEvent(showShortcutsEvent, () => {
         void browserActions.current.openShortcutsPage();
+      });
+      const unlistenShowBookmarks = await onEvent(showBookmarksEvent, () => {
+        browserActions.current.showBookmarksManager();
       });
       const unlistenHistory = await onEvent(historyEvent, (event) => setHistory(event.payload));
       const unlistenBookmarks = await onEvent(bookmarksEvent, (event) =>
@@ -921,6 +1057,7 @@ export default function App() {
         unlistenShowDownloads();
         unlistenShowAllDownloads();
         unlistenShowShortcuts();
+        unlistenShowBookmarks();
         unlistenShortcuts();
         unlistenHistory();
         unlistenBookmarks();
@@ -946,6 +1083,7 @@ export default function App() {
           unlistenShowDownloads();
           unlistenShowAllDownloads();
           unlistenShowShortcuts();
+          unlistenShowBookmarks();
           unlistenShortcuts();
           unlistenHistory();
           unlistenBookmarks();
@@ -1277,6 +1415,7 @@ export default function App() {
         applySnapshot(snapshot);
         setHistoryTabIds((ids) => [...ids, snapshot.activeTabId]);
         setTabNameOverrides((names) => ({ ...names, [snapshot.activeTabId]: 'history' }));
+        setAddress(internalPageUrl('history'));
       } catch (error) {
         setMessage(String(error));
         void call('set_settings_open', { open: false }).catch(() => {});
@@ -1303,6 +1442,7 @@ export default function App() {
       applySnapshot(snapshot);
       setDownloadsTabIds((ids) => [...ids, snapshot.activeTabId]);
       setTabNameOverrides((names) => ({ ...names, [snapshot.activeTabId]: 'Downloads' }));
+      setAddress(internalPageUrl('downloads'));
     } catch (error) {
       setMessage(String(error));
     }
@@ -1343,6 +1483,7 @@ export default function App() {
         return next;
       });
       setTabNameOverrides((names) => ({ ...names, [snapshot.activeTabId]: 'Keyboard Shortcuts' }));
+      setAddress(internalPageUrl('shortcuts'));
     } catch (error) {
       setMessage(String(error));
     }
@@ -1369,6 +1510,7 @@ export default function App() {
         return next;
       });
       setTabNameOverrides((names) => ({ ...names, [snapshot.activeTabId]: 'Settings' }));
+      setAddress(internalPageUrl('settings'));
     } catch (error) {
       setMessage(String(error));
     }
@@ -1379,8 +1521,10 @@ export default function App() {
       historyTabIds.includes(tabId) ||
       settingsTabIds.includes(tabId) ||
       shortcutsTabIds.includes(tabId) ||
-      downloadsTabIds.includes(tabId);
+      downloadsTabIds.includes(tabId) ||
+      tabId in sourceTabs;
     if (!wasInternalPage) return;
+    forgetSourceTab(tabId);
     setHistoryTabIds((ids) => ids.filter((id) => id !== tabId));
     setSettingsTabIds((ids) => {
       const next = ids.filter((id) => id !== tabId);
@@ -1536,7 +1680,50 @@ export default function App() {
     }
   }
 
+  function forgetSourceTab(tabId: string) {
+    setSourceTabs((tabs) => {
+      if (!(tabId in tabs)) return tabs;
+      const next = { ...tabs };
+      delete next[tabId];
+      return next;
+    });
+  }
+
+  /** ⌥⌘U: show the active page's HTML in a new tab below it. */
+  async function openViewSource() {
+    const page = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+    if (!page || sourceTabs[page.id] || !canViewSource(page.url)) {
+      setMessage('This tab has no page source to show.');
+      return;
+    }
+    const { id: pageTabId, url, title } = page;
+    let sourceTabId: string;
+    try {
+      const snapshot = await call('create_tab');
+      sourceTabId = snapshot.activeTabId;
+      setSourceTabs((tabs) => ({ ...tabs, [sourceTabId]: { status: 'loading', url } }));
+      applySnapshot(snapshot);
+      reorderTabsFromTree(insertTabNode(tabNodesRef.current, pageTabId, { id: sourceTabId, type: 'tab' }, true).nodes);
+      setTabNameOverrides((names) => ({ ...names, [sourceTabId]: sourceTabTitle(title, url) }));
+      setAddress(viewSourceUrl(url));
+    } catch (error) {
+      setMessage(String(error));
+      return;
+    }
+    try {
+      const source = await call('get_page_source', { tabId: pageTabId });
+      setSourceTabs((tabs) =>
+        sourceTabId in tabs ? { ...tabs, [sourceTabId]: { status: 'ready', page: source } } : tabs,
+      );
+    } catch (error) {
+      setSourceTabs((tabs) =>
+        sourceTabId in tabs ? { ...tabs, [sourceTabId]: { status: 'error', url, message: String(error) } } : tabs,
+      );
+    }
+  }
+
   async function closeTab(id: string) {
+    forgetSourceTab(id);
     try {
       applySnapshot(await call('close_tab', { tabId: id }));
     } catch (error) {
@@ -1564,10 +1751,41 @@ export default function App() {
     }
   }
 
+  /** Open the built-in page an address names, as typing `chrome://settings` does in Chrome. */
+  function openInternalPage(page: InternalPage) {
+    addressRef.current?.blur();
+    switch (page) {
+      case 'settings':
+        return openSettingsPage();
+      case 'history':
+        return openHistoryPage();
+      case 'downloads':
+        return openAllDownloadsPage();
+      case 'shortcuts':
+        return openShortcutsPage();
+      case 'bookmarks':
+        showBookmarksManager();
+        return;
+    }
+  }
+
+  /** Expand the sidebar to the bookmarks manager. */
+  function showBookmarksManager() {
+    setSidebarCollapsed(false);
+    setSidebarView('bookmarks');
+  }
+
   async function navigate(event: React.FormEvent) {
     event.preventDefault();
     if (!activeTabId) return;
     setAddressSuggestionsOpen(false);
+    const internalPage = parseInternalPageUrl(address);
+    if (internalPage) {
+      // Restore the current tab's address; the page opens in its own tab.
+      setAddress(builtInAddressOfTab(activeTabId) ?? activeTab?.url ?? '');
+      await openInternalPage(internalPage);
+      return;
+    }
     try {
       await leaveHistoryTab(activeTabId);
       setMessage('');
@@ -1582,6 +1800,11 @@ export default function App() {
     setAddress(url);
     setAddressSuggestionsOpen(false);
     if (!activeTabId) return;
+    const internalPage = parseInternalPageUrl(url);
+    if (internalPage) {
+      await openInternalPage(internalPage);
+      return;
+    }
     try {
       await leaveHistoryTab(activeTabId);
       setMessage('');
@@ -1598,7 +1821,9 @@ export default function App() {
     void navigateTo(url);
   }
 
-  async function runNavigationCommand(command: 'go_back' | 'go_forward' | 'reload' | 'stop_loading') {
+  async function runNavigationCommand(
+    command: 'go_back' | 'go_forward' | 'reload' | 'reload_ignoring_cache' | 'stop_loading' | 'print_page',
+  ) {
     const tabId = activeTabIdRef.current;
     if (!tabId) return;
     try {
@@ -1887,6 +2112,22 @@ export default function App() {
     setTabFolderTitle(folder.title);
   }
 
+  /** Wrap the tab in a new group where it sits, then rename the group so the user can title it. */
+  function moveTabToNewFolder(tabId: string) {
+    const folder: TabFolder = {
+      id: crypto.randomUUID(),
+      type: 'folder',
+      title: 'New Group',
+      collapsed: false,
+      children: [],
+    };
+    // A pinned tab is shown outside the tree, so unpin it to make the new group visible.
+    setPinnedTabIds((ids) => ids.filter((id) => id !== tabId));
+    // The tab keeps its place in the order, so nothing needs to reach Rust.
+    updateTabTree({ type: 'tabWrappedInFolder', tabId, folder });
+    startTabRename(folder.id, 'folder');
+  }
+
   function saveTabFolderTitle(folderId: string) {
     const title = tabFolderTitle.trim() || 'New Folder';
     updateTabTree({ type: 'folderRenamed', id: folderId, title });
@@ -2147,12 +2388,7 @@ export default function App() {
   // Same menu as the full-width rows, opened to the right of the narrow rail.
   function openRailContextMenu(event: React.MouseEvent, id: string, type: 'tab' | 'folder') {
     event.preventDefault();
-    setTabContextMenu({
-      id,
-      type,
-      x: Math.max(8, Math.min(event.clientX + 8, window.innerWidth - tabContextMenuWidth - 8)),
-      y: Math.min(event.clientY, window.innerHeight - 90),
-    });
+    openTabContextMenu({ id, type, x: event.clientX, y: event.clientY });
   }
 
   function renderRailItem({ node }: FlatNode<TabNode>): React.ReactNode {
@@ -2253,12 +2489,7 @@ export default function App() {
           tabbable={node.id === tabbableTabNodeId}
           onContextMenu={(event) => {
             event.preventDefault();
-            setTabContextMenu({
-              id: node.id,
-              type: 'folder',
-              x: Math.max(8, Math.min(event.clientX, window.innerWidth - tabContextMenuWidth - 8)),
-              y: Math.min(event.clientY, window.innerHeight - 90),
-            });
+            openTabContextMenu({ id: node.id, type: 'folder', x: event.clientX, y: event.clientY });
           }}
         >
           <div
@@ -2333,12 +2564,7 @@ export default function App() {
         onActivate={() => void selectTab(tab.id)}
         onContextMenu={(event) => {
           event.preventDefault();
-          setTabContextMenu({
-            id: tab.id,
-            type: 'tab',
-            x: Math.max(8, Math.min(event.clientX, window.innerWidth - tabContextMenuWidth - 8)),
-            y: Math.min(event.clientY, window.innerHeight - 90),
-          });
+          openTabContextMenu({ id: tab.id, type: 'tab', x: event.clientX, y: event.clientY });
         }}
       >
         <div
@@ -2678,58 +2904,54 @@ export default function App() {
     event.preventDefault();
     const rect = row.getBoundingClientRect();
     const type = findNode(tabNodesRef.current, id)?.type === 'folder' ? 'folder' : 'tab';
-    setTabContextMenu({ id, type, x: rect.left + 12, y: rect.bottom });
+    openTabContextMenu({ id, type, x: rect.left + 12, y: rect.bottom });
   }
 
-  function renderTabContextMenu(target: TabContextMenuTarget) {
-    const close = () => setTabContextMenu(null);
-    // A new key per opening resets the menu's expanded submenus.
-    const key = `${target.type}-${target.id}-${target.x}-${target.y}`;
+  function tabContextMenuEntries(target: TabContextMenuTarget): MenuEntry[] {
     if (target.type === 'folder')
-      return (
-        <TabContextMenu
-          key={key}
-          kind="folder"
-          target={target}
-          onClose={close}
-          onRename={() => startTabRename(target.id, 'folder')}
-          onDeleteFolder={() => deleteTabFolder(target.id)}
-        />
-      );
+      return folderMenuEntries({
+        onRename: () => startTabRename(target.id, 'folder'),
+        onDeleteFolder: () => deleteTabFolder(target.id),
+      });
     const tab = tabs.find((item) => item.id === target.id);
-    return (
-      <TabContextMenu
-        key={key}
-        kind="tab"
-        target={target}
-        onClose={close}
-        pinned={pinnedTabIds.includes(target.id)}
-        isWebsite={Boolean(tab?.url.match(/^https?:\/\//))}
-        inSplit={Boolean(
-          splitLayout && (splitLayout.firstTabId === target.id || splitLayout.secondTabId === target.id),
-        )}
-        folders={tabFolders(tabNodes).map((folder) => ({ id: folder.id, title: folder.title }))}
-        onRename={() => startTabRename(target.id, 'tab')}
-        onTogglePin={() =>
-          setPinnedTabIds((ids) =>
-            ids.includes(target.id) ? ids.filter((id) => id !== target.id) : [...ids, target.id],
-          )
-        }
-        onReload={() => void call('reload', { tabId: target.id }).catch((error) => setMessage(String(error)))}
-        onNewTabBelow={() => void createTabBelow(target.id)}
-        onDuplicate={() => void duplicateTab(target.id)}
-        onSplit={(side) =>
-          void dropTabIntoSplit(
-            side,
-            target.id,
-            target.id === activeTabIdRef.current ? target.id : activeTabIdRef.current,
-          )
-        }
-        onUnsplit={() => void closeSplitView()}
-        onMoveToFolder={(folderId) => moveTabNode(target.id, undefined, folderId)}
-        onCloseTab={() => void closeTab(target.id)}
-      />
-    );
+    return tabMenuEntries({
+      pinned: pinnedTabIds.includes(target.id),
+      isWebsite: Boolean(tab?.url.match(/^https?:\/\//)),
+      inSplit: Boolean(splitLayout && (splitLayout.firstTabId === target.id || splitLayout.secondTabId === target.id)),
+      folders: tabFolders(tabNodes).map((folder) => ({ id: folder.id, title: folder.title })),
+      onRename: () => startTabRename(target.id, 'tab'),
+      onTogglePin: () =>
+        setPinnedTabIds((ids) =>
+          ids.includes(target.id) ? ids.filter((id) => id !== target.id) : [...ids, target.id],
+        ),
+      onReload: () => void call('reload', { tabId: target.id }).catch((error) => setMessage(String(error))),
+      onNewTabBelow: () => void createTabBelow(target.id),
+      onDuplicate: () => void duplicateTab(target.id),
+      onSplit: (side) =>
+        void dropTabIntoSplit(
+          side,
+          target.id,
+          target.id === activeTabIdRef.current ? target.id : activeTabIdRef.current,
+        ),
+      onUnsplit: () => void closeSplitView(),
+      onMoveToNewFolder: () => moveTabToNewFolder(target.id),
+      onMoveToFolder: (folderId) => moveTabNode(target.id, undefined, folderId),
+      onCloseTab: () => void closeTab(target.id),
+    });
+  }
+
+  /**
+   * Show the tab or folder menu as a native popup so it can overlap the page WebViews and extend
+   * past the window. Desktop-test builds keep the entries for the WebDriver bridge instead, since
+   * the native menu's modal loop would block the test.
+   */
+  function openTabContextMenu(target: TabContextMenuTarget) {
+    const entries = tabContextMenuEntries(target);
+    if (import.meta.env.MODE === 'desktop-test') {
+      testTabMenuRef.current = entries;
+      return;
+    }
+    void popupNativeMenu(entries, target.x, target.y).catch((error) => setMessage(String(error)));
   }
 
   function renderBookmarkManager() {
@@ -2941,7 +3163,6 @@ export default function App() {
             </Tabs>
           )}
         </div>
-        {tabContextMenu && renderTabContextMenu(tabContextMenu)}
         <div
           className={`sidebar-sizer ${resizingSidebar ? 'dragging' : ''}`}
           role="separator"
@@ -3282,22 +3503,24 @@ export default function App() {
             <DownloadsPage downloads={downloads} onClose={() => void closeTab(activeTabId)} setMessage={setMessage} />
           ) : settingsPageOpen ? (
             <SettingsPage message={message} onClose={closeSettings}>
-              <GeneralSettings
-                onManageBookmarks={() => {
-                  closeSettings();
-                  setSidebarView('bookmarks');
-                }}
-                pageContextMenu={customPageContextMenuEnabled}
-                onPageContextMenuChange={setCustomPageContextMenuEnabled}
-              />
               <AppearanceSettings
                 theme={theme}
                 setTheme={setTheme}
+                accentColor={accentColor}
+                setAccentColor={setAccentColor}
                 tabPosition={tabPosition}
                 setTabPosition={setTabPosition}
                 sidebarSide={sidebarSide}
                 setSidebarSide={setSidebarSide}
                 sidebarWidth={sidebarWidth}
+              />
+              <GeneralSettings
+                onManageBookmarks={() => {
+                  closeSettings();
+                  showBookmarksManager();
+                }}
+                pageContextMenu={customPageContextMenuEnabled}
+                onPageContextMenuChange={setCustomPageContextMenuEnabled}
               />
               <PrivacySettings
                 onNewPrivateTab={() => void createTab(true)}
@@ -3315,6 +3538,8 @@ export default function App() {
             </SettingsPage>
           ) : shortcutsPageOpen ? (
             <ShortcutsPage onClose={() => void closeTab(activeTabId)} />
+          ) : activeSourceTab ? (
+            <SourcePage state={activeSourceTab} onClose={() => void closeTab(activeTabId)} />
           ) : historyPageOpen ? (
             <HistoryPage
               history={history}

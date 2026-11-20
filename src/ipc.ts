@@ -9,7 +9,9 @@
  */
 import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
 import { listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { BookmarkNode } from './bookmarks';
+import type { PageSource } from './viewSource';
 import type { AddressSuggestion, AddressSuggestionsState } from './addressSuggestions';
 
 export type Tab = {
@@ -81,7 +83,13 @@ export type Commands = {
   set_view_bounds: { args: Anchor; result: void };
   set_settings_open: { args: { open: boolean }; result: void };
   toggle_devtools: { result: void };
+  new_browser_window: { result: string };
+  close_browser_window: { result: void };
+  print_page: { args: TabArgs; result: void };
+  reload_ignoring_cache: { args: TabArgs; result: void };
+  get_page_source: { args: TabArgs; result: PageSource };
   sync_tab_position_menu: { args: { position: string }; result: void };
+  sync_theme_menu: { args: { theme: string }; result: void };
   take_launch_request: { result: LaunchRequest | null };
   // Navigation and page tools
   navigate: { args: TabArgs & { url: string }; result: void };
@@ -176,6 +184,8 @@ export const showAllDownloadsEvent = 'browser://show-all-downloads';
 export const showShortcutsEvent = 'browser://show-shortcuts';
 export const shortcutEvent = 'browser://shortcut';
 export const tabPositionMenuEvent = 'browser://tab-position-menu';
+export const showBookmarksEvent = 'browser://show-bookmarks';
+export const themeMenuEvent = 'browser://theme-menu';
 export const historyEvent = 'browser://history-changed';
 export const bookmarksEvent = 'browser://bookmarks-changed';
 export const openUrlFromMenuEvent = 'browser://open-url-from-menu';
@@ -204,6 +214,8 @@ export type Events = {
   [showShortcutsEvent]: null;
   [shortcutEvent]: string;
   [tabPositionMenuEvent]: { windowLabel: string; position: string };
+  [showBookmarksEvent]: null;
+  [themeMenuEvent]: string;
   [historyEvent]: HistoryEntry[];
   [bookmarksEvent]: BookmarkNode[];
   [openUrlFromMenuEvent]: string;
@@ -220,10 +232,16 @@ export type Events = {
 };
 export type EventName = keyof Events;
 
-/** Listen for a Rust event with a typed payload. Resolves to the unlisten function. */
+/**
+ * Listen for a Rust event with a typed payload. Resolves to the unlisten function.
+ *
+ * The listener targets this webview's own label. Tauri's default target, `Any`, receives every
+ * event whatever window Rust sent it to, so a menu shortcut meant for the focused window would run
+ * in every browser window. Events Rust broadcasts with `emit` still reach every window.
+ */
 export function onEvent<E extends EventName>(
   event: E,
   handler: (event: Event<Events[E]>) => void,
 ): Promise<UnlistenFn> {
-  return listen<Events[E]>(event, handler);
+  return listen<Events[E]>(event, handler, { target: { kind: 'AnyLabel', label: getCurrentWebview().label } });
 }

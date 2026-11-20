@@ -69,3 +69,19 @@ test('moves that make no sense return the same tree', () => {
   expect(tabTreeReducer(nodes, { type: 'moved', id: 'missing', targetId: 'a' })).toBe(nodes);
   expect(tabTreeReducer(nodes, { type: 'moved', id: 'f', folderId: 'g' })).toBe(nodes);
 });
+
+test('wrapping a tab in a new folder keeps its place, even inside another folder', () => {
+  const group = folder('g');
+  expect(
+    tabTreeReducer([tab('a'), tab('b'), tab('c')], { type: 'tabWrappedInFolder', tabId: 'b', folder: group }),
+  ).toStrictEqual([tab('a'), folder('g', [tab('b')]), tab('c')]);
+  expect(
+    tabTreeReducer([folder('outer', [tab('a'), tab('b')])], { type: 'tabWrappedInFolder', tabId: 'b', folder: group }),
+  ).toStrictEqual([folder('outer', [tab('a'), folder('g', [tab('b')])])]);
+});
+
+test('wrapping a folder or a missing tab changes nothing', () => {
+  const nodes = [folder('f', [tab('a')]), tab('b')];
+  expect(tabTreeReducer(nodes, { type: 'tabWrappedInFolder', tabId: 'f', folder: folder('g') })).toBe(nodes);
+  expect(tabTreeReducer(nodes, { type: 'tabWrappedInFolder', tabId: 'zz', folder: folder('g') })).toBe(nodes);
+});

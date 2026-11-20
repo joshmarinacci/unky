@@ -1,8 +1,8 @@
 import buildMetadata from '../build-metadata.json';
-import { Button as AriaButton, ListBox, ListBoxItem, Popover, Select, SelectValue } from 'react-aria-components';
+import { Radio, RadioGroup } from 'react-aria-components';
 import { X } from 'lucide-react';
 import { AppButton } from '../components/ui';
-import { type SidebarSide, type Theme } from '../storedPreferences';
+import { accentColors, type AccentColor, type SidebarSide, type Theme } from '../storedPreferences';
 import { type FilterSettingsView, type FilterUpdateProgress } from '../ipc';
 import { type TabPosition } from '../tabLayout';
 
@@ -99,9 +99,29 @@ export function GeneralSettings({
   );
 }
 
+const themeChoices: { id: Theme; label: string }[] = [
+  { id: 'system', label: 'System' },
+  { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
+];
+
+const accentLabels: Record<AccentColor, string> = {
+  system: 'System',
+  blue: 'Blue',
+  purple: 'Purple',
+  pink: 'Pink',
+  red: 'Red',
+  orange: 'Orange',
+  yellow: 'Yellow',
+  green: 'Green',
+  graphite: 'Graphite',
+};
+
 export function AppearanceSettings({
   theme,
   setTheme,
+  accentColor,
+  setAccentColor,
   tabPosition,
   setTabPosition,
   sidebarSide,
@@ -110,6 +130,8 @@ export function AppearanceSettings({
 }: {
   theme: Theme;
   setTheme: (theme: Theme) => void;
+  accentColor: AccentColor;
+  setAccentColor: (color: AccentColor) => void;
   tabPosition: TabPosition;
   setTabPosition: (position: TabPosition) => void;
   sidebarSide: SidebarSide;
@@ -124,23 +146,38 @@ export function AppearanceSettings({
           <strong>Color scheme</strong>
           <small>Choose the browser interface appearance.</small>
         </div>
-        <Select
-          aria-label="Color scheme"
-          selectedKey={theme}
-          onSelectionChange={(key) => setTheme(key as Theme)}
-          className="theme-select"
+        <div className="tab-position-picker theme-picker" role="group" aria-label="Color scheme">
+          {themeChoices.map((choice) => (
+            <button
+              key={choice.id}
+              type="button"
+              aria-pressed={theme === choice.id}
+              onClick={() => setTheme(choice.id)}
+            >
+              {choice.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="settings-card">
+        <div>
+          <strong>Accent color</strong>
+          <small>Color for selected tabs, buttons and highlights. System follows your macOS accent color.</small>
+        </div>
+        <RadioGroup
+          className="accent-picker"
+          aria-label="Accent color"
+          orientation="horizontal"
+          value={accentColor}
+          onChange={(value) => setAccentColor(accentColors.find((color) => color === value) ?? accentColor)}
         >
-          <AriaButton className="button-base theme-select-trigger" data-variant="secondary">
-            <SelectValue />
-          </AriaButton>
-          <Popover className="theme-select-popover">
-            <ListBox>
-              <ListBoxItem id="system">System</ListBoxItem>
-              <ListBoxItem id="light">Light</ListBoxItem>
-              <ListBoxItem id="dark">Dark</ListBoxItem>
-            </ListBox>
-          </Popover>
-        </Select>
+          {accentColors.map((color) => (
+            <Radio key={color} value={color} className="accent-swatch" data-accent-swatch={color}>
+              <span className="accent-swatch-color" aria-hidden="true" />
+              <span className="accent-swatch-label">{accentLabels[color]}</span>
+            </Radio>
+          ))}
+        </RadioGroup>
       </div>
       <div className="settings-card">
         <div>

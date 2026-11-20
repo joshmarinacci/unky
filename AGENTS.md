@@ -20,6 +20,14 @@
 - Menu accelerators are app-wide on macOS. Route shortcut, settings, and zoom actions to the focused browser window; do not hard-code the `main` label for these actions.
 - For split or window-lifecycle changes, the desktop suite exercises horizontal and vertical split state and moving a child tab to another native browser window. Inspect `test-results/split-view.png` and `test-results/vertical-split.png` alongside the usual browser state and diagnostic artifacts.
 
+## Events, windows and built-in pages
+
+- `onEvent` in `src/ipc.ts` listens only to events sent to the current webview's label. Tauri's default JS `listen` target (`Any`) receives every event whatever window it was sent to, which once made menu shortcuts such as ⌘P run in every window. In Rust, send window-specific events with `emit_to(<window label>, …)`, and app-wide state (downloads, history, bookmarks) to each browser window (`main` and `browser-window-*`) or with `emit`.
+- Look up browser windows with `app.get_window`. A browser window holds its UI webview and the page child webviews, and `get_webview_window` finds only single-webview windows. Open new browser windows with `open_browser_window` in `src-tauri/src/windows.rs`, which also closes their tabs when the window is destroyed.
+- Built-in pages (Settings, History, Downloads, Shortcuts, Bookmarks) are drawn by the trusted UI over a blank tab, with `unky://<page>` addresses (`src/internalPages.ts`). View Source tabs work the same way, with a `view-source:<url>` address (`src/viewSource.ts`). Their HTML comes from `get_page_source` and is not persisted.
+- Tab cycling and ⌘1–⌘9 skip tabs inside collapsed folders (`visibleTabCycleOrder` and `nextVisibleTab` in `src/tabTree.ts`). The UI picks the target and calls `select_tab`, because `cycle_tab` adds any tab missing from its order list back onto the end.
+- New shortcuts need a menu item in `src-tauri/src/setup.rs` (id `shortcut-<action>`), a `ShortcutAction` in `src/shortcuts.ts`, a case in `runShortcut` in `src/App.tsx`, an entry in the Windows page-key table in `src-tauri/src/platforms/windows.rs`, a row on the Shortcuts page, and an update to `docs/keyboard-shortcuts.md`. Option-modified shortcuts on macOS (⌥⌘R, ⌥⌘I, ⌥⌘U) are handled only by their menu items, because Option changes `event.key`.
+
 ## Tab context menu and rename behavior
 
 - The page custom context menu's “Open Link in Other Split” action must route through the page-authorized `open_link_in_new_tab` command with `otherSplit: true`; website child WebViews cannot invoke trusted-UI commands such as `navigate`.

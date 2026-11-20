@@ -14,6 +14,70 @@ pub(crate) struct TabPositionMenuState {
     pub(crate) by_window: Mutex<HashMap<String, String>>,
 }
 
+/// Appearance choices in View > Appearance, matching the theme setting in the UI.
+pub(crate) const THEME_MENU_OPTIONS: [(&str, &str); 3] =
+    [("system", "System"), ("light", "Light"), ("dark", "Dark")];
+
+fn theme_submenu(app: &tauri::AppHandle) -> Option<tauri::menu::Submenu<tauri::Wry>> {
+    let menu = app.menu()?;
+    let tauri::menu::MenuItemKind::Submenu(view_menu) = menu.get("view-menu")? else {
+        return None;
+    };
+    let tauri::menu::MenuItemKind::Submenu(theme_menu) = view_menu.get("theme-menu")? else {
+        return None;
+    };
+    Some(theme_menu)
+}
+
+/// The native window theme for a UI theme name; `None` follows the system appearance.
+pub(crate) fn native_theme(theme: &str) -> Result<Option<tauri::Theme>, String> {
+    match theme {
+        "system" => Ok(None),
+        "light" => Ok(Some(tauri::Theme::Light)),
+        "dark" => Ok(Some(tauri::Theme::Dark)),
+        _ => Err("Unsupported theme".into()),
+    }
+}
+
+/// Check the chosen appearance and apply it to every browser window, so native chrome such as
+/// context menus and the title bar follow the same light or dark choice as the UI.
+pub(crate) fn apply_theme(app: &tauri::AppHandle, theme: &str) -> Result<(), String> {
+    let native = native_theme(theme)?;
+    if let Some(menu) = theme_submenu(app) {
+        for (option, _) in THEME_MENU_OPTIONS {
+            if let Some(tauri::menu::MenuItemKind::Check(item)) =
+                menu.get(&format!("theme-{option}"))
+            {
+                item.set_checked(option == theme)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+    }
+    for (label, window) in app.windows() {
+        if label == "main" || label.starts_with("browser-window-") {
+            window
+                .set_theme(native)
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn sync_theme_menu(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    theme: String,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("The theme can only be changed from the trusted browser UI".into());
+    }
+    apply_theme(&app, &theme)?;
+    // Other browser windows adopt the choice too; a window that already has it ignores the event.
+    app.emit(THEME_MENU_EVENT, &theme)
+        .map_err(|error| error.to_string())
+}
+
 pub(crate) fn tab_position_submenu(
     app: &tauri::AppHandle,
 ) -> Option<tauri::menu::Submenu<tauri::Wry>> {
@@ -140,6 +204,36 @@ pub(crate) fn refresh_browser_menus(
                 .remove_at(index)
                 .map_err(|error| error.to_string())?;
         }
+        let show_bookmarks =
+            tauri::menu::MenuItemBuilder::with_id("show-bookmarks", "Show All Bookmarks");
+        // ⌥⌘B opens the bookmarks manager in Safari and Chrome.
+        #[cfg(target_os = "macos")]
+        let show_bookmarks = show_bookmarks.accelerator("CmdOrCtrl+Alt+B");
+        bookmarks_menu
+            .append(
+                &show_bookmarks
+                    .build(app)
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+        // ⌘D bookmarks the current page in Safari and Chrome.
+        bookmarks_menu
+            .append(
+                &tauri::menu::MenuItemBuilder::with_id(
+                    "shortcut-bookmark-page",
+                    "Bookmark This Page",
+                )
+                .accelerator("CmdOrCtrl+D")
+                .build(app)
+                .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+        bookmarks_menu
+            .append(
+                &tauri::menu::PredefinedMenuItem::separator(app)
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
         append_bookmark_menu_items(app, &bookmarks_menu, &bookmarks)?;
         if !bookmarks.is_empty() {
             bookmarks_menu
@@ -173,6 +267,7 @@ pub(crate) fn refresh_browser_menus(
         history_menu
             .append(
                 &tauri::menu::MenuItemBuilder::with_id("history-show-all", "Show All History")
+                    .accelerator("CmdOrCtrl+Y")
                     .build(app)
                     .map_err(|error| error.to_string())?,
             )
@@ -296,6 +391,16 @@ pub(crate) fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::Menu
     let Some(window_label) = focused_browser_window_label(app) else {
         return;
     };
+    if let Some(theme) = event.id().as_ref().strip_prefix("theme-") {
+        // The theme is app-wide: re-check the exclusive choice and tell every browser window.
+        if apply_theme(app, theme).is_ok() {
+            let _ = app.emit(THEME_MENU_EVENT, theme);
+        }
+        return;
+    }
+    if event.id().as_ref() == "show-bookmarks" {
+        let _ = app.emit_to(&window_label, SHOW_BOOKMARKS_EVENT, ());
+    }
     if let Some(position) = event.id().as_ref().strip_prefix("tab-position-") {
         let _ = choose_tab_position_from_menu(app, &window_label, position);
         return;

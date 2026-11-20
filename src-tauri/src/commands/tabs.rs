@@ -87,12 +87,29 @@ pub(crate) fn create_tab(
         return Err("Tabs can only be created from the trusted browser UI".into());
     }
     let owner_window = browser_window_for_ui(webview.label()).to_string();
+    create_blank_tab(&app, &state, &owner_window, private.unwrap_or(false))?;
+    Ok(snapshot_for_window(
+        &state
+            .data
+            .lock()
+            .map_err(|_| "Browser state is unavailable")?,
+        &owner_window,
+    ))
+}
+
+/// Add an active blank tab to `owner_window`, replacing that window's split.
+fn create_blank_tab(
+    app: &tauri::AppHandle,
+    state: &BrowserState,
+    owner_window: &str,
+    private: bool,
+) -> Result<(), String> {
+    let owner_window = owner_window.to_string();
     let number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let id = format!("tab-{number}");
-    let bounds = window_bounds(&state, &owner_window)?;
+    let bounds = window_bounds(state, &owner_window)?;
     let blank = url::Url::parse("about:blank").expect("about:blank is a valid URL");
-    let private = private.unwrap_or(false);
-    create_page_webview(&app, &state, &id, blank, bounds, private, &owner_window)?;
+    create_page_webview(app, state, &id, blank, bounds, private, &owner_window)?;
     let mut tabs = state
         .data
         .lock()
@@ -118,15 +135,59 @@ pub(crate) fn create_tab(
         .map_err(|_| "Browser state is unavailable")?
         .remove(&owner_window);
     let _ = app.emit_to(&owner_window, SPLIT_EVENT, Option::<SplitLayout>::None);
-    persist_session(&state)?;
-    position_tabs(&app, &state)?;
-    Ok(snapshot_for_window(
-        &state
-            .data
-            .lock()
-            .map_err(|_| "Browser state is unavailable")?,
-        &owner_window,
-    ))
+    persist_session(state)?;
+    position_tabs(app, state)
+}
+
+/// ⌘N: open a new browser window with one blank tab.
+#[tauri::command(async)]
+pub(crate) fn new_browser_window(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+) -> Result<String, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Windows can only be opened from the trusted browser UI".into());
+    }
+    let (browser_window, destination) = open_browser_window(&app, &state, "Unky")?;
+    if let Err(error) = create_blank_tab(&app, &state, &destination, false) {
+        let _ = browser_window.close();
+        return Err(error);
+    }
+    Ok(destination)
+}
+
+/// ⇧⌘W: close the calling browser window, as its close button does.
+#[tauri::command]
+pub(crate) fn close_browser_window(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Windows can only be closed from the trusted browser UI".into());
+    }
+    // get_window, not get_webview_window: a browser window holds its UI and page webviews, and
+    // get_webview_window only finds windows with a single webview.
+    app.get_window(browser_window_for_ui(webview.label()))
+        .ok_or("The browser window is already closed")?
+        .close()
+        .map_err(|error| error.to_string())
+}
+
+/// ⌘P: print the active page of the calling browser window.
+#[tauri::command]
+pub(crate) fn print_page(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    tab_id: String,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Printing is only available from the trusted browser UI".into());
+    }
+    get_page_for_window(&app, &state, webview.label(), &tab_id)?
+        .print()
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

@@ -138,3 +138,28 @@ fn session_restore_ignores_unsupported_file_versions() {
     assert!(restored.recently_closed.is_empty());
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn theme_names_map_to_native_window_themes() {
+    assert_eq!(crate::native_theme("system"), Ok(None));
+    assert_eq!(crate::native_theme("light"), Ok(Some(tauri::Theme::Light)));
+    assert_eq!(crate::native_theme("dark"), Ok(Some(tauri::Theme::Dark)));
+    assert!(crate::native_theme("sepia").is_err());
+    let options: Vec<_> = crate::THEME_MENU_OPTIONS
+        .iter()
+        .map(|(id, _)| *id)
+        .collect();
+    assert!(options.iter().all(|id| crate::native_theme(id).is_ok()));
+}
+
+#[test]
+fn view_source_downloads_only_web_pages() {
+    use super::should_download_source;
+    let parse = |url: &str| url::Url::parse(url).unwrap();
+    assert!(should_download_source(&parse("https://example.com/")));
+    assert!(should_download_source(&parse(
+        "http://127.0.0.1:4179/index.html"
+    )));
+    assert!(!should_download_source(&parse("file:///tmp/page.html")));
+    assert!(!should_download_source(&parse("about:blank")));
+}
