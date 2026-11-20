@@ -141,10 +141,12 @@ import {
   expandedTabFolderIds,
   flattenTabIds,
   insertTabNode,
+  nextVisibleTab,
   reconcileTabNodes,
   tabAtShortcutPosition,
   tabCycleOrder,
   tabFolders,
+  visibleTabCycleOrder,
 } from './tabTree';
 import type { TabFolder, TabNode } from './tabTree';
 import { groupSplitTabRows } from './splitTabRows';
@@ -327,19 +329,20 @@ export default function App() {
   /** Desktop-test builds only: the tab menu that would be showing natively. */
   const testTabMenuRef = useRef<MenuEntry[] | null>(null);
   pinnedTabIdsRef.current = pinnedTabIds;
-  /** Tabs in the order the sidebar shows them, used for tab cycling and ⌘1–⌘9. */
-  const tabOrder = () =>
-    tabCycleOrder(
-      tabNodesRef.current,
-      pinnedTabIdsRef.current,
-      new Set(tabsRef.current.map((tab) => tab.id)),
-      splitLayout,
-    );
+  const openTabIdSet = () => new Set(tabsRef.current.map((tab) => tab.id));
+  /** Tabs the sidebar shows, in order, skipping collapsed folders: used for tab cycling and ⌘1–⌘9. */
+  const visibleTabOrder = () =>
+    visibleTabCycleOrder(tabNodesRef.current, pinnedTabIdsRef.current, openTabIdSet(), splitLayout);
   const cycleTabs = (backwards: boolean) => {
-    const ids = tabOrder();
-    return call('cycle_tab', { backwards, orderedTabIds: ids.length ? ids : null })
-      .then(applySnapshot)
-      .catch((error) => setMessage(String(error)));
+    const fullOrder = tabCycleOrder(tabNodesRef.current, pinnedTabIdsRef.current, openTabIdSet(), splitLayout);
+    if (!fullOrder.length) {
+      // The tab tree has not caught up with the native tabs yet; let Rust cycle in its own order.
+      return call('cycle_tab', { backwards, orderedTabIds: null })
+        .then(applySnapshot)
+        .catch((error) => setMessage(String(error)));
+    }
+    const target = nextVisibleTab(fullOrder, visibleTabOrder(), activeTabIdRef.current, backwards);
+    return target ? selectTab(target) : Promise.resolve();
   };
   const faviconRequests = useRef(new Set<string>());
   const sessionTestStarted = useRef(false);
@@ -595,6 +598,33 @@ export default function App() {
       case 'new-private-tab':
         void createTab(true);
         break;
+      case 'new-window':
+        void call('new_browser_window').catch((error) => setMessage(String(error)));
+        break;
+      case 'close-window':
+        void call('close_browser_window').catch((error) => setMessage(String(error)));
+        break;
+      case 'print':
+        void runNavigationCommand('print_page');
+        break;
+      case 'bookmark-page':
+        addCurrentPage();
+        break;
+      case 'toggle-sidebar':
+        setSidebarCollapsed((collapsed) => !collapsed);
+        break;
+      case 'toggle-devtools':
+        void call('toggle_devtools').catch((error) => setMessage(String(error)));
+        break;
+      case 'reload-ignoring-cache':
+        void runNavigationCommand('reload_ignoring_cache');
+        break;
+      case 'find-next':
+      case 'find-previous':
+        // Like Safari, ⌘G with no search yet opens the find bar.
+        if (findOpen && findQuery.trim()) void findInPage(findQuery, action === 'find-previous');
+        else openFindPanel();
+        break;
       case 'open-in-browser':
         externalBrowserButtonRef.current?.click();
         break;
@@ -636,7 +666,7 @@ export default function App() {
       case 'select-tab-7':
       case 'select-tab-8': {
         const position = action === 'select-last-tab' ? 'last' : Number(action.slice('select-tab-'.length));
-        const tabId = tabAtShortcutPosition(tabOrder(), position);
+        const tabId = tabAtShortcutPosition(visibleTabOrder(), position);
         if (tabId && tabId !== activeTabIdRef.current) void selectTab(tabId);
         break;
       }
@@ -1732,7 +1762,9 @@ export default function App() {
     void navigateTo(url);
   }
 
-  async function runNavigationCommand(command: 'go_back' | 'go_forward' | 'reload' | 'stop_loading') {
+  async function runNavigationCommand(
+    command: 'go_back' | 'go_forward' | 'reload' | 'reload_ignoring_cache' | 'stop_loading' | 'print_page',
+  ) {
     const tabId = activeTabIdRef.current;
     if (!tabId) return;
     try {

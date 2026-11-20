@@ -257,22 +257,7 @@ pub(crate) fn open_link_in_new_window(
     let (private, _) = link_source_context(&webview, &state)?;
     let parsed = allowed_navigation_url(&url)?;
     authorize_page_action(&app, &state, &webview, PageAction::Open)?;
-    let window_number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
-    let destination = format!("browser-window-{window_number}");
-    let browser_window =
-        tauri::WebviewWindowBuilder::new(&app, &destination, WebviewUrl::App("index.html".into()))
-            .title("Unky")
-            .inner_size(1200.0, 800.0)
-            .build()
-            .map_err(|error| format!("Could not open a new browser window: {error}"))?;
-    let close_app = app.clone();
-    let close_state = state.inner().clone();
-    let close_label = destination.clone();
-    browser_window.on_window_event(move |event| {
-        if matches!(event, tauri::WindowEvent::Destroyed) {
-            close_browser_window_tabs(&close_app, &close_state, &close_label);
-        }
-    });
+    let (browser_window, destination) = open_browser_window(&app, &state, "Unky")?;
     if let Err(error) =
         open_url_in_new_tab(&app, &state, parsed.as_str(), private, &destination, false)
     {

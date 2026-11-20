@@ -18,7 +18,7 @@ test('macOS uses Command for the shared shortcuts and ignores Ctrl versions', ()
   expect(shortcutForKey(press('f', { meta: true }), true)).toBe('find');
   expect(shortcutForKey(press('r', { meta: true }), true)).toBe('reload');
   expect(shortcutForKey(press('t', { ctrl: true }), true)).toBe(null);
-  expect(shortcutForKey(press('n', { meta: true }), true)).toBe(null);
+  expect(shortcutForKey(press('n', { ctrl: true }), true)).toBe(null);
 });
 
 test('macOS navigation and tab-cycling variants match the menu accelerators', () => {
@@ -73,4 +73,45 @@ test('the new menu items map to their shortcuts', () => {
   expect(shortcutFromMenu('select-last-tab')).toBe('select-last-tab');
   expect(shortcutFromMenu('stop-loading')).toBe('stop-loading');
   expect(shortcutFromMenu('select-tab-9')).toBe(null);
+});
+
+test('window, find, bookmark, sidebar and print shortcuts match Safari and Chrome on macOS', () => {
+  expect(shortcutForKey(press('n', { meta: true }), true)).toBe('new-window');
+  expect(shortcutForKey(press('W', { meta: true, shift: true }), true)).toBe('close-window');
+  expect(shortcutForKey(press('d', { meta: true }), true)).toBe('bookmark-page');
+  expect(shortcutForKey(press('g', { meta: true }), true)).toBe('find-next');
+  expect(shortcutForKey(press('G', { meta: true, shift: true }), true)).toBe('find-previous');
+  expect(shortcutForKey(press('R', { meta: true, shift: true }), true)).toBe('reload-ignoring-cache');
+  expect(shortcutForKey(press('L', { meta: true, shift: true }), true)).toBe('toggle-sidebar');
+  expect(shortcutForKey(press('p', { meta: true }), true)).toBe('print');
+  // ⌥⌘R and ⌥⌘I are left to their native menu items, since Option changes event.key.
+  expect(shortcutForKey(press('®', { meta: true, alt: true }), true)).toBe(null);
+  expect(shortcutForKey(press('I', { meta: true, shift: true }), true)).toBe(null);
+});
+
+test('Windows and Linux use Ctrl for the same commands, plus Ctrl+F5 and Ctrl+Shift+I', () => {
+  expect(shortcutForKey(press('n', { ctrl: true }), false)).toBe('new-window');
+  expect(shortcutForKey(press('W', { ctrl: true, shift: true }), false)).toBe('close-window');
+  expect(shortcutForKey(press('d', { ctrl: true }), false)).toBe('bookmark-page');
+  expect(shortcutForKey(press('G', { ctrl: true, shift: true }), false)).toBe('find-previous');
+  expect(shortcutForKey(press('F5', { ctrl: true }), false)).toBe('reload-ignoring-cache');
+  expect(shortcutForKey(press('I', { ctrl: true, shift: true }), false)).toBe('toggle-devtools');
+  expect(shortcutForKey(press('p', { ctrl: true }), false)).toBe('print');
+});
+
+test('menu items for the added shortcuts map to their actions', () => {
+  for (const id of [
+    'new-window',
+    'close-window',
+    'bookmark-page',
+    'find-next',
+    'find-previous',
+    'toggle-sidebar',
+    'toggle-devtools',
+    'print',
+  ]) {
+    expect(shortcutFromMenu(id)).toBe(id);
+  }
+  expect(shortcutFromMenu('reload-ignoring-cache')).toBe('reload-ignoring-cache');
+  expect(shortcutFromMenu('reload-ignoring-cache-safari')).toBe('reload-ignoring-cache');
 });

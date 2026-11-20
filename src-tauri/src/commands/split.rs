@@ -302,26 +302,12 @@ pub(crate) fn move_tab_to_new_window(
         return Err("Load a page in this tab before moving it to a new window".into());
     }
 
-    let window_number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
-    let destination = format!("browser-window-{window_number}");
-    let browser_window =
-        tauri::WebviewWindowBuilder::new(&app, &destination, WebviewUrl::App("index.html".into()))
-            .title(if tab.title.is_empty() {
-                "Unky"
-            } else {
-                &tab.title
-            })
-            .inner_size(1200.0, 800.0)
-            .build()
-            .map_err(|error| format!("Could not open a new browser window: {error}"))?;
-    let close_app = app.clone();
-    let close_state = state.inner().clone();
-    let close_label = destination.clone();
-    browser_window.on_window_event(move |event| {
-        if matches!(event, tauri::WindowEvent::Destroyed) {
-            close_browser_window_tabs(&close_app, &close_state, &close_label);
-        }
-    });
+    let title = if tab.title.is_empty() {
+        "Unky"
+    } else {
+        &tab.title
+    };
+    let (_, destination) = open_browser_window(&app, &state, title)?;
 
     let previous_page = app.get_webview(&page_label(&tab_id));
     if let Some(page) = previous_page {

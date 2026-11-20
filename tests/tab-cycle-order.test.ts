@@ -1,5 +1,12 @@
 import { expect, test } from 'vitest';
-import { tabAtShortcutPosition, tabCycleOrder, type TabFolder, type TabNode } from '../src/tabTree.ts';
+import {
+  nextVisibleTab,
+  tabAtShortcutPosition,
+  tabCycleOrder,
+  visibleTabCycleOrder,
+  type TabFolder,
+  type TabNode,
+} from '../src/tabTree.ts';
 
 const tab = (id: string): TabNode => ({ id, type: 'tab' });
 const folder = (id: string, children: TabNode[], collapsed = false): TabFolder => ({
@@ -49,4 +56,40 @@ test('⌘1–⌘8 pick by position and ⌘9 picks the last tab', () => {
   expect(tabAtShortcutPosition(order, 5)).toBeUndefined();
   expect(tabAtShortcutPosition(order, 'last')).toBe('c');
   expect(tabAtShortcutPosition([], 'last')).toBeUndefined();
+});
+
+test('the visible order skips tabs inside collapsed folders, including nested ones', () => {
+  const nodes = [tab('a'), folder('f', [tab('b'), folder('g', [tab('c')])], true), tab('d'), folder('h', [tab('e')])];
+  expect(visibleTabCycleOrder(nodes, [], open('a', 'b', 'c', 'd', 'e'), null)).toStrictEqual(['a', 'd', 'e']);
+  const nested = [folder('f', [tab('b'), folder('g', [tab('c')], true)]), tab('d')];
+  expect(visibleTabCycleOrder(nested, [], open('b', 'c', 'd'), null)).toStrictEqual(['b', 'd']);
+});
+
+test('pinned tabs and a visible split pair stay in the visible order', () => {
+  // 'b' is pinned out of the collapsed folder; 'c' is split with visible 'd', so the pair row shows both.
+  const nodes = [folder('f', [tab('b'), tab('c'), tab('x')], true), tab('d')];
+  expect(
+    visibleTabCycleOrder(nodes, ['b'], open('b', 'c', 'd', 'x'), { firstTabId: 'd', secondTabId: 'c' }),
+  ).toStrictEqual(['b', 'd', 'c']);
+});
+
+test('next/previous tab skips tabs in collapsed folders and wraps around', () => {
+  const full = ['a', 'b', 'c', 'd'];
+  const visible = ['a', 'd']; // b and c are in a collapsed folder
+  expect(nextVisibleTab(full, visible, 'a', false)).toBe('d');
+  expect(nextVisibleTab(full, visible, 'd', false)).toBe('a');
+  expect(nextVisibleTab(full, visible, 'a', true)).toBe('d');
+  expect(nextVisibleTab(full, visible, 'd', true)).toBe('a');
+});
+
+test('cycling from a hidden active tab continues from where it sits in the tree', () => {
+  const full = ['a', 'b', 'c', 'd'];
+  expect(nextVisibleTab(full, ['a', 'd'], 'b', false)).toBe('d');
+  expect(nextVisibleTab(full, ['a', 'd'], 'c', true)).toBe('a');
+});
+
+test('cycling does nothing when the active tab is the only visible one', () => {
+  expect(nextVisibleTab(['a', 'b'], ['a'], 'a', false)).toBeUndefined();
+  expect(nextVisibleTab(['a', 'b'], [], 'b', false)).toBeUndefined();
+  expect(nextVisibleTab(['a', 'b'], ['a', 'b'], null, true)).toBe('b');
 });

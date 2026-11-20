@@ -216,6 +216,18 @@ pub(crate) fn refresh_browser_menus(
                     .map_err(|error| error.to_string())?,
             )
             .map_err(|error| error.to_string())?;
+        // ⌘D bookmarks the current page in Safari and Chrome.
+        bookmarks_menu
+            .append(
+                &tauri::menu::MenuItemBuilder::with_id(
+                    "shortcut-bookmark-page",
+                    "Bookmark This Page",
+                )
+                .accelerator("CmdOrCtrl+D")
+                .build(app)
+                .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
         bookmarks_menu
             .append(
                 &tauri::menu::PredefinedMenuItem::separator(app)

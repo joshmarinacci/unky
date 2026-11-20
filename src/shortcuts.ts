@@ -8,15 +8,24 @@
  */
 export type ShortcutAction =
   | 'new-tab'
+  | 'new-window'
   | 'new-private-tab'
   | 'open-in-browser'
   | 'close-tab'
+  | 'close-window'
   | 'reopen-closed-tab'
   | 'focus-address'
   | 'reload'
+  | 'reload-ignoring-cache'
   | 'go-back'
   | 'go-forward'
   | 'find'
+  | 'find-next'
+  | 'find-previous'
+  | 'bookmark-page'
+  | 'toggle-sidebar'
+  | 'toggle-devtools'
+  | 'print'
   | 'next-tab'
   | 'previous-tab'
   | 'stop-loading'
@@ -32,17 +41,26 @@ export type ShortcutKey = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 's
 export function shortcutFromMenu(id: string): ShortcutAction | null {
   if (id.startsWith('next-tab')) return 'next-tab';
   if (id.startsWith('previous-tab')) return 'previous-tab';
+  if (id.startsWith('reload-ignoring-cache')) return 'reload-ignoring-cache';
   const actions: ShortcutAction[] = [
     'new-tab',
+    'new-window',
     'new-private-tab',
     'open-in-browser',
     'close-tab',
+    'close-window',
     'reopen-closed-tab',
     'focus-address',
     'reload',
     'go-back',
     'go-forward',
     'find',
+    'find-next',
+    'find-previous',
+    'bookmark-page',
+    'toggle-sidebar',
+    'toggle-devtools',
+    'print',
     'stop-loading',
     'select-last-tab',
     'capture-full-page',
@@ -61,14 +79,23 @@ export function shortcutForKey(event: ShortcutKey, apple: boolean): ShortcutActi
   const mod = apple ? metaKey && !ctrlKey : ctrlKey && !metaKey;
   if (mod && !altKey) {
     if (key === 't') return shiftKey ? 'reopen-closed-tab' : 'new-tab';
-    if (key === 'n' && shiftKey) return 'new-private-tab';
+    if (key === 'n') return shiftKey ? 'new-private-tab' : 'new-window';
     if (shiftKey) {
       // Shift turns [ and ] into { and } on US layouts.
       if (apple && (key === ']' || key === '}')) return 'next-tab';
       if (apple && (key === '[' || key === '{')) return 'previous-tab';
+      if (key === 'w') return 'close-window';
+      if (key === 'g') return 'find-previous';
+      if (key === 'r') return 'reload-ignoring-cache';
+      if (key === 'l') return 'toggle-sidebar';
+      if (!apple && key === 'i') return 'toggle-devtools';
       return null;
     }
     if (key === 'w') return 'close-tab';
+    if (key === 'd') return 'bookmark-page';
+    if (key === 'g') return 'find-next';
+    if (key === 'p') return 'print';
+    if (!apple && key === 'F5') return 'reload-ignoring-cache';
     if (key === 'l') return 'focus-address';
     if (key === 'f') return 'find';
     if (key === 'r') return 'reload';
@@ -81,6 +108,7 @@ export function shortcutForKey(event: ShortcutKey, apple: boolean): ShortcutActi
     if (!apple && key === 'PageUp') return 'previous-tab';
     return null;
   }
+  // ⌥⌘R and ⌥⌘I turn event.key into symbols on macOS; their native menu items handle them.
   if (apple && metaKey && altKey && !ctrlKey && !shiftKey) {
     if (key === 'ArrowRight') return 'next-tab';
     if (key === 'ArrowLeft') return 'previous-tab';

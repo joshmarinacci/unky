@@ -250,6 +250,33 @@ pub(crate) fn reload(
         .map_err(|e| e.to_string())
 }
 
+/// ⇧⌘R / ⌥⌘R: reload without using cached responses. WKWebView revalidates every resource with
+/// the server; other platforms fall back to a normal reload.
+#[tauri::command]
+pub(crate) fn reload_ignoring_cache(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BrowserState>,
+    tab_id: String,
+) -> Result<(), String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("Navigation is only available from the trusted browser UI".into());
+    }
+    let page = get_page_for_window(&app, &state, webview.label(), &tab_id)?;
+    #[cfg(target_os = "macos")]
+    {
+        page.with_webview(|platform| {
+            let web_view = unsafe { &*(platform.inner() as *mut objc2_web_kit::WKWebView) };
+            unsafe { web_view.reloadFromOrigin() };
+        })
+        .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        page.reload().map_err(|error| error.to_string())
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn save_full_page_screenshot(
     webview: tauri::Webview,

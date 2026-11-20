@@ -81,6 +81,10 @@ export type Commands = {
   set_view_bounds: { args: Anchor; result: void };
   set_settings_open: { args: { open: boolean }; result: void };
   toggle_devtools: { result: void };
+  new_browser_window: { result: string };
+  close_browser_window: { result: void };
+  print_page: { args: TabArgs; result: void };
+  reload_ignoring_cache: { args: TabArgs; result: void };
   sync_tab_position_menu: { args: { position: string }; result: void };
   sync_theme_menu: { args: { theme: string }; result: void };
   take_launch_request: { result: LaunchRequest | null };

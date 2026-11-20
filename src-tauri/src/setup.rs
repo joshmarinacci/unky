@@ -159,13 +159,24 @@ pub(crate) fn setup_app(
             MenuItemBuilder::with_id("shortcut-previous-tab-safari", "Previous Tab (Safari)")
                 .accelerator("CmdOrCtrl+Shift+[")
                 .build(app)?;
+        let new_window = MenuItemBuilder::with_id("shortcut-new-window", "New Window")
+            .accelerator("CmdOrCtrl+N")
+            .build(app)?;
+        let close_window = MenuItemBuilder::with_id("shortcut-close-window", "Close Window")
+            .accelerator("CmdOrCtrl+Shift+W")
+            .build(app)?;
+        let print = MenuItemBuilder::with_id("shortcut-print", "Print…")
+            .accelerator("CmdOrCtrl+P")
+            .build(app)?;
         let file_menu = SubmenuBuilder::new(app, "File")
             .item(&new_tab)
+            .item(&new_window)
             .item(&new_private_tab);
         #[cfg(target_os = "macos")]
         let file_menu = file_menu.item(&open_in_browser);
         let file_menu = file_menu
             .item(&close_tab)
+            .item(&close_window)
             .item(&reopen_closed_tab)
             .item(&next_tab)
             .item(&previous_tab);
@@ -175,6 +186,7 @@ pub(crate) fn setup_app(
         let file_menu = file_menu.item(&next_tab_mac).item(&previous_tab_mac);
         #[cfg(target_os = "macos")]
         let file_menu = file_menu.item(&next_tab_safari).item(&previous_tab_safari);
+        let file_menu = file_menu.separator().item(&print);
         #[cfg(not(target_os = "macos"))]
         let file_menu = file_menu.separator().item(&settings).separator().quit();
         let file_menu = file_menu.build()?;
@@ -258,6 +270,35 @@ pub(crate) fn setup_app(
         let reload = MenuItemBuilder::with_id("shortcut-reload", "Reload Page")
             .accelerator("CmdOrCtrl+R")
             .build(app)?;
+        let find_next = MenuItemBuilder::with_id("shortcut-find-next", "Find Next")
+            .accelerator("CmdOrCtrl+G")
+            .build(app)?;
+        let find_previous = MenuItemBuilder::with_id("shortcut-find-previous", "Find Previous")
+            .accelerator("CmdOrCtrl+Shift+G")
+            .build(app)?;
+        // Chrome uses ⇧⌘R and Safari ⌥⌘R; both reload without the cache.
+        let reload_ignoring_cache =
+            MenuItemBuilder::with_id("shortcut-reload-ignoring-cache", "Reload Ignoring Cache")
+                .accelerator("CmdOrCtrl+Shift+R")
+                .build(app)?;
+        #[cfg(target_os = "macos")]
+        let reload_ignoring_cache_safari = MenuItemBuilder::with_id(
+            "shortcut-reload-ignoring-cache-safari",
+            "Reload Ignoring Cache (Safari)",
+        )
+        .accelerator("CmdOrCtrl+Alt+R")
+        .build(app)?;
+        let toggle_sidebar =
+            MenuItemBuilder::with_id("shortcut-toggle-sidebar", "Show/Hide Sidebar")
+                .accelerator("CmdOrCtrl+Shift+L")
+                .build(app)?;
+        let toggle_devtools = MenuItemBuilder::with_id("shortcut-toggle-devtools", "Web Inspector")
+            .accelerator(if cfg!(target_os = "macos") {
+                "CmdOrCtrl+Alt+I"
+            } else {
+                "Ctrl+Shift+I"
+            })
+            .build(app)?;
         let go_back = MenuItemBuilder::with_id("shortcut-go-back", "Back")
             .accelerator(if cfg!(target_os = "macos") {
                 "CmdOrCtrl+["
@@ -301,13 +342,20 @@ pub(crate) fn setup_app(
         let view_menu = SubmenuBuilder::with_id(app, "view-menu", "View")
             .item(&show_history)
             .item(&show_downloads)
+            .item(&toggle_sidebar)
             .separator()
             .item(&theme_menu)
             .item(&tab_position_menu)
             .separator()
             .item(&focus_address)
             .item(&find)
+            .item(&find_next)
+            .item(&find_previous)
             .item(&reload)
+            .item(&reload_ignoring_cache);
+        #[cfg(target_os = "macos")]
+        let view_menu = view_menu.item(&reload_ignoring_cache_safari);
+        let view_menu = view_menu
             .item(&stop_loading)
             .item(&go_back)
             .item(&go_forward)
@@ -315,7 +363,9 @@ pub(crate) fn setup_app(
             .item(&zoom_in)
             .item(&zoom_out)
             .separator()
-            .item(&actual_size);
+            .item(&actual_size)
+            .separator()
+            .item(&toggle_devtools);
         #[cfg(target_os = "macos")]
         let view_menu = view_menu.separator().fullscreen();
         let view_menu = view_menu.build()?;

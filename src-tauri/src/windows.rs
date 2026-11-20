@@ -67,6 +67,31 @@ pub(crate) fn window_bounds(
         .unwrap_or_else(ViewBounds::default))
 }
 
+/// Open an empty browser window shell (`browser-window-N`) whose tabs close with it.
+pub(crate) fn open_browser_window(
+    app: &tauri::AppHandle,
+    state: &BrowserState,
+    title: &str,
+) -> Result<(tauri::WebviewWindow, String), String> {
+    let window_number = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+    let destination = format!("browser-window-{window_number}");
+    let browser_window =
+        tauri::WebviewWindowBuilder::new(app, &destination, WebviewUrl::App("index.html".into()))
+            .title(title)
+            .inner_size(1200.0, 800.0)
+            .build()
+            .map_err(|error| format!("Could not open a new browser window: {error}"))?;
+    let close_app = app.clone();
+    let close_state = state.clone();
+    let close_label = destination.clone();
+    browser_window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            close_browser_window_tabs(&close_app, &close_state, &close_label);
+        }
+    });
+    Ok((browser_window, destination))
+}
+
 pub(crate) fn close_browser_window_tabs(
     app: &tauri::AppHandle,
     state: &BrowserState,
