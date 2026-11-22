@@ -3,7 +3,14 @@ import { browserWindowLabels, closeBrowserWindows, closeTabs, inspect, invoke } 
 
 type Tab = { id: string; url: string; windowLabel: string };
 type Snapshot = { tabs: Tab[]; activeTabId: string | null };
-type SourcePage = { address: string | null; open: boolean; notes: string[]; lineCount: number; text: string | null };
+type SourcePage = {
+  address: string | null;
+  open: boolean;
+  notes: string[];
+  lineCount: number;
+  text: string | null;
+  saved: Record<string, string>;
+};
 
 const browserUi = (action: string, menuItem?: string) => invoke('desktop_test_browser_ui', { action, menuItem });
 const sourcePage = () => browserUi('inspect-source-page') as Promise<SourcePage>;
@@ -68,6 +75,26 @@ describe('window shortcuts', () => {
       assert.equal(page.address, `view-source:${url}`);
       assert.deepEqual(page.notes, [], 'a downloaded original needs no fallback note');
       assert.match(page.text ?? '', /<title>Desktop fixture · Two<\/title>/);
+    } finally {
+      await closeTabs(tabsBefore);
+    }
+  });
+
+  it('saves source tab addresses so a restart can download them again', async () => {
+    const tabsBefore = ((await invoke('get_browser_state')) as Snapshot).tabs.map((tab) => tab.id);
+    try {
+      const url = 'http://127.0.0.1:4179/two';
+      const { sourceTabId, page } = await viewSourceOf(url);
+      assert.equal(page.saved[sourceTabId], url, 'the source tab address should be saved, without its HTML');
+      // What the UI calls on the next launch for each saved source tab.
+      const restored = (await invoke('restore_page_source', { url })) as { source: string; original: boolean };
+      assert.equal(restored.original, true);
+      assert.match(restored.source, /<title>Desktop fixture · Two<\/title>/);
+      await assert.rejects(invoke('restore_page_source', { url: 'file:///etc/hosts' }), /Only web pages/);
+      await invoke('close_tab', { tabId: sourceTabId });
+      await browser.waitUntil(async () => !(sourceTabId in (await sourcePage()).saved), {
+        timeoutMsg: 'a closed source tab should be forgotten',
+      });
     } finally {
       await closeTabs(tabsBefore);
     }

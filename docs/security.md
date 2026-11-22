@@ -10,7 +10,7 @@
 - `focus_browser_tab` accepts only a tab that is already on screen in the focused window, so an offscreen background tab cannot bring itself to the front.
 - A page that asks to open a URL other than its own in an external browser gets a native confirmation naming the URL and browser.
 - Per-tab back/forward history is capped at 100 entries.
-- View Source (`get_page_source`) is a trusted-UI command only. It downloads only the HTTP(S) URL the tab has already loaded, sends no cookies, follows at most 5 redirects, times out after 10 seconds, and caps the response at 5 MB. When the download fails it reads the page's DOM instead. The UI shows the result as text, never as markup.
+- View Source (`get_page_source`) is a trusted-UI command only. It downloads only the HTTP(S) URL the tab has already loaded, sends no cookies, follows at most 5 redirects, times out after 10 seconds, and caps the response at 5 MB. When the download fails it reads the page's DOM instead. After a restart, `restore_page_source` downloads a saved source tab's address again under the same limits; it is also trusted-UI only and accepts only HTTP(S) URLs. The UI shows the result as text, never as markup.
 - The trusted UI listens to Rust events only when they are sent to its own window (`onEvent` in `src/ipc.ts`), so one browser window never acts on another window's menu commands or tab snapshots.
 - No filesystem, shell, or process plugins are included.
 - The UI has a restrictive Content Security Policy.

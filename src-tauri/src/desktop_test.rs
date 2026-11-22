@@ -295,10 +295,12 @@ fn key_equivalent_parts(
     let key: String = key.ok_or("The shortcut needs a key")?;
     let key_char = key.chars().next().ok_or("The shortcut needs a key")?;
     let key_code = ansi_key_code(key_char).ok_or(format!("No key code for {key}"))?;
-    // A real Shift+letter press reports the uppercase letter in both character fields
-    // (charactersIgnoringModifiers keeps Shift).
+    // A real Shift press reports the shifted character (`W`, `}`) in both character fields:
+    // charactersIgnoringModifiers keeps Shift.
     let characters = if flags.contains(NSEventModifierFlags::Shift) {
-        key.to_uppercase()
+        crate::platforms::menu_keys::us_shifted_char(key_char)
+            .ok_or(format!("No shifted character for {key}"))?
+            .to_string()
     } else {
         key
     };
@@ -525,6 +527,21 @@ pub(crate) async fn desktop_test_browser_ui(
             window.__unkyTestSeedTabFolders();
             return {{ seeded: true }};
           }}
+          if (args.action === 'press-tree-key') {{
+            // Focus a tab-tree row and press an arrow/Home/End key on it, as the keyboard would.
+            const row = document.querySelector(`[role="tree"] [role="treeitem"][data-tab-node-id="${{args.tabId}}"]`);
+            if (!(row instanceof HTMLElement)) return {{ error: `Tree row ${{args.tabId}} was not found` }};
+            row.focus();
+            row.dispatchEvent(new KeyboardEvent('keydown', {{ key: args.menuItem, bubbles: true, cancelable: true }}));
+            const focused = document.activeElement;
+            return {{ focused: focused instanceof HTMLElement ? focused.dataset.tabNodeId ?? null : null }};
+          }}
+          if (args.action === 'inspect-tree-rows') {{
+            return Array.from(document.querySelectorAll('[aria-label="Open tabs"] [role="treeitem"]')).map(row => ({{
+              id: row.dataset.tabNodeId, level: Number(row.getAttribute('aria-level')),
+              expanded: row.getAttribute('aria-expanded'), tabbable: row.tabIndex === 0,
+            }}));
+          }}
           if (args.action === 'create-tab-folder') {{
             const switcher = document.querySelector('[role="tab"][id="tabs"]');
             if (switcher && switcher.getAttribute('aria-selected') !== 'true') switcher.click();
@@ -717,6 +734,7 @@ pub(crate) async fn desktop_test_browser_ui(
               notes: Array.from(document.querySelectorAll('.source-page-note')).map(node => node.textContent.trim()),
               lineCount: code ? code.querySelectorAll('.source-line').length : 0,
               text: code ? code.textContent : null,
+              saved: JSON.parse(localStorage.getItem('browser.sourceTabs') ?? '{{}}'),
             }};
           }}
           if (args.action === 'inspect-appearance') {{

@@ -44,7 +44,15 @@ import { HistoryPage } from './pages/HistoryPage';
 import { AppearanceSettings, GeneralSettings, PrivacySettings, SettingsPage } from './pages/SettingsPage';
 import { ShortcutsPage } from './pages/ShortcutsPage';
 import { SourcePage } from './pages/SourcePage';
-import { canViewSource, sourceTabTitle, viewSourceUrl, sourceTabUrl, type SourceTabState } from './viewSource';
+import {
+  canViewSource,
+  parseStoredSourceTabs,
+  serializeSourceTabs,
+  sourceTabTitle,
+  sourceTabUrl,
+  viewSourceUrl,
+  type SourceTabState,
+} from './viewSource';
 import { commandKey, isApplePlatform } from './platform';
 import { BookmarkSortableRow } from './components/BookmarkSortableRow';
 import {
@@ -249,8 +257,10 @@ export default function App() {
   const [settingsTabIds, setSettingsTabIds] = useState(() => readStored(storageKeys.settingsTabs, parseStringArray));
   const settingsTabIdsRef = useRef(settingsTabIds);
   const [shortcutsTabIds, setShortcutsTabIds] = useState<string[]>([]);
-  /** View Source tabs and their HTML. Not persisted: after a restart the tab is blank. */
-  const [sourceTabs, setSourceTabs] = useState<Record<string, SourceTabState>>({});
+  /** View Source tabs and their HTML. Only the addresses are saved; a restart downloads them again. */
+  const [sourceTabs, setSourceTabs] = useState(() => readStored(storageKeys.sourceTabs, parseStoredSourceTabs));
+  /** Saved source tabs still waiting to be downloaded again after a restart. */
+  const restoringSourceTabs = useRef(sourceTabs);
   const shortcutsTabIdsRef = useRef<string[]>([]);
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [downloadsTabIds, setDownloadsTabIds] = useState<string[]>([]);
@@ -316,6 +326,7 @@ export default function App() {
   usePersistedState(storageKeys.sidebarSide, sidebarSide, String);
   usePersistedState(storageKeys.historyTabs, historyTabIds);
   usePersistedState(storageKeys.settingsTabs, settingsTabIds);
+  usePersistedState(storageKeys.sourceTabs, sourceTabs, serializeSourceTabs);
   usePersistedState(storageKeys.theme, theme, String);
   usePersistedState(storageKeys.accentColor, accentColor, String);
   usePersistedState(storageKeys.customPageContextMenu, customPageContextMenuEnabled, String);
@@ -808,7 +819,27 @@ export default function App() {
       shortcutsTabIdsRef.current = next;
       return next;
     });
+    setSourceTabs((sources) =>
+      Object.keys(sources).every((id) => openIds.has(id))
+        ? sources
+        : Object.fromEntries(Object.entries(sources).filter(([id]) => openIds.has(id))),
+    );
   }, [tabs, tabsLoaded]);
+
+  // Source tabs saved before a restart: download each address again.
+  useEffect(() => {
+    if (!isTauri) return;
+    const pending = Object.entries(restoringSourceTabs.current);
+    restoringSourceTabs.current = {};
+    for (const [tabId, state] of pending) {
+      const url = sourceTabUrl(state);
+      const settle = (next: SourceTabState) =>
+        setSourceTabs((sources) => (sources[tabId]?.status === 'loading' ? { ...sources, [tabId]: next } : sources));
+      void call('restore_page_source', { url })
+        .then((page) => settle({ status: 'ready', page }))
+        .catch((error) => settle({ status: 'error', url, message: String(error) }));
+    }
+  }, [isTauri]);
 
   useEffect(() => {
     if (!isTauri || !tabsLoaded) return;

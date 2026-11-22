@@ -88,6 +88,7 @@ export type Commands = {
   print_page: { args: TabArgs; result: void };
   reload_ignoring_cache: { args: TabArgs; result: void };
   get_page_source: { args: TabArgs; result: PageSource };
+  restore_page_source: { args: { url: string }; result: PageSource };
   sync_tab_position_menu: { args: { position: string }; result: void };
   sync_theme_menu: { args: { theme: string }; result: void };
   take_launch_request: { result: LaunchRequest | null };

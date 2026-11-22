@@ -4,19 +4,54 @@
 //! flags. AppKit does not match a real ⇧⌘W against that item: the key press reports `W`, so the
 //! shortcut fell through to the web page (or, depending on the event, to the ⌘W item). Apple's
 //! convention, which Safari uses, is the uppercase key equivalent `W` with only Command; the
-//! uppercase letter implies Shift. This rewrites every such item once the menu bar is installed.
+//! uppercase letter implies Shift. Shifted punctuation works the same way: Safari's Show Next Tab
+//! is `}` with Command, because a real ⇧⌘] reports `}`. This rewrites every such item once the
+//! menu bar is installed. Punctuation follows the US ANSI layout, as Apple's own menus do.
 
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSMenu};
 use objc2_foundation::NSString;
 
-/// The Apple-style key equivalent for a lowercase letter that muda paired with the Shift flag.
+/// The character a key types with Shift on the US ANSI layout: the uppercase letter, or the
+/// shifted symbol for digits and punctuation.
+pub fn us_shifted_char(key: char) -> Option<char> {
+    if key.is_ascii_lowercase() {
+        return Some(key.to_ascii_uppercase());
+    }
+    const PAIRS: &[(char, char)] = &[
+        ('1', '!'),
+        ('2', '@'),
+        ('3', '#'),
+        ('4', '$'),
+        ('5', '%'),
+        ('6', '^'),
+        ('7', '&'),
+        ('8', '*'),
+        ('9', '('),
+        ('0', ')'),
+        ('-', '_'),
+        ('=', '+'),
+        ('[', '{'),
+        (']', '}'),
+        ('\\', '|'),
+        (';', ':'),
+        ('\'', '"'),
+        (',', '<'),
+        ('.', '>'),
+        ('/', '?'),
+        ('`', '~'),
+    ];
+    PAIRS
+        .iter()
+        .find(|(plain, _)| *plain == key)
+        .map(|(_, shifted)| *shifted)
+}
+
+/// The Apple-style key equivalent for a key that muda paired with the Shift flag.
 pub fn apple_shift_key_equivalent(key: &str, shift: bool) -> Option<String> {
     let mut chars = key.chars();
     match (chars.next(), chars.next()) {
-        (Some(letter), None) if shift && letter.is_ascii_lowercase() => {
-            Some(letter.to_ascii_uppercase().to_string())
-        }
+        (Some(key), None) if shift => us_shifted_char(key).map(String::from),
         _ => None,
     }
 }
@@ -37,7 +72,7 @@ fn normalize_menu(menu: &NSMenu) {
     }
 }
 
-/// Rewrite Shift+letter key equivalents in the app's main menu. Call on the main thread after
+/// Rewrite Shift key equivalents in the app's main menu. Call on the main thread after
 /// installing the menu bar.
 pub fn normalize_shift_key_equivalents() {
     let Some(main_thread) = MainThreadMarker::new() else {
