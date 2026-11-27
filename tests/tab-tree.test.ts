@@ -5,12 +5,14 @@ import {
   expandedTabFolderIds,
   flattenTabIds,
   insertTabNode,
+  linkTabAnchor,
   normalizeTabNodes,
   reconcileTabNodes,
   tabFolders,
   unwrapTabFolder,
   type TabNode,
 } from '../src/tabTree.ts';
+import { tabTreeReducer } from '../src/tabTreeState.ts';
 import { filterBookmarkNodes, findBookmarkByUrl, normalizeBookmarkNodes, type BookmarkNode } from '../src/bookmarks.ts';
 
 const tabs: TabNode[] = [
@@ -115,4 +117,47 @@ test('bookmark helpers normalize, find by URL, and filter with folder context', 
   expect(filtered.length).toBe(1);
   expect(filtered[0].id).toBe('f1');
   expect(filterBookmarkNodes(bookmarks, '')).toBe(bookmarks);
+});
+
+test('a tab opened from a link follows its source, after earlier tabs opened from it', () => {
+  const tree: TabNode[] = [
+    { id: 'source', type: 'tab' },
+    { id: 'link-1', type: 'tab' },
+    { id: 'link-2', type: 'tab' },
+    { id: 'other', type: 'tab' },
+    { id: 'new', type: 'tab' },
+  ];
+  expect(linkTabAnchor(tree, 'new', 'source', new Map()), 'first link goes right after the source').toBe('source');
+  const openers = new Map([
+    ['link-1', 'source'],
+    ['link-2', 'source'],
+  ]);
+  expect(linkTabAnchor(tree, 'new', 'source', openers), 'later links keep click order').toBe('link-2');
+  expect(
+    linkTabAnchor(tree, 'new', 'source', new Map([['link-2', 'source']])),
+    'only a contiguous run of opened tabs counts',
+  ).toBe('source');
+  expect(linkTabAnchor(tree, 'new', 'other', openers), 'the new tab itself is skipped').toBe('other');
+});
+
+test('a tab opened from a link stays in its source folder, and is left alone when the source is not in the tree', () => {
+  expect(linkTabAnchor(tabs, 'new', 'tab-2', new Map())).toBe('tab-2');
+  expect(linkTabAnchor(tabs, 'new', 'tab-3', new Map())).toBe('tab-3');
+  expect(linkTabAnchor(tabs, 'new', 'pinned-tab', new Map()), 'pinned tabs are not in the tree').toBe(undefined);
+  expect(linkTabAnchor(tabs, 'tab-1', 'tab-1', new Map())).toBe(undefined);
+
+  const placed = tabTreeReducer(
+    reconcileTabNodes(
+      tabs,
+      [...flattenTabIds(tabs), 'new'].map((id) => ({ id })),
+    ),
+    {
+      type: 'moved',
+      id: 'new',
+      targetId: linkTabAnchor(tabs, 'new', 'tab-2', new Map()),
+      position: 'after',
+    },
+  );
+  expect(flattenTabIds(placed)).toStrictEqual(['tab-1', 'tab-2', 'new', 'tab-3', 'tab-4']);
+  expect(findNode((findNode(placed, 'work') as Extract<TabNode, { type: 'folder' }>).children, 'new')?.id).toBe('new');
 });

@@ -191,6 +191,8 @@ export const historyEvent = 'browser://history-changed';
 export const bookmarksEvent = 'browser://bookmarks-changed';
 export const openUrlFromMenuEvent = 'browser://open-url-from-menu';
 export const openTabInFolderEvent = 'browser://open-tab-in-folder';
+/** A page opened a link in a new tab; sent to the window that owns both tabs. */
+export const linkTabOpenedEvent = 'browser://link-tab-opened';
 export const importBookmarksEvent = 'browser://import-bookmarks';
 export const exportBookmarksEvent = 'browser://export-bookmarks';
 export const clearHistoryRequestEvent = 'browser://clear-history-request';
@@ -221,6 +223,7 @@ export type Events = {
   [bookmarksEvent]: BookmarkNode[];
   [openUrlFromMenuEvent]: string;
   [openTabInFolderEvent]: [tabId: string, folderId: string];
+  [linkTabOpenedEvent]: [tabId: string, sourceTabId: string];
   [importBookmarksEvent]: null;
   [exportBookmarksEvent]: null;
   [clearHistoryRequestEvent]: null;

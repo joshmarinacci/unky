@@ -58,6 +58,7 @@ pub(crate) async fn desktop_test_inspect_page(
     state: tauri::State<'_, BrowserState>,
     tab_id: Option<String>,
     open_context_menu: Option<bool>,
+    cmd_click_link: Option<String>,
 ) -> Result<DesktopPageDiagnostics, String> {
     if !is_trusted_browser_ui(webview.label()) {
         return Err("Desktop diagnostics are only available to the trusted browser UI".into());
@@ -85,6 +86,15 @@ pub(crate) async fn desktop_test_inspect_page(
         tauri::async_runtime::spawn_blocking(|| thread::sleep(Duration::from_millis(100)))
             .await
             .map_err(|error| error.to_string())?;
+    }
+    if let Some(selector) = cmd_click_link {
+        // A synthetic Command-click stands in for a real one; the page script opens a background tab.
+        desktop_test_simulate_gesture();
+        let selector = serde_json::to_string(&selector).map_err(|error| error.to_string())?;
+        page.eval(format!(
+            "document.querySelector({selector})?.dispatchEvent(new MouseEvent('click', {{ bubbles: true, cancelable: true, button: 0, metaKey: true }}));"
+        ))
+        .map_err(|error| error.to_string())?;
     }
     let script = r#"JSON.stringify((() => ({
       url: location.href,
