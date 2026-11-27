@@ -673,6 +673,18 @@ pub(crate) async fn desktop_test_browser_ui(
           if (args.action === 'inspect-tab-menu') {{
             return {{ entries: window.__unkyTestTabMenu?.() ?? null }};
           }}
+          if (args.action === 'answer-confirm') {{
+            // A real confirm() would block the UI; answer the next ones with the given choice.
+            window.__unkyTestRealConfirm ??= window.confirm;
+            window.__unkyTestConfirmQuestions = [];
+            window.confirm = (question) => {{ window.__unkyTestConfirmQuestions.push(String(question)); return args.menuItem === 'accept'; }};
+            return {{ answering: args.menuItem }};
+          }}
+          if (args.action === 'restore-confirm') {{
+            const questions = window.__unkyTestConfirmQuestions ?? [];
+            if (window.__unkyTestRealConfirm) window.confirm = window.__unkyTestRealConfirm;
+            return {{ questions }};
+          }}
           if (args.action === 'close-context-menu') {{
             window.__unkyTestCloseTabMenu?.();
             return {{ closed: true }};

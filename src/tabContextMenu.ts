@@ -22,6 +22,7 @@ export type TabMenuOptions = {
   onReload: () => void;
   onNewTabBelow: () => void;
   onDuplicate: () => void;
+  onBookmark: () => void;
   onSplit: (side: SplitSideChoice) => void;
   onUnsplit: () => void;
   onMoveToNewFolder: () => void;
@@ -31,6 +32,7 @@ export type TabMenuOptions = {
 
 export type FolderMenuOptions = {
   onRename: () => void;
+  onBookmarkFolder: () => void;
   onDeleteFolder: () => void;
 };
 
@@ -52,6 +54,7 @@ export function tabMenuEntries(options: TabMenuOptions): MenuEntry[] {
     },
     { type: 'item', id: 'new-below', label: 'New Tab Below', action: options.onNewTabBelow },
     { type: 'item', id: 'duplicate', label: 'Duplicate', action: options.onDuplicate },
+    { type: 'item', id: 'bookmark', label: 'Bookmark Tab', enabled: options.isWebsite, action: options.onBookmark },
     { type: 'separator' },
     {
       type: 'submenu',
@@ -96,6 +99,7 @@ export function tabMenuEntries(options: TabMenuOptions): MenuEntry[] {
 export function folderMenuEntries(options: FolderMenuOptions): MenuEntry[] {
   return [
     { type: 'item', id: 'rename', label: 'Rename', action: options.onRename },
+    { type: 'item', id: 'bookmark-folder', label: 'Bookmark Folder', action: options.onBookmarkFolder },
     { type: 'item', id: 'delete-folder', label: 'Delete Folder', action: options.onDeleteFolder },
   ];
 }

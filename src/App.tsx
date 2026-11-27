@@ -162,6 +162,13 @@ import {
 } from './tabTree';
 import type { TabFolder, TabNode } from './tabTree';
 import { groupSplitTabRows } from './splitTabRows';
+import {
+  countBookmarks,
+  tabBankruptcy,
+  tabFolderToBookmarkFolder,
+  tabToBookmark,
+  type TabLookup,
+} from './tabBookmarks';
 import { isContextMenuKey, rovingTabStop, selectInputText } from './tabUiActions';
 import { shortcutForKey, shortcutFromMenu, type ShortcutAction } from './shortcuts';
 import { filterSiteDomain, siteDomain } from './siteDomain';
@@ -205,6 +212,10 @@ function readSidebarSide(stored: string | null): SidebarSide {
     stored,
     readStored(storageKeys.tabPosition, (tabPosition) => tabPosition),
   );
+}
+
+function pluralTabs(count: number) {
+  return count === 1 ? '1 tab' : `${count} tabs`;
 }
 
 export default function App() {
@@ -636,6 +647,9 @@ export default function App() {
         break;
       case 'bookmark-page':
         addCurrentPage();
+        break;
+      case 'tab-bankruptcy':
+        void declareTabBankruptcy();
         break;
       case 'toggle-sidebar':
         setSidebarCollapsed((collapsed) => !collapsed);
@@ -2008,6 +2022,71 @@ export default function App() {
     setMessage('Bookmark added.');
   }
 
+  /** This window's tabs as bookmarks would see them: the sidebar name, icon, and pinned state. */
+  function tabBookmarkLookup(): TabLookup {
+    return {
+      tabs: new Map(
+        tabsRef.current.map((tab) => [
+          tab.id,
+          {
+            id: tab.id,
+            url: tab.url,
+            title: tabNameOverrides[tab.id] || tab.title,
+            private: tab.private,
+            favicon: tabFavicons[tab.id],
+          },
+        ]),
+      ),
+      pinnedIds: new Set(pinnedTabIdsRef.current),
+    };
+  }
+
+  function bookmarkTab(tabId: string) {
+    const tab = tabBookmarkLookup().tabs.get(tabId);
+    const bookmark = tab && tabToBookmark(tab, () => crypto.randomUUID());
+    if (!bookmark) return;
+    if (findBookmarkByUrl(bookmarks, bookmark.url)) {
+      setMessage('This page is already bookmarked.');
+      return;
+    }
+    dispatchBookmarks({ type: 'added', node: bookmark });
+    setMessage('Bookmark added.');
+  }
+
+  function bookmarkTabFolder(folderId: string) {
+    const folder = findNode(tabNodesRef.current, folderId);
+    if (folder?.type !== 'folder') return;
+    const bookmarkFolder = tabFolderToBookmarkFolder(folder, tabBookmarkLookup(), () => crypto.randomUUID());
+    if (!bookmarkFolder) {
+      setMessage(`“${folder.title}” has no web pages to bookmark.`);
+      return;
+    }
+    dispatchBookmarks({ type: 'added', node: bookmarkFolder });
+    setMessage(
+      `Saved ${pluralTabs(countBookmarks(bookmarkFolder.children))} to the “${bookmarkFolder.title}” bookmark folder.`,
+    );
+  }
+
+  /** Save every tab in this window to a new bookmark folder, then close them. Pinned and private tabs stay open. */
+  async function declareTabBankruptcy() {
+    const title = `Tab Bankruptcy ${new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`;
+    const { folder, closeIds } = tabBankruptcy(tabNodesRef.current, tabBookmarkLookup(), title, () =>
+      crypto.randomUUID(),
+    );
+    if (!closeIds.length) {
+      setMessage('There are no tabs to close. Pinned and private tabs stay open.');
+      return;
+    }
+    const saved = folder ? countBookmarks(folder.children) : 0;
+    const question = folder
+      ? `Save ${pluralTabs(saved)} to a new bookmark folder and close ${pluralTabs(closeIds.length)}?`
+      : `None of these tabs has a web page to save. Close ${pluralTabs(closeIds.length)}?`;
+    if (!window.confirm(`${question} Pinned and private tabs stay open.`)) return;
+    if (folder) dispatchBookmarks({ type: 'added', node: folder });
+    for (const id of closeIds) await closeTab(id);
+    setMessage(folder ? `Saved ${pluralTabs(saved)} to “${folder.title}”.` : `Closed ${pluralTabs(closeIds.length)}.`);
+  }
+
   function editBookmark(bookmark: BookmarkLink) {
     setAddingBookmark(false);
     setAddingBookmarkFolderId(null);
@@ -2977,6 +3056,7 @@ export default function App() {
     if (target.type === 'folder')
       return folderMenuEntries({
         onRename: () => startTabRename(target.id, 'folder'),
+        onBookmarkFolder: () => bookmarkTabFolder(target.id),
         onDeleteFolder: () => deleteTabFolder(target.id),
       });
     const tab = tabs.find((item) => item.id === target.id);
@@ -2993,6 +3073,7 @@ export default function App() {
       onReload: () => void call('reload', { tabId: target.id }).catch((error) => setMessage(String(error))),
       onNewTabBelow: () => void createTabBelow(target.id),
       onDuplicate: () => void duplicateTab(target.id),
+      onBookmark: () => bookmarkTab(target.id),
       onSplit: (side) =>
         void dropTabIntoSplit(
           side,

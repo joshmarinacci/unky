@@ -13,6 +13,7 @@ function options(overrides: Partial<TabMenuOptions> = {}): TabMenuOptions {
     onReload: vi.fn(),
     onNewTabBelow: vi.fn(),
     onDuplicate: vi.fn(),
+    onBookmark: vi.fn(),
     onSplit: vi.fn(),
     onUnsplit: vi.fn(),
     onMoveToNewFolder: vi.fn(),
@@ -83,10 +84,24 @@ test('pinning toggles the label and split items pass their side', () => {
   expect(onSplit).toHaveBeenCalledWith('top');
 });
 
-test('folder menu offers rename and delete', () => {
+test('folder menu offers rename, bookmark, and delete', () => {
+  const onBookmarkFolder = vi.fn();
   const onDeleteFolder = vi.fn();
-  const items = flattenMenuEntries(folderMenuEntries({ onRename: vi.fn(), onDeleteFolder }));
-  expect(items.map((item) => item.label)).toStrictEqual(['Rename', 'Delete Folder']);
+  const items = flattenMenuEntries(folderMenuEntries({ onRename: vi.fn(), onBookmarkFolder, onDeleteFolder }));
+  expect(items.map((item) => item.label)).toStrictEqual(['Rename', 'Bookmark Folder', 'Delete Folder']);
   items[1].action();
+  expect(onBookmarkFolder).toHaveBeenCalledOnce();
+  items[2].action();
   expect(onDeleteFolder).toHaveBeenCalledOnce();
+});
+
+test('Bookmark Tab is offered only for website tabs', () => {
+  const onBookmark = vi.fn();
+  const website = flattenMenuEntries(tabMenuEntries(options({ onBookmark })));
+  const item = website.find((entry) => entry.label === 'Bookmark Tab');
+  expect(item?.enabled).toBe(true);
+  item?.action();
+  expect(onBookmark).toHaveBeenCalledOnce();
+  const internal = flattenMenuEntries(tabMenuEntries(options({ isWebsite: false })));
+  expect(internal.find((entry) => entry.label === 'Bookmark Tab')?.enabled).toBe(false);
 });
