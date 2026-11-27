@@ -91,6 +91,7 @@ import {
   historyEvent,
   importBookmarksEvent,
   launchRequestEvent,
+  linkTabOpenedEvent,
   openTabInFolderEvent,
   openUrlFromMenuEvent,
   pagePointerDownEvent,
@@ -143,6 +144,7 @@ import {
   expandedTabFolderIds,
   flattenTabIds,
   insertTabNode,
+  linkTabAnchor,
   nextVisibleTab,
   reconcileTabNodes,
   tabAtShortcutPosition,
@@ -329,6 +331,8 @@ export default function App() {
   const activeTabIdRef = useRef(activeTabId);
   const tabsRef = useRef(tabs);
   const tabNodesRef = useRef(tabNodes);
+  /** Tabs opened from a link -> the tab they were opened from, so later links line up after them. */
+  const linkOpenersRef = useRef(new Map<string, string>());
   const pinnedTabIdsRef = useRef(pinnedTabIds);
   /** Desktop-test builds only: the tab menu that would be showing natively. */
   const testTabMenuRef = useRef<MenuEntry[] | null>(null);
@@ -787,6 +791,35 @@ export default function App() {
       unlisten?.();
     };
   }, [isTauri, applySnapshot, browserActions]);
+  useEffect(() => {
+    if (!isTauri) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void onEvent(linkTabOpenedEvent, async (event) => {
+      const [tabId, sourceTabId] = event.payload;
+      try {
+        const snapshot = await call('get_browser_state');
+        applySnapshot(snapshot);
+        // The snapshot may not have reached the tree yet, so reconcile before moving the new tab.
+        const nodes = reconcileTabNodes(tabNodesRef.current, snapshot.tabs);
+        const anchor = linkTabAnchor(nodes, tabId, sourceTabId, linkOpenersRef.current);
+        linkOpenersRef.current.set(tabId, sourceTabId);
+        if (!anchor) return;
+        browserActions.current.reorderTabsFromTree(
+          tabTreeReducer(nodes, { type: 'moved', id: tabId, targetId: anchor, position: 'after' }),
+        );
+      } catch (error) {
+        setMessage(String(error));
+      }
+    }).then((listener) => {
+      if (cancelled) listener();
+      else unlisten = listener;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [isTauri, applySnapshot, browserActions]);
 
   useEffect(() => {
     if (!tabsLoaded) return;
@@ -796,6 +829,8 @@ export default function App() {
       setTabNodes(reconciled);
     }
     const openIds = new Set(tabs.map((tab) => tab.id));
+    for (const [id, sourceId] of linkOpenersRef.current)
+      if (!openIds.has(id) || !openIds.has(sourceId)) linkOpenersRef.current.delete(id);
     setTabNameOverrides((names) => Object.fromEntries(Object.entries(names).filter(([id]) => openIds.has(id))));
     setHistoryTabIds((ids) => ids.filter((id) => openIds.has(id)));
     setSettingsTabIds((ids) => {

@@ -47,3 +47,6 @@ pub(crate) const TAB_POSITION_MENU_EVENT: &str = "browser://tab-position-menu";
 pub(crate) const SHOW_BOOKMARKS_EVENT: &str = "browser://show-bookmarks";
 
 pub(crate) const THEME_MENU_EVENT: &str = "browser://theme-menu";
+
+/// A page opened a link in a new tab: `(new tab id, source tab id)`, sent to the owning window.
+pub(crate) const LINK_TAB_OPENED_EVENT: &str = "browser://link-tab-opened";

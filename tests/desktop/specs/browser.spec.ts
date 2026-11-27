@@ -714,6 +714,61 @@ describe('native Tauri browser', () => {
     await invoke('close_tab', { tabId: privateSource.activeTabId });
   });
 
+  it('opens Command-clicked links in background tabs next to their source, in click order', async () => {
+    type State = { activeTabId: string; tabs: Array<{ id: string; url: string }> };
+    const tabsBefore = ((await invoke('get_browser_state')) as State).tabs.map((tab) => tab.id);
+    try {
+      const source = ((await invoke('create_tab')) as State).activeTabId;
+      await invoke('navigate', { tabId: source, url: 'http://127.0.0.1:4179/' });
+      await browser.waitUntil(
+        async () => {
+          const page = await inspect(source);
+          return page.url === 'http://127.0.0.1:4179/' && page.readyState === 'complete';
+        },
+        { timeout: 15000, timeoutMsg: 'The source page did not load' },
+      );
+      // A later tab, so the opened links must land between it and the source rather than at the end.
+      const later = ((await invoke('create_tab')) as State).activeTabId;
+      await invoke('select_tab', { tabId: source });
+
+      const clickLink = (selector: string) =>
+        invoke('desktop_test_inspect_page', { tabId: source, cmdClickLink: selector });
+      const order = async () => ((await invoke('get_browser_state')) as State).tabs.map((tab) => tab.id);
+      const linkTabs = async () =>
+        ((await invoke('get_browser_state')) as State).tabs.filter(
+          (tab) => !tabsBefore.includes(tab.id) && tab.id !== source && tab.id !== later,
+        );
+
+      await clickLink('[data-testid="navigate-two"]');
+      await browser.waitUntil(async () => (await linkTabs()).length === 1, {
+        timeout: 10000,
+        timeoutMsg: 'Command-click did not open a tab',
+      });
+      await clickLink('[data-testid="slow-page"]');
+      await browser.waitUntil(async () => (await linkTabs()).length === 2, {
+        timeout: 10000,
+        timeoutMsg: 'The second Command-click did not open a tab',
+      });
+      const [first, second] = (await linkTabs())
+        .map((tab) => tab.id)
+        .sort((a, b) => Number(a.slice(4)) - Number(b.slice(4)));
+      const expected = [source, first, second, later];
+      await browser.waitUntil(
+        async () => {
+          const ids = await order();
+          return JSON.stringify(ids.slice(ids.indexOf(source), ids.indexOf(source) + 4)) === JSON.stringify(expected);
+        },
+        { timeout: 5000, timeoutMsg: `Link tabs were not placed after their source: ${JSON.stringify(await order())}` },
+      );
+      const state = (await invoke('get_browser_state')) as State;
+      assert.equal(state.activeTabId, source, 'Command-click should open links in the background');
+      assert.match(state.tabs.find((tab) => tab.id === first)?.url ?? '', /\/two$/);
+      assert.match(state.tabs.find((tab) => tab.id === second)?.url ?? '', /\/slow$/);
+    } finally {
+      await closeTabs(tabsBefore);
+    }
+  });
+
   it('loads a child WebView, navigates, switches tabs, and captures the native window', async () => {
     const tabsBefore = ((await invoke('get_browser_state')) as { tabs: Array<{ id: string }> }).tabs.map(
       (tab) => tab.id,

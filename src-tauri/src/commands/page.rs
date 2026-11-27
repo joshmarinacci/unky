@@ -169,15 +169,20 @@ pub(crate) fn open_link_in_new_tab(
         position_tabs(&app, &state)?;
         return page.navigate(parsed).map_err(|error| error.to_string());
     }
-    open_url_in_new_tab(
+    let tab_id = open_url_in_new_tab(
         &app,
         &state,
         &url,
         private,
         &owner_window,
         background.unwrap_or(false),
-    )
-    .map(|_| ())
+    )?;
+    // The UI owns tab order (folders live only in its tree), so it places the tab next to its source.
+    if let Some(source_id) = webview.label().strip_prefix("page-") {
+        app.emit_to(&owner_window, LINK_TAB_OPENED_EVENT, (tab_id, source_id))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 pub(crate) async fn tab_folders_for_window(

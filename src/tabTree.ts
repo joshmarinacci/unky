@@ -89,6 +89,40 @@ export function insertTabNode(
   return { nodes: result, inserted: false };
 }
 
+/** The list of nodes (root or a folder's children) that directly contains `id`. */
+function siblingsOf(nodes: TabNode[], id: string): TabNode[] | undefined {
+  if (nodes.some((node) => node.id === id)) return nodes;
+  for (const node of nodes) {
+    if (node.type !== 'folder') continue;
+    const found = siblingsOf(node.children, id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * The tab a link-opened tab should follow: the source tab itself, or the last of the tabs directly
+ * after it that were also opened from it, so several links open in click order (as in Safari and
+ * Chrome). Undefined when the source isn't in the tree, for example because it is pinned.
+ */
+export function linkTabAnchor(
+  nodes: TabNode[],
+  tabId: string,
+  sourceId: string,
+  openers: ReadonlyMap<string, string>,
+): string | undefined {
+  if (tabId === sourceId) return undefined;
+  const siblings = siblingsOf(nodes, sourceId);
+  if (!siblings) return undefined;
+  let anchor = sourceId;
+  for (const node of siblings.slice(siblings.findIndex((item) => item.id === sourceId) + 1)) {
+    if (node.id === tabId) continue;
+    if (node.type !== 'tab' || openers.get(node.id) !== sourceId) break;
+    anchor = node.id;
+  }
+  return anchor;
+}
+
 /** Append `moving` to a folder and expand that folder so the tab stays visible. */
 export function appendTabNodeToFolder(
   nodes: TabNode[],
