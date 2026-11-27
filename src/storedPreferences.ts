@@ -30,6 +30,7 @@ export const storageKeys = {
   tabNames: 'browser.tabNames',
   historyTabs: 'browser.historyTabs',
   settingsTabs: 'browser.settingsTabs',
+  sourceTabs: 'browser.sourceTabs',
   pinnedTabs: 'browser.pinnedTabs',
   theme: 'browser.theme',
   accentColor: 'browser.accentColor',

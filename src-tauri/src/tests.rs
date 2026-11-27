@@ -166,11 +166,13 @@ fn view_source_downloads_only_web_pages() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn shift_letter_shortcuts_use_apple_uppercase_key_equivalents() {
+fn shift_shortcuts_use_apple_shifted_key_equivalents() {
     use crate::platforms::menu_keys::apple_shift_key_equivalent;
     assert_eq!(apple_shift_key_equivalent("w", true), Some("W".into()));
     assert_eq!(apple_shift_key_equivalent("w", false), None);
-    assert_eq!(apple_shift_key_equivalent("[", true), None);
+    assert_eq!(apple_shift_key_equivalent("[", true), Some("{".into()));
+    assert_eq!(apple_shift_key_equivalent("]", true), Some("}".into()));
+    assert_eq!(apple_shift_key_equivalent("]", false), None);
     assert_eq!(apple_shift_key_equivalent("W", true), None);
     assert_eq!(apple_shift_key_equivalent("", true), None);
 }

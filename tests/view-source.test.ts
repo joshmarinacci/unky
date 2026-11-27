@@ -1,5 +1,12 @@
 import { expect, test } from 'vitest';
-import { canViewSource, sourceTabTitle, sourceTabUrl, viewSourceUrl } from '../src/viewSource.ts';
+import {
+  canViewSource,
+  parseStoredSourceTabs,
+  serializeSourceTabs,
+  sourceTabTitle,
+  sourceTabUrl,
+  viewSourceUrl,
+} from '../src/viewSource.ts';
 
 test('source tabs show a view-source: address for the page they came from', () => {
   expect(viewSourceUrl('https://example.com/a?b=1')).toBe('view-source:https://example.com/a?b=1');
@@ -22,4 +29,23 @@ test('only web and file pages have source to view', () => {
   expect(canViewSource('')).toBe(false);
   expect(canViewSource(undefined)).toBe(false);
   expect(canViewSource('about:blank')).toBe(false);
+});
+
+test('source tabs save only their addresses and come back loading', () => {
+  const saved = serializeSourceTabs({
+    a: { status: 'ready', page: { url: 'https://example.com/', source: '<html>secret</html>', original: true } },
+    b: { status: 'error', url: 'http://example.org/', message: 'offline' },
+  });
+  expect(saved).not.toContain('secret');
+  expect(parseStoredSourceTabs(saved)).toEqual({
+    a: { status: 'loading', url: 'https://example.com/' },
+    b: { status: 'loading', url: 'http://example.org/' },
+  });
+});
+
+test('saved source tabs ignore bad data and pages that cannot be downloaded again', () => {
+  expect(parseStoredSourceTabs(null)).toEqual({});
+  expect(parseStoredSourceTabs('not json')).toEqual({});
+  expect(parseStoredSourceTabs('["https://example.com/"]')).toEqual({});
+  expect(parseStoredSourceTabs('{"a":"file:///tmp/x.html","b":3,"c":"javascript:alert(1)"}')).toEqual({});
 });

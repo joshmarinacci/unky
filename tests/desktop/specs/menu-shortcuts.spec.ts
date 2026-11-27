@@ -127,6 +127,30 @@ describe('native menu shortcuts', () => {
     }
   });
 
+  it('⇧⌘] and ⇧⌘[ from the menu bar switch tabs (regression: shifted punctuation never matched)', async () => {
+    await focusWindow('main');
+    const first = ((await invoke('get_browser_state')) as Snapshot).activeTabId!;
+    const created = (await invoke('create_tab')) as Snapshot;
+    const second = created.activeTabId!;
+    const active = async () => ((await invoke('get_browser_state')) as Snapshot).activeTabId;
+    try {
+      await invoke('select_tab', { tabId: first });
+      await browser.waitUntil(async () => (await active()) === first, { timeout: 3000 });
+      assert.equal(await pressKey('cmd+shift+]'), true, 'Show Next Tab should claim ⇧⌘]');
+      await browser.waitUntil(async () => (await active()) !== first, {
+        timeout: 3000,
+        timeoutMsg: '⇧⌘] did not move to another tab',
+      });
+      assert.equal(await pressKey('cmd+shift+['), true, 'Show Previous Tab should claim ⇧⌘[');
+      await browser.waitUntil(async () => (await active()) === first, {
+        timeout: 3000,
+        timeoutMsg: '⇧⌘[ did not move back',
+      });
+    } finally {
+      await invoke('close_tab', { tabId: second });
+    }
+  });
+
   it('⌘= zooms in without Shift, and ⌘0 resets', async () => {
     const zoom = async () => {
       const state = (await invoke('get_browser_state')) as Snapshot;

@@ -118,6 +118,7 @@ commands.allow = [
   "print_page",
   "reload_ignoring_cache",
   "get_page_source",
+  "restore_page_source",
   "get_split_tabs",
   "split_tab",
   "clear_tab_split",

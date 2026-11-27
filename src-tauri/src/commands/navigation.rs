@@ -135,6 +135,28 @@ pub(crate) async fn get_page_source(
     })
 }
 
+/// A View Source tab after a restart: download its saved address again. The live page may be
+/// closed by then, so there is no DOM to fall back to.
+#[tauri::command]
+pub(crate) async fn restore_page_source(
+    webview: tauri::Webview,
+    url: String,
+) -> Result<PageSource, String> {
+    if !is_trusted_browser_ui(webview.label()) {
+        return Err("View Source is only available to the trusted browser UI".into());
+    }
+    let url = url::Url::parse(&url).map_err(|error| error.to_string())?;
+    if !should_download_source(&url) {
+        return Err("Only web pages can be downloaded again".into());
+    }
+    let source = download_page_source(&url).await?;
+    Ok(PageSource {
+        url: url.to_string(),
+        source,
+        original: true,
+    })
+}
+
 #[tauri::command]
 pub(crate) async fn get_tab_favicon(
     webview: tauri::Webview,
