@@ -23,6 +23,8 @@ export type ShortcutAction =
   | 'find-next'
   | 'find-previous'
   | 'bookmark-page'
+  /** Bookmarks menu only; it has no key. */
+  | 'tab-bankruptcy'
   | 'toggle-sidebar'
   | 'toggle-devtools'
   | 'view-source'
@@ -59,6 +61,7 @@ export function shortcutFromMenu(id: string): ShortcutAction | null {
     'find-next',
     'find-previous',
     'bookmark-page',
+    'tab-bankruptcy',
     'toggle-sidebar',
     'toggle-devtools',
     'view-source',

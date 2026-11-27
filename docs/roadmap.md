@@ -10,7 +10,7 @@ macOS on Apple Silicon is the active development target. The current app is a Ta
 - Session recovery: restore open tabs, order, selection, URLs, and zoom after restart; reopen up to 20 recently closed tabs.
 - Daily browsing: find in page, downloads with progress and reveal, opening links in new tabs, browsing history, bookmarks, and settings.
 - Tab organization basics: reorder tabs by dragging, create nested tab folders, move tabs and folders between folders, collapse folders, and rename tabs. Tab folder structure and custom names persist locally.
-- Bookmark organization: nested folders, editing, deletion, search, and drag-and-drop reordering.
+- Bookmark organization: nested folders, editing, deletion, search, and drag-and-drop reordering. Save a tab (Bookmark Tab) or a tab folder (Bookmark Folder) from the tab menu; Bookmarks › Tab Bankruptcy… saves every tab in the window to a new bookmark folder, keeping tab folders as subfolders, and closes them. Pinned and private tabs stay open and are not saved.
 - Accessible browser chrome: React Aria Components provide interaction primitives; Lucide React supplies UI icons.
 - macOS page security popover: show connection state and supported page permission and media information.
 - Desktop automation: `npm run test:desktop` exercises the actual app with a disposable profile and deterministic local pages.
