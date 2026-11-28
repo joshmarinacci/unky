@@ -245,9 +245,8 @@ jobs:
           retention-days: 14
 
   linux-packages:
-    # Linux is unvalidated, so these packages are for testing only: the artifact names do not
-    # match the release candidate's `unky-*` pattern and the release does not wait for them.
-    name: Linux ${{ matrix.arch }} test packages
+    # Linux packages ship as a preview: the release candidate includes them (`unky-*` artifacts).
+    name: Linux ${{ matrix.arch }} packages
     strategy:
       fail-fast: false
       matrix:
@@ -288,20 +287,24 @@ jobs:
       - name: Build .deb and AppImage
         run: npm run tauri -- build --bundles deb,appimage
 
+      - name: Collect packages
+        # One flat folder: the release candidate copies the artifact files without subfolders.
+        run: |
+          mkdir -p linux-packages
+          cp target/release/bundle/deb/*.deb target/release/bundle/appimage/*.AppImage linux-packages/
+
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
-          name: linux-test-packages-${{ matrix.arch }}
-          path: |
-            target/release/bundle/deb/*.deb
-            target/release/bundle/appimage/*.AppImage
+          name: unky-linux-${{ matrix.arch }}
+          path: linux-packages/
           if-no-files-found: error
           retention-days: 14
 
   release-candidate:
     name: Assemble release candidate
     if: github.event_name == 'workflow_dispatch' && inputs.release_version != ''
-    needs: [macos-dmg, windows-installer]
+    needs: [macos-dmg, windows-installer, linux-packages]
     runs-on: ubuntu-latest
     permissions:
       contents: read

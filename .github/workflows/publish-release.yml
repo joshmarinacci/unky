@@ -135,8 +135,9 @@ jobs:
           cd release-candidate
           sha256sum --check SHA256SUMS.txt
           shopt -s nullglob
-          installers=(*.dmg *.exe)
-          test "${#installers[@]}" -eq 3
+          installers=(*.dmg *.exe *.deb *.AppImage)
+          # macOS, Windows x64 and ARM64, and a .deb and AppImage for Linux x64 and ARM64.
+          test "${#installers[@]}" -eq 7
 
       - name: Fetch published release dates
         env:
@@ -196,7 +197,7 @@ jobs:
           if gh release view "v${RELEASE_VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             echo "GitHub Release v${RELEASE_VERSION} already exists; preserving its assets."
           else
-            gh release create "v${RELEASE_VERSION}" release-candidate/*.dmg release-candidate/*.exe release-candidate/*.png release-candidate/SHA256SUMS.txt \
+            gh release create "v${RELEASE_VERSION}" release-candidate/*.dmg release-candidate/*.exe release-candidate/*.deb release-candidate/*.AppImage release-candidate/*.png release-candidate/SHA256SUMS.txt \
               --repo "${GITHUB_REPOSITORY}" \
               --title "Unky ${RELEASE_VERSION}" \
               --notes-file release-candidate/RELEASE_NOTES.md
@@ -221,6 +222,6 @@ jobs:
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/release_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH'"
-          rsync -av --ignore-existing -e 'ssh -i ~/.ssh/release_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes' release-candidate/*.dmg release-candidate/*.exe release-candidate/*.png release-candidate/SHA256SUMS.txt "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+          rsync -av --ignore-existing -e 'ssh -i ~/.ssh/release_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes' release-candidate/*.dmg release-candidate/*.exe release-candidate/*.deb release-candidate/*.AppImage release-candidate/*.png release-candidate/SHA256SUMS.txt "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
           rsync -av -e 'ssh -i ~/.ssh/release_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes' release-candidate/index.html "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/index.html.new"
           ssh -i ~/.ssh/release_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "mv '$DEPLOY_PATH/index.html.new' '$DEPLOY_PATH/index.html'"
