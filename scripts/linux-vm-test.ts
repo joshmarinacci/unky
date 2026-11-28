@@ -22,7 +22,10 @@ const config = {
   user: process.env.UNKY_VM_USER ?? 'unky',
   key: process.env.UNKY_VM_KEY ?? path.join(homedir(), '.ssh/unky-vm_ed25519'),
   knownHosts: process.env.UNKY_VM_KNOWN_HOSTS ?? path.join(homedir(), '.ssh/unky-vm_known_hosts'),
-  artifact: process.env.UNKY_VM_ARTIFACT ?? 'linux-test-packages-ARM64',
+  // Bundle runs name the ARM64 packages unky-linux-ARM64; runs before that used linux-test-packages-ARM64.
+  artifacts: process.env.UNKY_VM_ARTIFACT
+    ? [process.env.UNKY_VM_ARTIFACT]
+    : ['unky-linux-ARM64', 'linux-test-packages-ARM64'],
 };
 
 const USAGE = `Usage: npm run vm:linux-test -- [options]
@@ -177,10 +180,22 @@ async function downloadPackage(runId: string | undefined): Promise<Package> {
   if (!id)
     throw new Error(`No successful ${WORKFLOW} run found. Start one with: gh workflow run ${WORKFLOW} --ref <branch>`);
   const directory = await mkdtemp(path.join(tmpdir(), 'unky-linux-package-'));
-  await run('gh', ['run', 'download', id, '--name', config.artifact, '--dir', directory]);
+  let artifact: string | undefined;
+  for (const name of config.artifacts) {
+    if (
+      await run('gh', ['run', 'download', id, '--name', name, '--dir', directory]).then(
+        () => true,
+        () => false,
+      )
+    ) {
+      artifact = name;
+      break;
+    }
+  }
+  if (!artifact) throw new Error(`Run ${id} has none of these artifacts: ${config.artifacts.join(', ')}`);
   const files = await readdir(directory, { recursive: true });
   const deb = files.find((file) => file.endsWith('.deb'));
-  if (!deb) throw new Error(`Artifact ${config.artifact} from run ${id} has no .deb package`);
+  if (!deb) throw new Error(`Artifact ${artifact} from run ${id} has no .deb package`);
   const where = chosen ? ` (${chosen.headBranch} @ ${chosen.headSha.slice(0, 7)})` : '';
   return { file: path.join(directory, deb), source: `run ${id}${where}` };
 }
@@ -257,7 +272,7 @@ async function main() {
   const host = await waitForHost();
   console.log(`  ${config.user}@${host}`);
 
-  step(options.deb ? 'Using the local package' : `Downloading ${config.artifact}`);
+  step(options.deb ? 'Using the local package' : 'Downloading the ARM64 package');
   const pkg = await packagePromise;
   const deb = path.basename(pkg.file);
   console.log(`  ${deb} from ${pkg.source}`);
