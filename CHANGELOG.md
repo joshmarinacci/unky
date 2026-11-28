@@ -2,6 +2,19 @@
 
 Release notes are written under an `## <version>` heading. Candidate generation uses that version's full section for its GitHub release notes. The website shows the five newest sections, with dates taken from each GitHub Release's publication date and displayed in UTC; an unpublished candidate is marked pending.
 
+## 0.1.5
+
+- Add a Linux preview: .deb and AppImage packages for x64 and ARM64.
+- Save a tab, a tab folder or a whole window as bookmarks (Bookmark Tab, Bookmark Folder, and Bookmarks > Tab Bankruptcy).
+- Links opened in a new tab from a page now open next to the tab they came from.
+- Add View Source (⌥⌘U); source tabs come back after a restart.
+- Add shortcuts for New Window, Close Window, Bookmark This Page, Find Next and Previous, Reload Ignoring Cache, Show or Hide Sidebar, Print and Web Inspector.
+- Next and previous tab and ⌘1–⌘9 skip tabs inside collapsed folders.
+- Menu shortcuts act only on the focused window, and Shift shortcuts such as ⇧⌘W, ⇧⌘[ and ⇧⌘] work on macOS.
+- The tab menu is a native menu, built-in pages have unky:// addresses, and Settings has an accent color.
+- Open Link in New Tab opens in the background; ⇧⌘-click opens in the foreground.
+- Zoom In is ⌘= without Shift.
+
 ## 0.1.4
 
 - Websites can no longer open tabs, windows, the other split or another browser from a script; these actions now need a real click or key press on the page.
