@@ -349,7 +349,10 @@ pub(crate) fn create_page_webview_with_focus(
     #[cfg(target_os = "windows")]
     platforms::windows::install_shortcuts(app, &page_label(id), owner_window)?;
     #[cfg(target_os = "linux")]
-    platforms::linux::install_user_activation_hooks(app, &page_label(id))?;
+    {
+        platforms::linux::host_page_over_ui(app, &page_label(id))?;
+        platforms::linux::install_user_activation_hooks(app, &page_label(id))?;
+    }
     Ok(())
 }
 
@@ -517,8 +520,14 @@ pub(crate) fn position_tabs(app: &tauri::AppHandle, state: &BrowserState) -> Res
                     tauri::LogicalSize::new(bounds.width.max(1.0), bounds.height.max(1.0)),
                 )
             };
-            page.set_position(position).map_err(|e| e.to_string())?;
-            page.set_size(size).map_err(|e| e.to_string())?;
+            // Linux ignores child WebView bounds; place the page in its GTK overlay instead.
+            #[cfg(target_os = "linux")]
+            platforms::linux::place_page(&page, position, size, is_visible)?;
+            #[cfg(not(target_os = "linux"))]
+            {
+                page.set_position(position).map_err(|e| e.to_string())?;
+                page.set_size(size).map_err(|e| e.to_string())?;
+            }
         }
     }
     drop(tabs);
