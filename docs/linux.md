@@ -1,8 +1,10 @@
 # Linux development
 
 Linux support is in progress and **not yet validated**. The CI builds the app, runs the Rust unit tests,
-and packages it on Ubuntu 22.04 (x64 and ARM64), but nobody has run the app on Linux yet.
-Do not treat a successful build as support.
+and packages it on Ubuntu 22.04 (x64 and ARM64). The app has been run by hand only as unky 0.1.4
+(ARM64 `.deb`) on Ubuntu 24.04 with GNOME on Wayland and WebKitGTK 2.52.6, in a VM without GPU
+acceleration, where it passed the gesture check and the tab layout checks below. Do not treat a
+successful build as support.
 
 ## Build dependencies
 
@@ -32,6 +34,12 @@ Both workflows run only when started by hand. `Headless unit tests` has a Linux 
 `unky-linux-*` artifacts. Release candidates include them, and the download page offers them as a
 Linux preview. The ARM64 packages are the ones to install in an ARM Linux VM on Apple Silicon.
 
+`npm run vm:linux-test` does that for a UTM VM on a Mac: it restores the VM's clean snapshot, installs the
+ARM64 `.deb` from the latest successful bundle run (or `--run <id>`, or `--deb <path>`), serves
+`tests/manual/gesture-check.html` inside the VM and opens it in Unky. `--xorg` uses the X11 session instead
+of Wayland. It expects an Ubuntu VM with SSH key login, passwordless `sudo` and automatic desktop login;
+`--help` lists the defaults and the environment variables that change them.
+
 ## Known gaps
 
 Check these first on a real machine, under both Wayland and X11:
@@ -43,11 +51,12 @@ Check these first on a real machine, under both Wayland and X11:
    resizing and splits work under Wayland; X11 is unchecked. In a VM without GPU acceleration everything
    is slow, because GNOME and WebKit both render on the CPU; `WEBKIT_SKIA_ENABLE_CPU_RENDERING=1`
    helps a little.
-2. **The page gesture check needs testing by hand.** GTK button and key handlers on each page WebView
+2. **The page gesture check still needs X11.** GTK button and key handlers on each page WebView
    (`src-tauri/src/platforms/linux.rs`) record native input, so page actions such as opening a tab
-   need a real click or key press, as on macOS and Windows. CI compiles and unit-tests this; check on
-   a real machine with `tests/manual/gesture-check.html`, served over HTTP (for example
-   `python3 -m http.server` in that folder). Every step on the page should show PASS.
+   need a real click or key press, as on macOS and Windows. Every step of `tests/manual/gesture-check.html`
+   passed under Wayland (see above); X11 is unchecked (`npm run vm:linux-test -- --xorg`). To check by hand
+   elsewhere, serve that folder over HTTP (for example `python3 -m http.server`) and open the page in Unky.
+   Every step should show PASS.
 3. **Shortcuts while a website has focus.** Linux has no native menu (the menu code is gated to macOS
    and Windows), and WebKitGTK takes key presses first. Windows solves this with the page-key table in
    `src-tauri/src/platforms/windows.rs`; Linux needs the same through GTK. Menu-only actions such as

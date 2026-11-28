@@ -39,7 +39,7 @@ export default tseslint.config(
   },
   {
     // Build scripts, the fixture server, and Vitest unit tests.
-    files: ['scripts/**/*.mjs', 'tests/**/*.{ts,mjs}', '*.{js,ts}'],
+    files: ['scripts/**/*.{mjs,ts}', 'tests/**/*.{ts,mjs}', '*.{js,ts}'],
     languageOptions: { globals: globals.node },
   },
   {
