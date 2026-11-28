@@ -1,6 +1,7 @@
 # Linux development
 
-Linux support is in progress and **not yet validated**: nothing below has been run on a Linux machine yet.
+Linux support is in progress and **not yet validated**. The CI builds the app, runs the Rust unit tests,
+and packages it on Ubuntu 22.04 (x64 and ARM64), but nobody has run the app on Linux yet.
 Do not treat a successful build as support.
 
 ## Build dependencies
@@ -48,7 +49,9 @@ Check these first on a real machine, under both Wayland and X11:
 4. **Things drawn over the page.** macOS draws the downloads and security popovers, address suggestions
    and split feedback as native overlays. On other platforms the React fallbacks are likely hidden
    under the page WebView. Wayland does not let apps position their own windows, so the macOS
-   approach for address suggestions (a separate borderless window) will not carry over.
+   approach for address suggestions (a separate borderless window) will not carry over. Dragging a tab
+   onto the page to split it is also macOS-only: `set_tab_dragging` in `src-tauri/src/commands/split.rs`
+   ignores the drag elsewhere.
 5. **macOS-only features.** Content filtering (WebKitGTK's `WebKitUserContentFilterStore` appears to take
    the same content-blocker JSON as macOS), full-page capture, reload ignoring cache, external-browser
    discovery, selecting a download in the file manager, and private-storage isolation all need Linux
