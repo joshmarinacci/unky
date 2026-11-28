@@ -15,6 +15,8 @@ See the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for 
 See [Windows development](docs/windows.md) for native builds, keyboard shortcuts,
 validation, and remaining platform gaps.
 
+See [Linux development](docs/linux.md) for build dependencies, CI test packages, and the known gaps. Linux is not yet validated.
+
 See [Full-page screenshots](docs/screenshot-capture.md) for the macOS capture workflow and limits.
 
 ## Run
