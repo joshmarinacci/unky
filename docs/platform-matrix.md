@@ -2,7 +2,7 @@
 
 Filtering status reflects runtime tests on macOS arm64. Initial Windows ARM64
 browser builds and smoke checks now pass; Windows filtering and Linux runtime
-validation remain open. See [Windows validation](windows.md).
+validation remain open. See [Windows validation](windows.md) and [Linux development](linux.md).
 
 | Platform | Engine / native request mechanism | What is confirmed | What remains open |
 | --- | --- | --- | --- |
