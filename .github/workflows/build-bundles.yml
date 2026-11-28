@@ -48,7 +48,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   macos-dmg:
-    name: macOS ARM64 DMG
+    # One universal app (Apple Silicon and Intel) built on an Apple Silicon runner.
+    name: macOS universal DMG
     runs-on: macos-latest
     environment:
       name: macos-signing
@@ -66,6 +67,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -125,7 +128,7 @@ jobs:
 
       - name: Build DMG
         if: github.event_name != 'workflow_dispatch' || inputs.release_version == ''
-        run: npm run tauri-release
+        run: npm run tauri-release -- --target universal-apple-darwin
 
       - name: Build signed and notarized release DMG
         if: github.event_name == 'workflow_dispatch' && inputs.release_version != ''
@@ -136,7 +139,7 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
-        run: npm run tauri-release
+        run: npm run tauri-release -- --target universal-apple-darwin
 
       - name: Capture release screenshot
         if: github.event_name == 'workflow_dispatch' && inputs.release_version != ''
@@ -166,7 +169,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          DMG=$(find target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)
+          DMG=$(find target/universal-apple-darwin/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)
           test -n "$DMG"
           xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
           xcrun stapler staple "$DMG"
@@ -186,16 +189,16 @@ jobs:
 
       - name: Rename DMG with build metadata
         run: |
-          dmg=$(find target/release/bundle/dmg -name '*.dmg' -print -quit)
+          dmg=$(find target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' -print -quit)
           version="${{ inputs.release_version || '' }}"
           if [[ -z "$version" ]]; then version="$BUILD_VERSION"; fi
-          mv "$dmg" "target/release/bundle/dmg/Unky_${version}_build-${BUILD_NUMBER}_${BUILD_TIMESTAMP//:/}_${BUILD_COMMIT}_aarch64.dmg"
+          mv "$dmg" "target/universal-apple-darwin/release/bundle/dmg/Unky_${version}_build-${BUILD_NUMBER}_${BUILD_TIMESTAMP//:/}_${BUILD_COMMIT}_universal.dmg"
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: unky-macos-arm64
-          path: target/release/bundle/dmg/*.dmg
+          name: unky-macos-universal
+          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
           retention-days: 14
 
