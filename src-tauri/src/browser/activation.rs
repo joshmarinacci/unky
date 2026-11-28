@@ -2,8 +2,9 @@
 //!
 //! Website child WebViews can call their granted Tauri commands directly from page
 //! JavaScript, so a page-reported click proves nothing. Instead, the platform layer
-//! records real input events here (an AppKit local event monitor on macOS, the
-//! system's last-input tick on Windows), and page commands check that a recent,
+//! records real input events here (an AppKit local event monitor on macOS, GTK
+//! button and key handlers on each page WebView on Linux, the system's last-input
+//! tick on Windows), and page commands check that a recent,
 //! unconsumed gesture exists before they open tabs, windows, or other browsers.
 
 use std::collections::{HashMap, VecDeque};
@@ -20,7 +21,11 @@ pub const PAGE_RATE_WINDOW: Duration = Duration::from_secs(10);
 
 /// Whether this platform reports native input. Elsewhere gesture checks pass and only
 /// the rate limits apply.
-pub const NATIVE_GESTURES: bool = cfg!(any(target_os = "macos", target_os = "windows"));
+pub const NATIVE_GESTURES: bool = cfg!(any(
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "linux"
+));
 
 #[derive(Default)]
 struct Inner {
@@ -106,8 +111,9 @@ pub fn tracker() -> &'static ActivationTracker {
     TRACKER.get_or_init(ActivationTracker::default)
 }
 
-/// Called by the macOS event monitor for each mouse-down and key-down event.
-#[cfg(target_os = "macos")]
+/// Called for each real mouse-down and key-down: by the macOS event monitor, and by the
+/// GTK handlers on each page WebView on Linux.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub fn record_native_gesture() {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -166,6 +172,18 @@ pub fn page_rate_allows(action: &str, tab_id: &str, limit: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression: Linux once had no native input, so every page gesture check passed.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn page_actions_need_a_recorded_native_gesture() {
+        assert!(NATIVE_GESTURES);
+        assert!(!page_consume_gesture(), "no input has been recorded yet");
+        record_native_gesture();
+        assert!(page_has_gesture());
+        assert!(page_consume_gesture());
+        assert!(!page_consume_gesture(), "one gesture authorizes one open");
+    }
 
     #[test]
     fn gesture_expires_after_its_lifetime() {

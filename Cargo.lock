@@ -5001,6 +5001,7 @@ dependencies = [
  "base64 0.23.1",
  "block2",
  "blocker-core",
+ "gtk",
  "image",
  "objc2",
  "objc2-app-kit",
