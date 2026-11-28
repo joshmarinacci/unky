@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Unky gesture check</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+        --pass: #1a7f37;
+        --fail: #cf222e;
+        --wait: #9a6700;
+      }
+      body {
+        max-width: 46rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+      }
+      li {
+        margin-bottom: 1.25rem;
+      }
+      output {
+        display: block;
+        font-family: ui-monospace, monospace;
+        font-size: 0.9rem;
+      }
+      .pass {
+        color: var(--pass);
+      }
+      .fail {
+        color: var(--fail);
+      }
+      .wait {
+        color: var(--wait);
+      }
+      #environment {
+        padding: 0.5rem 0.75rem;
+        border: 1px solid currentColor;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Unky gesture check</h1>
+    <p>
+      Checks that website actions which open tabs need a real click or key press. Open this page in Unky and do each
+      step in order. Every row should end in <strong class="pass">PASS</strong>.
+    </p>
+    <p id="environment"></p>
+
+    <ol>
+      <li>
+        <strong>Click</strong> this link with the mouse:
+        <a id="click-link" href="?opened=click" target="_blank">open by clicking</a>. Expected: a new tab opens.
+        <output id="click-result" class="wait">Waiting</output>
+      </li>
+      <li>
+        <strong>Keyboard:</strong> press Tab until this link is focused, then press Enter:
+        <a id="key-link" href="?opened=keyboard" target="_blank">open with the keyboard</a>. Expected: a new tab opens.
+        <output id="key-result" class="wait">Waiting</output>
+      </li>
+      <li>
+        <strong>Script click:</strong> press this button, then keep your hands off the mouse and keyboard for three
+        seconds: <button id="synthetic-start" type="button">Start</button>. The page then calls
+        <code>link.click()</code> on a <code>target="_blank"</code> link. Expected: no tab opens.
+        <a id="synthetic-link" href="?opened=script-click" target="_blank" hidden>hidden link</a>
+        <output id="synthetic-result" class="wait">Waiting</output>
+      </li>
+      <li>
+        <strong>Direct command:</strong> press this button, then wait three seconds without touching anything:
+        <button id="invoke-start" type="button">Start</button>. The page then calls Unky's
+        <code>open_link_in_new_tab</code> command itself. Expected: no tab opens.
+        <output id="invoke-result" class="wait">Waiting</output>
+      </li>
+      <li>
+        <strong>Popup (for information):</strong> press this button, then wait three seconds:
+        <button id="popup-start" type="button">Start</button>. The page then calls <code>window.open</code>. This goes
+        through WebKit's own popup blocker, not Unky's gesture check, so it is not part of this change. A blocked popup
+        is the expected result.
+        <output id="popup-result" class="wait">Waiting</output>
+      </li>
+    </ol>
+
+    <script>
+      const DELAY_MS = 3000;
+      const REFUSED = /click or key press/;
+      const $ = (id) => document.getElementById(id);
+
+      function show(id, className, text) {
+        const output = $(id);
+        output.className = className;
+        output.textContent = text;
+      }
+
+      const opened = new URLSearchParams(location.search).get('opened');
+      const environment = $('environment');
+      if (opened) {
+        environment.textContent = `This tab was opened by step "${opened}". Close it and return to the first tab.`;
+      } else if (window.__TAURI_INTERNALS__) {
+        environment.textContent = 'Running in Unky: page commands are available.';
+      } else {
+        environment.textContent =
+          'Unky page commands are not available. Open this page in Unky over http:// (not file://).';
+        environment.className = 'fail';
+      }
+
+      // Unky's link script records each click's outcome in window.__UNKY_LINK_RESULT__.
+      function watchLinkResult(id, expectOpened) {
+        const started = Date.now();
+        show(id, 'wait', 'Checking…');
+        const timer = setInterval(() => {
+          const result = window.__UNKY_LINK_RESULT__;
+          if (result === 'pending' && Date.now() - started < 5000) return;
+          clearInterval(timer);
+          if (result === undefined) {
+            show(id, 'fail', "FAIL: Unky's link script did not run.");
+          } else if (expectOpened) {
+            show(
+              id,
+              result === 'opened' ? 'pass' : 'fail',
+              result === 'opened' ? 'PASS: opened a tab.' : `FAIL: refused: ${result}`,
+            );
+          } else if (result === 'opened') {
+            show(id, 'fail', 'FAIL: a script opened a tab without a real gesture.');
+          } else {
+            show(
+              id,
+              REFUSED.test(result) ? 'pass' : 'fail',
+              `${REFUSED.test(result) ? 'PASS' : 'FAIL'}: refused: ${result}`,
+            );
+          }
+        }, 100);
+      }
+
+      function trackLink(linkId, resultId) {
+        // Runs after Unky's capture-phase listener, which has already sent the request.
+        $(linkId).addEventListener('click', () => watchLinkResult(resultId, true));
+      }
+      trackLink('click-link', 'click-result');
+      trackLink('key-link', 'key-result');
+
+      function countdown(id, then) {
+        let left = DELAY_MS / 1000;
+        show(id, 'wait', `Hands off: ${left}…`);
+        const timer = setInterval(() => {
+          left -= 1;
+          if (left > 0) {
+            show(id, 'wait', `Hands off: ${left}…`);
+            return;
+          }
+          clearInterval(timer);
+          then();
+        }, 1000);
+      }
+
+      $('synthetic-start').addEventListener('click', () => {
+        countdown('synthetic-result', () => {
+          window.__UNKY_LINK_RESULT__ = undefined;
+          $('synthetic-link').click();
+          watchLinkResult('synthetic-result', false);
+        });
+      });
+
+      $('invoke-start').addEventListener('click', () => {
+        countdown('invoke-result', () => {
+          if (!window.__TAURI_INTERNALS__) {
+            show('invoke-result', 'fail', 'FAIL: Unky page commands are not available.');
+            return;
+          }
+          const url = new URL('?opened=direct-command', location.href).href;
+          window.__TAURI_INTERNALS__
+            .invoke('open_link_in_new_tab', { url, background: false })
+            .then(() => show('invoke-result', 'fail', 'FAIL: the command opened a tab without a real gesture.'))
+            .catch((error) => {
+              const message = String(error);
+              show(
+                'invoke-result',
+                REFUSED.test(message) ? 'pass' : 'fail',
+                `${REFUSED.test(message) ? 'PASS' : 'FAIL'}: refused: ${message}`,
+              );
+            });
+        });
+      });
+
+      $('popup-start').addEventListener('click', () => {
+        countdown('popup-result', () => {
+          const popup = window.open(new URL('?opened=popup', location.href).href, '_blank');
+          show(
+            'popup-result',
+            popup ? 'wait' : 'pass',
+            popup ? 'INFO: window.open was allowed. Note whether a tab appeared.' : 'PASS: the popup was blocked.',
+          );
+        });
+      });
+    </script>
+  </body>
+</html>
