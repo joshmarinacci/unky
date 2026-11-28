@@ -348,6 +348,8 @@ pub(crate) fn create_page_webview_with_focus(
     let _ = (filter_json, pending_navigation, filter_ready);
     #[cfg(target_os = "windows")]
     platforms::windows::install_shortcuts(app, &page_label(id), owner_window)?;
+    #[cfg(target_os = "linux")]
+    platforms::linux::install_user_activation_hooks(app, &page_label(id))?;
     Ok(())
 }
 

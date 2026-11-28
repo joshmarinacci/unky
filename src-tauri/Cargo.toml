@@ -36,6 +36,10 @@ tauri-plugin-dialog = "=2.4.2"
 webview2-com = "=0.39.1"
 windows = { version = "=0.62.2", features = ["Win32_System_SystemInformation", "Win32_UI_Input_KeyboardAndMouse"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# The same version Tauri uses, for GTK signal handlers on page WebViews.
+gtk = "=0.18.2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "=0.6.2"
 objc2 = "=0.6.5"

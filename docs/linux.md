@@ -39,9 +39,10 @@ Check these first on a real machine, under both Wayland and X11:
 1. **Tab WebViews on Wayland.** Each tab is a Tauri child WebView (the `unstable` feature). WRY documents
    child WebViews on X11; Wayland needs GTK hosting. If tabs do not appear or position correctly,
    try `GDK_BACKEND=x11` to tell a Wayland problem from a general one.
-2. **The page gesture check is off.** `NATIVE_GESTURES` in `src-tauri/src/browser/activation.rs` is
-   true only on macOS and Windows; elsewhere the gesture check passes and only the rate limits apply.
-   Before shipping, record clicks and key presses on each page WebView through GTK.
+2. **The page gesture check needs testing by hand.** GTK button and key handlers on each page WebView
+   (`src-tauri/src/platforms/linux.rs`) record native input, so page actions such as opening a tab
+   need a real click or key press, as on macOS and Windows. CI compiles and unit-tests this; check on
+   a real machine that clicking a `target="_blank"` link opens a tab and a script-only open does not.
 3. **Shortcuts while a website has focus.** Linux has no native menu (the menu code is gated to macOS
    and Windows), and WebKitGTK takes key presses first. Windows solves this with the page-key table in
    `src-tauri/src/platforms/windows.rs`; Linux needs the same through GTK. Menu-only actions such as
