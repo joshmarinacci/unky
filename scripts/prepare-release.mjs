@@ -84,9 +84,8 @@ if (
   throw new Error(`Release screenshot is missing: ${screenshotFile}`);
 }
 const generated = site
-  .replace(/Unky_0\.1\.0_aarch64\.dmg/g, `Unky_${version}_aarch64.dmg`)
+  .replace(/Unky_0\.1\.0_universal\.dmg/g, `Unky_${version}_universal.dmg`)
   .replace('Unky_0.1.0_screenshot.png', screenshotFile)
-  .replace(/Version 0\.1\.0 · Apple Silicon/g, `Version ${version} · Apple Silicon`)
   .replace(
     /<section\b(?=[^>]*\bid="release-notes")[^>]*>[\s\S]*?<\/section>/,
     releaseHistory.replace(
@@ -104,7 +103,8 @@ const files = readdirSync(artifactDir, { withFileTypes: true })
     return { file: entry.name, sha256: createHash('sha256').update(readFileSync(path)).digest('hex') };
   });
 if (!files.length) throw new Error(`No release installers found in ${artifactDir}`);
-const mac = files.find(({ file }) => file.endsWith('_aarch64.dmg'));
+// One universal DMG runs on both Apple Silicon and Intel Macs.
+const mac = files.find(({ file }) => file.endsWith('_universal.dmg'));
 const winX64 = files.find(({ file }) => /(?:^|[_-])(?:x64|x86_64)(?:[_-]|\.|$)/i.test(file) && file.endsWith('.exe'));
 const winArm = files.find(
   ({ file }) => /(?:^|[_-])(?:arm64|aarch64)(?:[_-]|\.|$)/i.test(file) && file.endsWith('.exe'),
