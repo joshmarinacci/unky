@@ -29,8 +29,8 @@ the same way as the Windows icon (see [Windows development](windows.md)).
 
 Both workflows run only when started by hand. `Headless unit tests` has a Linux x64 job, and
 `Build desktop bundles` builds x64 and ARM64 `.deb` and AppImage packages as
-`linux-test-packages-*` artifacts. Those artifacts are not part of release candidates.
-The ARM64 packages are the ones to install in an ARM Linux VM on Apple Silicon.
+`unky-linux-*` artifacts. Release candidates include them, and the download page offers them as a
+Linux preview. The ARM64 packages are the ones to install in an ARM Linux VM on Apple Silicon.
 
 ## Known gaps
 

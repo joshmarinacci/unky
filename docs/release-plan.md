@@ -31,7 +31,7 @@ Create a `production` Environment and require at least one human reviewer. Add t
 - Variable `SITE_DEPLOY_PATH`: the document root corresponding to `/unky`.
 - Variable `SITE_DEPLOY_KNOWN_HOSTS`: verified SSH host-key line(s), obtained out of band and pinned; do not generate them with `ssh-keyscan` inside the workflow.
 
-The publish workflow is started manually with the candidate run ID and version. It downloads the reviewed artifact, verifies all checksums and the three expected installers, waits for environment approval, creates the GitHub Release, copies installers without overwriting existing versioned files, and atomically replaces the page. It does not sign installers. Do not use it for a production release until the signed candidate pipeline is implemented and the environment is protected.
+The publish workflow is started manually with the candidate run ID and version. It downloads the reviewed artifact, verifies all checksums and the seven expected installers (macOS, Windows x64 and ARM64, and a `.deb` and AppImage for Linux x64 and ARM64), waits for environment approval, creates the GitHub Release, copies installers without overwriting existing versioned files, and atomically replaces the page. It does not sign installers. Do not use it for a production release until the signed candidate pipeline is implemented and the environment is protected.
 
 ## macOS CI signing setup
 

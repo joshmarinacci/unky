@@ -122,6 +122,23 @@ if (winArm)
   links.push(
     `<a class="button platform-download" href="./${htmlEscape(winArm.file)}" download>Download for Windows · ARM64</a>`,
   );
+// Tauri names Linux x64 packages "amd64" and ARM64 AppImages "aarch64".
+const linuxArchitectures = [
+  ['x64', /(?:^|[_-])(?:x64|x86_64|amd64)(?:[_-]|\.|$)/i],
+  ['ARM64', /(?:^|[_-])(?:arm64|aarch64)(?:[_-]|\.|$)/i],
+];
+for (const [arch, pattern] of linuxArchitectures) {
+  for (const [extension, format] of [
+    ['.deb', '.deb'],
+    ['.AppImage', 'AppImage'],
+  ]) {
+    const linux = files.find(({ file }) => pattern.test(file) && file.endsWith(extension));
+    if (linux)
+      links.push(
+        `<a class="button platform-download" href="./${htmlEscape(linux.file)}" download>Download Linux preview · ${arch} · ${format}</a>`,
+      );
+  }
+}
 const downloadLinks = `<div class="download-links">${links.join('')}</div>`;
 const page = generated.replace(/<div id="download-links">[\s\S]*?<\/div>/, downloadLinks);
 writeFileSync(join(out, 'index.html'), page);
