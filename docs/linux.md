@@ -42,7 +42,8 @@ Check these first on a real machine, under both Wayland and X11:
 2. **The page gesture check needs testing by hand.** GTK button and key handlers on each page WebView
    (`src-tauri/src/platforms/linux.rs`) record native input, so page actions such as opening a tab
    need a real click or key press, as on macOS and Windows. CI compiles and unit-tests this; check on
-   a real machine that clicking a `target="_blank"` link opens a tab and a script-only open does not.
+   a real machine with `tests/manual/gesture-check.html`, served over HTTP (for example
+   `python3 -m http.server` in that folder). Every step on the page should show PASS.
 3. **Shortcuts while a website has focus.** Linux has no native menu (the menu code is gated to macOS
    and Windows), and WebKitGTK takes key presses first. Windows solves this with the page-key table in
    `src-tauri/src/platforms/windows.rs`; Linux needs the same through GTK. Menu-only actions such as
